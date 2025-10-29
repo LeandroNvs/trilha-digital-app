@@ -4,6 +4,9 @@ import { doc, getDoc, onSnapshot, setDoc, serverTimestamp, updateDoc, collection
 // CORREÇÃO v10: Assumindo que a estrutura é /src/pages/SimuladorPainel.jsx e /src/firebase/config.js
 // Esta é a estrutura de importação mais comum nos seus arquivos.
 import { db, appId } from '../firebase/config.js';
+// Importa os componentes separados
+import ResultadosBriefing from '../components/ResultadosBriefing.jsx'; // Ajuste o caminho se necessário
+import SumarioDecisoes from '../components/SumarioDecisoes.jsx'; // Importa o novo componente
 // import useCollection from '../hooks/useCollection'; // Descomente se for usar AbaRanking/Concorrencia
 // import ModalConfirmacao from '../components/ModalConfirmacao'; // Descomente se for usar
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend } from 'recharts';
@@ -20,32 +23,75 @@ function ModalAjuda({ titulo, texto, onClose }) {
      );
 }
 
-// --- Componente Input com Máscara Monetária (v7 - Lógica de Reais Inteiros) ---
+// --- Componente Input com Máscara Monetária (v8 - Com centavos) ---
 const InputMoedaMasked = ({ id, label, value: externalValue, onChange, disabled = false, ...props }) => {
+    const [displayValue, setDisplayValue] = useState('');
+
+    // Formata número para string BRL com centavos (R$ X.XXX,XX)
     const formatNumber = (num) => {
         if (num === null || num === undefined || num === '' || isNaN(Number(num))) return '';
-        return Number(num).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        const number = Number(num);
+        return number.toLocaleString('pt-BR', {
+            style: 'currency',
+            currency: 'BRL',
+            minimumFractionDigits: 2, // Sempre mostra 2 casas decimais
+            maximumFractionDigits: 2
+        });
     };
-    const displayValue = formatNumber(externalValue);
+
+     // Atualiza o valor exibido quando o valor externo muda
+     useEffect(() => {
+        setDisplayValue(formatNumber(externalValue));
+    }, [externalValue]);
+
     const handleChange = (e) => {
         const inputVal = e.target.value;
+        // Remove tudo exceto dígitos
         const numericString = inputVal.replace(/\D/g, '');
-        let numberValue = '';
-        if (numericString !== '') { const parsedNum = parseInt(numericString, 10); if (!isNaN(parsedNum)) { numberValue = parsedNum; } }
-        if (onChange) { onChange({ target: { id: id || props.name, name: props.name || id, value: numberValue, type: 'number' } }); }
+        let numberValue = null; // Usar null se o campo ficar vazio
+
+        if (numericString !== '') {
+            // Converte a string de dígitos para número (representando centavos)
+            const centsValue = parseInt(numericString, 10);
+            if (!isNaN(centsValue)) {
+                // Divide por 100 para obter o valor em Reais com centavos
+                numberValue = centsValue / 100;
+            }
+        }
+
+        // Atualiza o valor exibido imediatamente para feedback do usuário
+        setDisplayValue(formatNumber(numberValue));
+
+        // Chama onChange passando o valor numérico (ou '' se vazio)
+        if (onChange) {
+            onChange({
+                target: {
+                    id: id || props.name,
+                    name: props.name || id,
+                    value: numberValue === null ? '' : numberValue, // Envia número ou string vazia
+                    type: 'number' // Mantém tipo 'number' para consistência
+                }
+            });
+        }
     };
+
     return (
         <div>
             <label htmlFor={id} className="block text-xs font-medium text-gray-400 mb-1">{label}</label>
             <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400 text-sm pointer-events-none">R$</span>
-                <input type="text" inputMode="numeric" id={id} name={props.name || id} value={displayValue} onChange={handleChange}
-                    className={`w-full bg-gray-700 p-2 pl-10 rounded-lg text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    placeholder="0" disabled={disabled} {...props} />
+                {/* O input agora é type="text" para permitir a máscara */}
+                <input type="text" inputMode="numeric" // Ajuda teclados mobile
+                    id={id} name={props.name || id}
+                    value={displayValue} // Mostra o valor formatado
+                    onChange={handleChange}
+                    className={`w-full bg-gray-700 p-2 rounded-lg text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    placeholder="R$ 0,00" // Placeholder atualizado
+                    disabled={disabled} {...props} />
             </div>
         </div>
     );
 };
+
 
 // --- Componente Input com Máscara Numérica (Milhar - v7 - Lógica estável) ---
 const InputNumericoMasked = ({ id, label, value: externalValue, onChange, sufixo = '', disabled = false, ...props }) => {
@@ -71,84 +117,15 @@ const InputNumericoMasked = ({ id, label, value: externalValue, onChange, sufixo
     );
 };
 
-// --- Componente RelatorioFinanceiro (Atualizado para Balanço) ---
-function RelatorioFinanceiro({ titulo, dados, isBalanco = false }) {
-    const formatarBRL = (num) => { if (num === null || num === undefined) return '-'; const valorNumerico = Number(num); const cor = valorNumerico < 0 ? 'text-red-400' : 'text-white'; return ( <span className={cor}>{valorNumerico.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span> ); };
-    const getRowStyle = (label) => { if (!label) return ""; if (label.startsWith('(=)') || label.startsWith('Subtotal') || label.startsWith('Total')) { return "font-semibold border-t border-gray-600 pt-1"; } if (label.startsWith('(-)') || label.startsWith('(+)') ) { return "pl-2"; } return ""; };
-    return ( <div className="bg-gray-700 p-4 rounded-lg shadow"> <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">{titulo}</h4> <div className="space-y-1 text-sm"> {dados.map(([label, valor], index) => ( <div key={`${label}-${index}`} className={`flex justify-between items-center py-1 ${getRowStyle(label)} ${label?.includes('---') ? 'border-t border-dashed border-gray-600 mt-1 pt-1' : 'border-b border-gray-600 last:border-b-0'}`}> <span className="text-gray-300">{label ? label.replace(/^[(=)\-+ ]+|[ ]+$/g, '') : ''}:</span> <span className="font-medium">{formatarBRL(valor)}</span> </div> ))} {isBalanco && dados.length > 0 && ( <div className="flex justify-between items-center pt-2 mt-2 border-t-2 border-cyan-500 text-xs"> <span className="text-gray-400 font-semibold">Total Ativo = Total Passivo + PL ?</span> </div> )} </div> </div> );
-}
-
-// --- NOVO COMPONENTE: ResumoDecisoesRodada ---
-function ResumoDecisoesRodada({ decisoes }) {
-    if (!decisoes || Object.keys(decisoes).length === 0 || decisoes.Status_Decisao === 'Pendente') {
-        return (
-            <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow mt-6">
-                <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">
-                    <span role="img" aria-label="Clipboard" className="mr-2">📋</span> Decisões da Rodada Anterior
-                </h3>
-                <p className="text-gray-500 text-center py-4">Nenhuma decisão registrada para esta rodada.</p>
-            </div>
-        );
-    }
-
-    const formatBRL = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const formatNum = (num) => (Number(num) || 0).toLocaleString('pt-BR');
-
-    return (
-        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow mt-6">
-            <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">
-                <span role="img" aria-label="Clipboard" className="mr-2">📋</span> Decisões Tomadas (Rodada {decisoes.Rodada})
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-sm">
-                {/* Rede */}
-                <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Rede</h4>
-                    <p className="text-gray-400">Tela: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_Tela || '?'}</span></p>
-                    <p className="text-gray-400">Chip: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_Chip || '?'}</span></p>
-                </div>
-                {/* P&D */}
-                <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">P&D (Investimento)</h4>
-                    <p className="text-gray-400">Câmera: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Camera)}</span></p>
-                    <p className="text-gray-400">Bateria: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Bateria)}</span></p>
-                    <p className="text-gray-400">IA: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_IA)}</span></p>
-                </div>
-                {/* Operações */}
-                <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Operações</h4>
-                    <p className="text-gray-400">Produção: <span className="font-medium text-white">{formatNum(decisoes.Producao_Planejada)} unid.</span></p>
-                    <p className="text-gray-400">Expansão: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Expansao_Fabrica)}</span></p>
-                </div>
-                {/* Marketing */}
-                <div className="bg-gray-700 p-4 rounded-lg md:col-span-1 lg:col-span-1">
-                    <h4 className="font-semibold text-gray-200 mb-2">Marketing (Seg. Premium)</h4>
-                    <p className="text-gray-400">Preço: <span className="font-medium text-white">{formatBRL(decisoes.Preco_Segmento_1)}</span></p>
-                    <p className="text-gray-400">Investimento: <span className="font-medium text-white">{formatBRL(decisoes.Marketing_Segmento_1)}</span></p>
-                </div>
-                 <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Marketing (Seg. Massa)</h4>
-                    <p className="text-gray-400">Preço: <span className="font-medium text-white">{formatBRL(decisoes.Preco_Segmento_2)}</span></p>
-                    <p className="text-gray-400">Investimento: <span className="font-medium text-white">{formatBRL(decisoes.Marketing_Segmento_2)}</span></p>
-                </div>
-                {/* Finanças */}
-                <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Finanças</h4>
-                    <p className="text-gray-400">Tomar CP: <span className="font-medium text-white">{formatBRL(decisoes.Tomar_Emprestimo_CP)}</span></p>
-                    <p className="text-gray-400">Tomar LP: <span className="font-medium text-white">{formatBRL(decisoes.Tomar_Financiamento_LP)}</span></p>
-                    <p className="text-gray-400">Amortizar LP: <span className="font-medium text-white">{formatBRL(decisoes.Amortizar_Divida_LP)}</span></p>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-// --- Componente AbaRedeNegocios --- (Inalterado)
+// --- Componente AbaRedeNegocios ---
 function AbaRedeNegocios({ simulacao, decisoes, decisaoRef, rodadaDecisao, isSubmetido }) {
-    const [decisaoFornecedorTela, setDecisaoFornecedorTela] = useState(''); const [decisaoFornecedorChip, setDecisaoFornecedorChip] = useState(''); const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); useEffect(() => { setDecisaoFornecedorTela(decisoes.Escolha_Fornecedor_Tela || ''); setDecisaoFornecedorChip(decisoes.Escolha_Fornecedor_Chip || ''); }, [decisoes]); const handleSave = async () => { setLoading(true); setFeedback(''); if (!decisaoFornecedorTela || !decisaoFornecedorChip) { setFeedback('Selecione opções.'); setLoading(false); return; } try { await setDoc(decisaoRef, { Rodada: rodadaDecisao, Escolha_Fornecedor_Tela: decisaoFornecedorTela, Escolha_Fornecedor_Chip: decisaoFornecedorChip, }, { merge: true }); setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000); } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } setLoading(false); }; const formatCustoUnitario = (custo) => { if (custo === null || custo === undefined || isNaN(custo)) return 'N/A'; return Number(custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL'}); }
+    const [decisaoFornecedorTela, setDecisaoFornecedorTela] = useState(''); const [decisaoFornecedorChip, setDecisaoFornecedorChip] = useState(''); const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); useEffect(() => { setDecisaoFornecedorTela(decisoes.Escolha_Fornecedor_Tela || ''); setDecisaoFornecedorChip(decisoes.Escolha_Fornecedor_Chip || ''); }, [decisoes]); const handleSave = async () => { setLoading(true); setFeedback(''); if (!decisaoFornecedorTela || !decisaoFornecedorChip) { setFeedback('Selecione opções.'); setLoading(false); return; } try { await setDoc(decisaoRef, { Rodada: rodadaDecisao, Escolha_Fornecedor_Tela: decisaoFornecedorTela, Escolha_Fornecedor_Chip: decisaoFornecedorChip, }, { merge: true }); setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000); } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } setLoading(false); };
+    // formatCustoUnitario agora mostra centavos
+    const formatCustoUnitario = (custo) => { if (custo === null || custo === undefined || isNaN(custo)) return 'N/A'; return Number(custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     return ( <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in"> <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">1. Decisões de Rede</h3> <fieldset className="space-y-3" disabled={isSubmetido}> <legend className="text-xl font-semibold text-gray-200 mb-2">Fornecedor de Telas</legend> <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'A' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="A" checked={decisaoFornecedorTela === 'A'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção A</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Tela_A_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Tela_A_Custo)}/unid.</p> </label> <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'B' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="B" checked={decisaoFornecedorTela === 'B'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção B</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Tela_B_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Tela_B_Custo)}/unid.</p> </label> </fieldset> <fieldset className="space-y-3" disabled={isSubmetido}> <legend className="text-xl font-semibold text-gray-200 mb-2">Fornecedor de Chips</legend> <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'C' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="C" checked={decisaoFornecedorChip === 'C'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção C</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Chip_C_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Chip_C_Custo)}/unid.</p> </label> <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'D' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="D" checked={decisaoFornecedorChip === 'D'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção D</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Chip_D_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Chip_D_Custo)}/unid.</p> </label> </fieldset> {!isSubmetido && feedback && <p className={`text-sm text-center font-medium ${feedback.includes('sucesso') ? 'text-green-400' : 'text-red-400'}`}>{feedback}</p>} {!isSubmetido && ( <div className="text-right mt-6"> <button onClick={handleSave} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg transition-colors disabled:opacity-50" disabled={loading}> {loading ? 'Salvando...' : 'Salvar Decisão da Rede'} </button> </div> )} </div> );
 }
 
-// --- Componente da Aba P&D --- (Inalterado)
+// --- Componente da Aba P&D ---
 function AbaPD({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido }) {
     const [investCamera, setInvestCamera] = useState(''); const [investBateria, setInvestBateria] = useState(''); const [investIA, setInvestIA] = useState('');
     const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState('');
@@ -157,13 +134,14 @@ function AbaPD({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, i
     const areasPD = [ { idInput: 'Invest_PD_Camera', label: 'Câmera', nivelAtual: estadoRodada?.Nivel_PD_Camera || 1, progresso: estadoRodada?.Progresso_PD_Camera || 0, value: investCamera, setValue: setInvestCamera, idArea: 'Camera' }, { idInput: 'Invest_PD_Bateria', label: 'Bateria', nivelAtual: estadoRodada?.Nivel_PD_Bateria || 1, progresso: estadoRodada?.Progresso_PD_Bateria || 0, value: investBateria, setValue: setInvestBateria, idArea: 'Bateria' }, { idInput: 'Invest_PD_IA', label: 'IA', nivelAtual: estadoRodada?.Nivel_PD_IA || 1, progresso: estadoRodada?.Progresso_PD_IA || 0, value: investIA, setValue: setInvestIA, idArea: 'IA' }, ];
     const handleSave = async () => { setLoading(true); setFeedback(''); try { await setDoc(decisaoRef, { Rodada: rodadaDecisao, Invest_PD_Camera: Number(investCamera) || 0, Invest_PD_Bateria: Number(investBateria) || 0, Invest_PD_IA: Number(investIA) || 0, }, { merge: true }); setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000); } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } setLoading(false); };
     const handleInvestChange = (setter) => (e) => { setter(e.target.value); };
+     // formatBRLDisplay agora mostra centavos
+     const formatBRLDisplay = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
             <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">2. Decisões de P&D</h3>
             {areasPD.map(area => {
                 const { custo, proximoNivel } = getCustoProximoNivel(area.idArea, area.nivelAtual);
                 const progressoPercent = custo > 0 ? Math.min(100, (area.progresso / custo) * 100) : (area.nivelAtual >= 5 ? 100 : 0);
-                const formatBRLDisplay = (num) => (num || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL'});
                 return (
                     <div key={area.idInput} className="pt-4 border-t border-gray-700">
                         <h4 className="text-xl font-semibold text-gray-200 mb-2">{area.label} - Nível: {area.nivelAtual}</h4>
@@ -183,15 +161,16 @@ function AbaPD({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, i
     );
 }
 
-// --- Componente da Aba Operações --- (Inalterado)
+// --- Componente da Aba Operações ---
 function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido }) {
     const [producaoPlanejada, setProducaoPlanejada] = useState(''); const [investExpansao, setInvestExpansao] = useState('');
     const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); const [erroForm, setErroForm] = useState({});
     const capacidadeAtual = estadoRodada?.Capacidade_Fabrica || 0; const custoLote = simulacao?.Custo_Expansao_Lote || 0; const incrementoLote = simulacao?.Incremento_Capacidade_Lote || 0;
     useEffect(() => { setProducaoPlanejada(decisoes.Producao_Planejada || ''); setInvestExpansao(decisoes.Invest_Expansao_Fabrica || ''); }, [decisoes]);
     const handleProducaoChange = (e) => setProducaoPlanejada(e.target.value); const handleExpansaoChange = (e) => setInvestExpansao(e.target.value);
-    const formatBRL = (num) => (num || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    const formatNumber = (num) => (num || 0).toLocaleString('pt-BR');
+    // formatBRL agora mostra centavos
+    const formatBRL = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formatNumber = (num) => (Number(num) || 0).toLocaleString('pt-BR');
     const validarCampos = () => {
         const erros = {}; const pNum = Number(producaoPlanejada) || 0; const eNum = Number(investExpansao) || 0;
         if (pNum < 0) erros.producao='Negativo?'; else if (pNum > capacidadeAtual) erros.producao = `Excede ${formatNumber(capacidadeAtual)} unid.`;
@@ -228,7 +207,7 @@ function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
     );
 }
 
-// --- Componente da Aba Marketing (AJUSTADO) --- (Inalterado)
+// --- Componente da Aba Marketing ---
 function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido }) {
     const [precoSeg1, setPrecoSeg1] = useState(''); const [mktSeg1, setMktSeg1] = useState(''); const [precoSeg2, setPrecoSeg2] = useState(''); const [mktSeg2, setMktSeg2] = useState('');
     const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); const [modalAjudaVisivel, setModalAjudaVisivel] = useState(false);
@@ -237,8 +216,9 @@ function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
     useEffect(() => { setPrecoSeg1(decisoes.Preco_Segmento_1 || ''); setMktSeg1(decisoes.Marketing_Segmento_1 || ''); setPrecoSeg2(decisoes.Preco_Segmento_2 || ''); setMktSeg2(decisoes.Marketing_Segmento_2 || ''); }, [decisoes]);
     const handlePreco1Change = (e) => setPrecoSeg1(e.target.value); const handleMkt1Change = (e) => setMktSeg1(e.target.value); const handlePreco2Change = (e) => setPrecoSeg2(e.target.value); const handleMkt2Change = (e) => setMktSeg2(e.target.value);
     const handleSave = async () => { setLoading(true); setFeedback(''); try { await setDoc(decisaoRef, { Rodada: rodadaDecisao, Preco_Segmento_1: Number(precoSeg1) || 0, Marketing_Segmento_1: Number(mktSeg1) || 0, Preco_Segmento_2: Number(precoSeg2) || 0, Marketing_Segmento_2: Number(mktSeg2) || 0, }, { merge: true }); setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000); } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } setLoading(false); };
-    const formatBRLDisplay = (num) => (num || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL'});
-    const textoAjudaMarketing = `O investimento em Marketing aumenta a atratividade... \nReferência: Compare seu investimento...`;
+     // formatBRLDisplay agora mostra centavos
+     const formatBRLDisplay = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const textoAjudaMarketing = `O investimento em Marketing aumenta a atratividade do seu produto no segmento escolhido, ajudando a conquistar Market Share. O efeito tem retornos decrescentes (investir o dobro não necessariamente dobra o impacto).\n\nReferência: Compare seu investimento com o dos concorrentes (quando disponível) e analise os pesos de Marketing para cada segmento na rodada atual para guiar sua decisão.`;
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
             <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">4. Decisões de Marketing</h3>
@@ -263,7 +243,7 @@ function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
     );
 }
 
-// --- Componente da Aba Finanças (ATUALIZADO) --- (Inalterado)
+// --- Componente da Aba Finanças ---
 function AbaFinancas({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido, rodadaRelatorio }) {
     const [tomarCP, setTomarCP] = useState('');
     const [tomarLP, setTomarLP] = useState('');
@@ -288,7 +268,8 @@ function AbaFinancas({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDeci
     const handleTomarCPChange = (e) => setTomarCP(e.target.value);
     const handleTomarLPChange = (e) => setTomarLP(e.target.value);
     const handleAmortizarLPChange = (e) => setAmortizarLP(e.target.value);
-    const formatBRLDisplay = (num) => (num || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL'});
+    // formatBRLDisplay agora mostra centavos
+    const formatBRLDisplay = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const validarCampos = () => {
         const erros = {};
@@ -311,7 +292,7 @@ function AbaFinancas({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDeci
                 Tomar_Emprestimo_CP: Number(tomarCP) || 0,
                 Tomar_Financiamento_LP: Number(tomarLP) || 0,
                 Amortizar_Divida_LP: Number(amortizarLP) || 0,
-                Emprestimo_Tomado: 0, Emprestimo_Pago: 0,
+                Emprestimo_Tomado: 0, Emprestimo_Pago: 0, // Campos antigos removidos na v6, mantidos aqui por segurança se M3 usar
             }, { merge: true });
             setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000);
         } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); }
@@ -375,157 +356,32 @@ Financiamento Longo Prazo (Investimento):
     );
 }
 
-
-// --- Componente Sumário e Submissão (ATUALIZADO) ---
-// CORREÇÃO: Adicionando rodadaRelatorio como prop
-function SumarioDecisoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, rodadaRelatorio }) {
-    const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); const [showConfirm, setShowConfirm] = useState(false);
-
-    // ** NOVO: Estado para o slider de estimativa de vendas **
-    const [percentualVendasEstimado, setPercentualVendasEstimado] = useState(80); // Começa em 80%
-
-    // Cálculos de Projeção (usando novos nomes de decisão)
-    const caixaInicial = estadoRodada?.Caixa || 0;
-    const totalInvestPD = (Number(decisoes.Invest_PD_Camera) || 0) + (Number(decisoes.Invest_PD_Bateria) || 0) + (Number(decisoes.Invest_PD_IA) || 0);
-    const totalInvestExpansao = Number(decisoes.Invest_Expansao_Fabrica) || 0;
-    const totalInvestMkt = (Number(decisoes.Marketing_Segmento_1) || 0) + (Number(decisoes.Marketing_Segmento_2) || 0);
-    const tomarCPNum = Number(decisoes.Tomar_Emprestimo_CP) || 0;
-    const tomarLPNum = Number(decisoes.Tomar_Financiamento_LP) || 0;
-    const amortizarLPNum = Number(decisoes.Amortizar_Divida_LP) || 0;
-    const producaoPlanejadaNum = Number(decisoes.Producao_Planejada) || 0;
-
-    const custoUnitarioProjetado = useMemo(() => { if (!simulacao || !decisoes) return 0; const ct = (decisoes.Escolha_Fornecedor_Tela === 'A') ? (simulacao.Fornecedor_Tela_A_Custo || 0) : (simulacao.Fornecedor_Tela_B_Custo || 0); const cc = (decisoes.Escolha_Fornecedor_Chip === 'C') ? (simulacao.Fornecedor_Chip_C_Custo || 0) : (simulacao.Fornecedor_Chip_D_Custo || 0); const cb = ct + cc; const cvmb = (simulacao.Custo_Variavel_Montagem_Base || 0); return cvmb + cb; }, [simulacao, decisoes.Escolha_Fornecedor_Tela, decisoes.Escolha_Fornecedor_Chip]);
-    const custoTotalProducaoProjetado = producaoPlanejadaNum * custoUnitarioProjetado;
-
-    const caixaProjetadoPreProducao = caixaInicial + tomarCPNum + tomarLPNum - totalInvestPD - totalInvestExpansao - totalInvestMkt - amortizarLPNum;
-    const caixaProjetadoPosProducao = caixaProjetadoPreProducao - custoTotalProducaoProjetado;
-
-    // ** NOVO: Cálculo da Projeção de Vendas **
-    const { receitaProjetada, caixaProjetadoPosVenda } = useMemo(() => {
-        const unidadesVender = producaoPlanejadaNum * (percentualVendasEstimado / 100);
-        
-        // Cálculo do Preço Médio Ponderado (baseado 50/50 nos preços, ou 100% se um for 0)
-        const preco1 = Number(decisoes.Preco_Segmento_1) || 0;
-        const preco2 = Number(decisoes.Preco_Segmento_2) || 0;
-        let precoMedio = 0;
-        if (preco1 > 0 && preco2 > 0) {
-            precoMedio = (preco1 + preco2) / 2;
-        } else {
-            precoMedio = preco1 + preco2; // Se um for 0, usa o outro
-        }
-
-        const receitaProjetada = unidadesVender * precoMedio;
-        const caixaProjetadoPosVenda = caixaProjetadoPosProducao + receitaProjetada;
-        
-        return { receitaProjetada, caixaProjetadoPosVenda };
-    }, [producaoPlanejadaNum, percentualVendasEstimado, decisoes.Preco_Segmento_1, decisoes.Preco_Segmento_2, caixaProjetadoPosProducao]);
-
-
-    const formatBRLDisplay = (num) => (num || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL'});
-    
-    const todasDecisoesPreenchidas = useMemo(() => {
-        const chavesObrigatorias = [
-            'Escolha_Fornecedor_Tela', 'Escolha_Fornecedor_Chip',
-            'Invest_PD_Camera', 'Invest_PD_Bateria', 'Invest_PD_IA',
-            'Producao_Planejada', 'Invest_Expansao_Fabrica',
-            'Preco_Segmento_1', 'Marketing_Segmento_1',
-            'Preco_Segmento_2', 'Marketing_Segmento_2',
-            'Tomar_Emprestimo_CP', 'Tomar_Financiamento_LP', 'Amortizar_Divida_LP'
-        ];
-        return chavesObrigatorias.every(key => decisoes[key] !== undefined);
-     }, [decisoes]);
-    const handleSubmeterClick = () => { /* ... */ setFeedback(''); if (!todasDecisoesPreenchidas) { setFeedback(`Erro: Salve TODAS as abas (1 a 5) antes de submeter.`); return; } setShowConfirm(true); }; const handleConfirmarSubmissao = async () => { /* ... */ setShowConfirm(false); setLoading(true); try { await setDoc(decisaoRef, { Status_Decisao: 'Submetido', Timestamp_Submissao: serverTimestamp() }, { merge: true }); setFeedback('Decisões submetidas!'); } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } setLoading(false); }; const isSubmetido = decisoes.Status_Decisao === 'Submetido';
-
-    return (
-        <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">Sumário e Submissão da Rodada {rodadaDecisao}</h3>
-            
-            {/* Projeções ATUALIZADAS (Ponto 4) */}
-            <div className="space-y-4">
-                <h4 className="text-lg font-semibold text-gray-300">1. Projeção de Custos e Investimentos</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                    <div className="bg-gray-700 p-3 rounded-lg"><span className="block text-gray-400">Caixa Inicial</span><span className="text-green-400 font-semibold">{formatBRLDisplay(caixaInicial)}</span></div>
-                    <div className="bg-gray-700 p-3 rounded-lg"><span className="block text-gray-400">(+) Novos Emprést. (CP+LP)</span><span className="text-green-400 font-semibold">{formatBRLDisplay(tomarCPNum + tomarLPNum)}</span></div>
-                    <div className="bg-gray-700 p-3 rounded-lg md:col-start-1"><span className="block text-gray-400">(-) Invest. P&D</span><span className="text-red-400 font-semibold">{formatBRLDisplay(totalInvestPD)}</span></div>
-                    <div className="bg-gray-700 p-3 rounded-lg"><span className="block text-gray-400">(-) Invest. Expansão</span><span className="text-red-400 font-semibold">{formatBRLDisplay(totalInvestExpansao)}</span></div>
-                    <div className="bg-gray-700 p-3 rounded-lg"><span className="block text-gray-400">(-) Invest. Marketing</span><span className="text-red-400 font-semibold">{formatBRLDisplay(totalInvestMkt)}</span></div>
-                    <div className="bg-gray-700 p-3 rounded-lg"><span className="block text-gray-400">(-) Amortiz. LP (Adicional)</span><span className="text-red-400 font-semibold">{formatBRLDisplay(amortizarLPNum)}</span></div>
-                </div>
-                 <div className="bg-gray-900 p-4 rounded-lg flex items-center justify-between flex-wrap gap-2 text-sm"> <span className="font-bold text-white">(=) Caixa Projetado (Pré-Produção):</span> <span className={`font-bold ${caixaProjetadoPreProducao >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatBRLDisplay(caixaProjetadoPreProducao)}</span> </div>
-                 <div className="bg-gray-700 p-3 rounded-lg text-sm"><span className="block text-gray-400">(-) Custo Produção ({producaoPlanejadaNum.toLocaleString('pt-BR')} unid. x {formatBRLDisplay(custoUnitarioProjetado)}/unid.)</span><span className="text-red-400 font-semibold">{formatBRLDisplay(custoTotalProducaoProjetado)}</span></div>
-                 <div className="bg-gray-900 p-4 rounded-lg flex items-center justify-between flex-wrap gap-2"> <span className="text-lg font-bold text-white">(=) Caixa Projetado (Pós-Produção):</span> <span className={`text-2xl font-bold ${caixaProjetadoPosProducao >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatBRLDisplay(caixaProjetadoPosProducao)}</span> </div>
-                 {caixaProjetadoPosProducao < 0 && <p className="text-yellow-400 text-sm text-center font-semibold">ALERTA: Caixa projetado negativo pós-produção!</p>}
-                 <p className="text-xs text-gray-500 text-center italic mt-2">Nota: Pagamentos obrigatórios de dívida (CP/Emerg. da R{rodadaRelatorio}, Parcela LP) serão debitados no início da R{rodadaDecisao} ANTES destas projeções.</p>
-            </div>
-
-            {/* NOVO: Simulador de Vendas (Ponto 4) */}
-            <div className="space-y-4 pt-4 border-t border-gray-700">
-                <h4 className="text-lg font-semibold text-gray-300">2. Simulação de Cenário de Vendas</h4>
-                <div className="space-y-2">
-                    <label htmlFor="vendasSlider" className="flex justify-between text-sm font-medium text-gray-400">
-                        <span>Estimativa de Vendas (do total produzido):</span>
-                        <span className="font-bold text-white text-base">{percentualVendasEstimado}%</span>
-                    </label>
-                    <input
-                        type="range"
-                        id="vendasSlider"
-                        min="0"
-                        max="100"
-                        step="5"
-                        value={percentualVendasEstimado}
-                        onChange={(e) => setPercentualVendasEstimado(Number(e.target.value))}
-                        disabled={isSubmetido || producaoPlanejadaNum === 0}
-                        className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer range-lg accent-cyan-500"
-                    />
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                    <div className="bg-gray-700 p-3 rounded-lg"><span className="block text-gray-400">(+) Receita Bruta Estimada</span><span className="text-green-400 font-semibold">{formatBRLDisplay(receitaProjetada)}</span></div>
-                    <div className="bg-gray-700 p-3 rounded-lg"><span className="block text-gray-400">(=) Caixa Projetado Pós-Venda</span><span className={`font-semibold ${caixaProjetadoPosVenda >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatBRLDisplay(caixaProjetadoPosVenda)}</span></div>
-                </div>
-                 <p className="text-xs text-gray-500 text-center italic mt-2">Estimativa baseada em um Preço Médio Ponderado de {formatBRLDisplay((Number(decisoes.Preco_Segmento_1 || 0) + Number(decisoes.Preco_Segmento_2 || 0)) / 2)}. O Market Share real definirá as vendas.</p>
-            </div>
-
-
-            {/* Feedback e Botão (inalterados) */}
-            {feedback && <p className={`text-sm text-center font-medium ${feedback.includes('sucesso') ? 'text-green-400' : 'text-red-400'}`}>{feedback}</p>}
-            <div className="text-right mt-6 pt-6 border-t border-gray-700"> <button onClick={handleSubmeterClick} className={`font-bold py-3 px-8 rounded-lg transition-colors text-lg ${ isSubmetido ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : !todasDecisoesPreenchidas ? 'bg-yellow-600 text-white cursor-not-allowed' : 'bg-green-500 hover:bg-green-600 text-white' }`} disabled={loading || isSubmetido || (!isSubmetido && !todasDecisoesPreenchidas)} title={!isSubmetido && !todasDecisoesPreenchidas ? "Salve TODAS as abas (1 a 5) primeiro" : (isSubmetido ? "Rodada Submetida" : "Submeter decisões")}> {isSubmetido ? 'Rodada Submetida' : (loading ? 'Enviando...' : 'Submeter Decisões da Rodada')} </button> </div>
-            {/* Modal Confirmação (inalterado) */}
-            {showConfirm && ( <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50"> <div className="bg-gray-700 rounded-lg shadow-xl p-6 max-w-md w-full"> <h4 className="text-xl font-bold text-yellow-400 mb-4">Confirmar Submissão</h4> <p className="text-gray-300 mb-6">Submeter decisões da Rodada {rodadaDecisao}? Ação irreversível.</p> <div className="flex justify-end gap-4"> <button onClick={() => setShowConfirm(false)} className="bg-gray-600 hover:bg-gray-700 font-bold py-2 px-4 rounded-lg"> Cancelar </button> <button onClick={handleConfirmarSubmissao} className="bg-green-500 hover:bg-green-600 font-bold py-2 px-4 rounded-lg"> Confirmar </button> </div> </div> </div> )}
-        </div>
-    );
-}
-
-
 // --- Aba Concorrência (Placeholder) ---
 function AbaConcorrencia({ simulacao, rodadaAtual, idSimulacao }) { /* ... */ return <div className="text-center text-gray-500 py-10 bg-gray-800 rounded-lg mt-6">Aba Concorrência em Construção</div>; }
 // --- Aba Ranking (Placeholder) ---
 function AbaRanking({ rodadaAtual, idSimulacao }) { /* ... */ return <div className="text-center text-gray-500 py-10 bg-gray-800 rounded-lg mt-6">Aba Ranking em Construção</div>; }
 
-
-// --- Componente Principal (ATUALIZADO para buscar decisões anteriores) ---
+// --- Componente Principal ---
 function SimuladorPainel() {
     const { simulacaoId, empresaId } = useParams();
     const [simulacao, setSimulacao] = useState(null);
     const [empresa, setEmpresa] = useState(null);
     const [estadoRodada, setEstadoRodada] = useState(null);
     const [decisoes, setDecisoes] = useState({});
-    // NOVO ESTADO: Armazena as decisões da rodada anterior
-    const [decisoesAnteriores, setDecisoesAnteriores] = useState(null); 
+    const [decisoesAnteriores, setDecisoesAnteriores] = useState(null);
     const [loading, setLoading] = useState(true);
     const [erro, setErro] = useState('');
-    const [abaAtiva, setAbaAtiva] = useState('briefing');
-    
-    // Cálculos das rodadas (inalterado)
+    const [abaAtiva, setAbaAtiva] = useState('briefing'); // Mantém briefing como default
+
     const rodadaDecisao = useMemo(() => (simulacao?.Rodada_Atual ?? -1) + 1, [simulacao]);
     const rodadaRelatorio = useMemo(() => simulacao?.Rodada_Atual ?? 0, [simulacao]);
-    
-    // Efeito para carregar dados estáticos (inalterado)
+
+    // Efeito para carregar dados estáticos (simulação, empresa)
     useEffect(() => {
         const fetchDadosIniciais = async () => { if (!db || !simulacaoId || !empresaId) { setErro("IDs inválidos."); setLoading(false); return; } setLoading(true); setErro(''); try { const simRef = doc(db, `/artifacts/${appId}/public/data/simulacoes`, simulacaoId); const simSnap = await getDoc(simRef); if (!simSnap.exists()) throw new Error("Simulação não encontrada."); setSimulacao(simSnap.data()); const empresaRef = doc(db, `/artifacts/${appId}/public/data/simulacoes`, simulacaoId, 'empresas', empresaId); const empresaSnap = await getDoc(empresaRef); if (!empresaSnap.exists()) throw new Error("Empresa não encontrada."); setEmpresa(empresaSnap.data()); } catch (err) { console.error("Erro:", err); setErro(`Erro: ${err.message}`); setLoading(false); } }; fetchDadosIniciais();
     }, [simulacaoId, empresaId]);
 
-     // Efeito para ouvir dados dinâmicos (estado, decisões atuais E ANTERIORES)
+     // Efeito para ouvir dados dinâmicos (estado, decisões atuais e anteriores)
      useEffect(() => {
         if (!simulacao || erro.includes("Simulação não encontrada") || erro.includes("Empresa não encontrada")) { if (simulacao && loading) setLoading(false); return; }
         if(!loading) setLoading(true);
@@ -536,136 +392,98 @@ function SimuladorPainel() {
          const basePath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas/${empresaId}`;
          const estadoRef = doc(db, basePath, 'estados', currentRodadaRelatorio.toString());
          const decisaoRef = doc(db, basePath, 'decisoes', currentRodadaDecisao.toString());
-         // NOVO: Referência para as decisões da rodada anterior
          const decisaoAnteriorRef = doc(db, basePath, 'decisoes', currentRodadaRelatorio.toString());
 
          let eC=false, dC=false, daC=false; // Flags de carregamento
          const checkLoadingDone = () => { if (eC && dC && daC) setLoading(false); }
 
-         // Listener para Estado Atual (inalterado)
+         // Listener para Estado Atual
          const unsubE = onSnapshot(estadoRef, (docSnap) => { if (docSnap.exists()) { setEstadoRodada(docSnap.data()); if (!erro.includes("Simulação não encontrada") && !erro.includes("Empresa não encontrada")) setErro(''); } else { if (currentRodadaRelatorio === 0 && (simulacao.Status === 'Configurando' || !simulacao.Status)) { if (!erro.includes("Aguardando")) setErro("Aguardando Mestre do Jogo iniciar..."); } else if (currentRodadaRelatorio > 0 && !erro.includes("Simulação não encontrada") && !erro.includes("Empresa não encontrada")) { setErro(`Resultados da Rodada ${currentRodadaRelatorio} indisponíveis.`); } setEstadoRodada(null); } eC = true; checkLoadingDone(); }, (err) => { if (!erro.includes("Simulação não encontrada") && !erro.includes("Empresa não encontrada")) setErro("Falha ao carregar resultados."); eC = true; checkLoadingDone(); });
-         
-         // Listener para Decisões da Próxima Rodada (inalterado)
+
+         // Listener para Decisões da Próxima Rodada
          const unsubD = onSnapshot(decisaoRef, (docSnap) => { if (docSnap.exists()) { setDecisoes(docSnap.data()); } else { const dI = { Rodada: currentRodadaDecisao, Status_Decisao: 'Pendente' }; if (!erro.includes("Simulação não encontrada") && !erro.includes("Empresa não encontrada") && eC) { setDoc(decisaoRef, dI, { merge: true }).then(() => setDecisoes(dI)).catch(err => console.error("Erro:", err)); } else { setDecisoes(dI); } } dC = true; checkLoadingDone(); }, (err) => { console.error("Erro:", err); dC = true; checkLoadingDone(); });
 
-         // NOVO: Listener para Decisões da Rodada Anterior
-         const unsubDA = onSnapshot(decisaoAnteriorRef, (docSnap) => {
-             if (docSnap.exists()) {
-                 setDecisoesAnteriores(docSnap.data());
-             } else {
-                 // É normal não existir na rodada 0 ou se houve erro
-                 setDecisoesAnteriores(null); 
-             }
-             daC = true; // Marca como carregado (mesmo que não exista)
-             checkLoadingDone();
-         }, (err) => {
-             console.error("Erro ao carregar decisões anteriores:", err);
-             // Não seta erro geral, apenas loga. Pode não ser crítico.
-             daC = true;
-             checkLoadingDone();
-         });
+         // Listener para Decisões da Rodada Anterior
+         const unsubDA = onSnapshot(decisaoAnteriorRef, (docSnap) => { if (docSnap.exists()) { setDecisoesAnteriores(docSnap.data()); } else { setDecisoesAnteriores(null); } daC = true; checkLoadingDone(); }, (err) => { console.error("Erro ao carregar decisões anteriores:", err); daC = true; checkLoadingDone(); });
 
          // Função de limpeza
          return () => { unsubE(); unsubD(); unsubDA(); };
      }, [simulacaoId, empresaId, simulacao, erro]); // Removido 'loading'
 
-     // --- Abas e Lógica de "Checks" --- (Inalterado)
+     // --- Abas e Lógica de "Checks" ---
      const abasRelatorio = [ { id: 'briefing', label: 'Briefing e Resultados' }, /* { id: 'concorrencia', label: 'Concorrência' }, { id: 'ranking', label: 'Ranking' }, */ ];
      const chavesPorAba = { rede: ['Escolha_Fornecedor_Tela', 'Escolha_Fornecedor_Chip'], pd: ['Invest_PD_Camera', 'Invest_PD_Bateria', 'Invest_PD_IA'], operacoes: ['Producao_Planejada', 'Invest_Expansao_Fabrica'], marketing: ['Preco_Segmento_1', 'Marketing_Segmento_1', 'Preco_Segmento_2', 'Marketing_Segmento_2'], financas: ['Tomar_Emprestimo_CP', 'Tomar_Financiamento_LP', 'Amortizar_Divida_LP'], sumario: [], }; // Atualizado financas
      const abasDecisao = [ { id: 'rede', label: '1. Rede', chaves: chavesPorAba.rede }, { id: 'pd', label: '2. P&D', chaves: chavesPorAba.pd }, { id: 'operacoes', label: '3. Operações', chaves: chavesPorAba.operacoes }, { id: 'marketing', label: '4. Marketing', chaves: chavesPorAba.marketing }, { id: 'financas', label: '5. Finanças', chaves: chavesPorAba.financas }, { id: 'sumario', label: 'Submissão', chaves: chavesPorAba.sumario }, ];
-     const abasDecisaoCompletas = useMemo(() => { const c = {}; abasDecisao.forEach(a => { c[a.id] = a.chaves.every(k => decisoes[k] !== undefined); }); c['sumario'] = abasDecisao.every(a => a.id === 'sumario' || c[a.id]); return c; }, [decisoes, abasDecisao]);
+     const abasDecisaoCompletas = useMemo(() => { const c = {}; abasDecisao.forEach(a => { c[a.id] = a.chaves.every(k => decisoes[k] !== undefined && decisoes[k] !== null); }); c['sumario'] = abasDecisao.every(a => a.id === 'sumario' || c[a.id]); return c; }, [decisoes, abasDecisao]);
      const isSubmetido = decisoes?.Status_Decisao === 'Submetido';
      useEffect(() => { if (isSubmetido && abasDecisao.some(a => a.id === abaAtiva)) { setAbaAtiva('briefing'); } }, [isSubmetido, abaAtiva, abasDecisao]);
 
     // ---- Renderização Principal ----
     if (loading) return <div className="text-center p-10 text-gray-400 animate-pulse">Carregando...</div>;
-    // Erros (inalterado)
+    // Mensagens de erro e estado de carregamento inicial (sem alterações significativas)
     if (erro && (!estadoRodada || erro.includes("Simulação não encontrada") || erro.includes("Empresa não encontrada"))) { return ( <div className="text-center p-10 text-red-400 bg-red-900 rounded-lg max-w-2xl mx-auto mt-10"> <h2 className="text-xl font-bold mb-2">Erro</h2> <p>{erro}</p> <Link to="/simulador/aluno" className="mt-4 inline-block text-cyan-400 hover:underline">&larr; Voltar</Link> </div> ); }
     if (erro && !estadoRodada) { return ( <div className="text-center p-10 text-yellow-400 bg-yellow-900 rounded-lg max-w-2xl mx-auto mt-10"> <h2 className="text-xl font-bold mb-2">{simulacao?.Nome_Simulacao || '...'}</h2> <p>{erro}</p> <Link to="/simulador/aluno" className="mt-4 inline-block text-cyan-400 hover:underline">&larr; Voltar</Link> </div> ); }
-    if (!simulacao || !empresa || !estadoRodada) return <div className="text-center p-10 text-gray-400 animate-pulse">Carregando info...</div>;
+    // Remove a checagem "!estadoRodada" daqui, pois o componente ResultadosBriefing lida com isso
+    if (!simulacao || !empresa) return <div className="text-center p-10 text-gray-400 animate-pulse">Carregando info...</div>;
 
     const decisaoRef = doc(db, `/artifacts/${appId}/public/data/simulacoes`, simulacaoId, 'empresas', empresaId, 'decisoes', rodadaDecisao.toString());
-
-    // Dados DRE e Balanço (inalterado)
-    const dadosDRE = [ ['(+) Receita de Vendas', estadoRodada.Vendas_Receita], ['(-) Custo Produtos Vendidos (CPV)', estadoRodada.Custo_Produtos_Vendidos], ['(=) Lucro Bruto', estadoRodada.Lucro_Bruto], ['(-) Despesas Operacionais', estadoRodada.Despesas_Operacionais], ['(=) Lucro Líquido da Rodada', estadoRodada.Lucro_Liquido], ];
-    const imobilizadoLiquido = (estadoRodada.Imobilizado_Bruto || 0) - (estadoRodada.Depreciacao_Acumulada || 0);
-    const ativoTotal = (estadoRodada.Caixa || 0) + (estadoRodada.Custo_Estoque_Final || 0) + imobilizadoLiquido;
-    const saldoLP = estadoRodada.Divida_LP_Saldo || 0;
-    const rodadasLP = estadoRodada.Divida_LP_Rodadas_Restantes || 0;
-    const parcelaPrincipalLPProxima = (rodadasLP > 0) ? saldoLP / rodadasLP : 0;
-    const dividaCPVencendoBalanco = estadoRodada.Divida_CP || 0;
-    const dividaEmergVencendoBalanco = estadoRodada.Divida_Emergencia || 0;
-    const passivoCirculante = dividaCPVencendoBalanco + dividaEmergVencendoBalanco + parcelaPrincipalLPProxima;
-    const passivoNaoCirculante = saldoLP > 0 ? Math.max(0, saldoLP - parcelaPrincipalLPProxima) : 0;
-    const passivoTotal = passivoCirculante + passivoNaoCirculante;
-    const patrimonioLiquido = ativoTotal - passivoTotal;
-    const dadosBalanco = [
-        ['(+) Caixa', estadoRodada.Caixa],
-        ['(+) Estoque (Custo)', estadoRodada.Custo_Estoque_Final],
-        ['(+) Imobilizado (Líquido)', imobilizadoLiquido],
-        ['(=) Total Ativos', ativoTotal],
-        ['--- PASSIVOS E PL ---', null],
-        ['(+) Dívida Curto Prazo (Venc. R'+rodadaDecisao+')', dividaCPVencendoBalanco],
-        ['(+) Dívida Emergência (Venc. R'+rodadaDecisao+')', dividaEmergVencendoBalanco],
-        ['(+) Parcela LP (Venc. R'+rodadaDecisao+')', parcelaPrincipalLPProxima],
-        ['(=) Subtotal Passivo Circulante', passivoCirculante],
-        ['(+) Saldo Dívida LP (Restante)', passivoNaoCirculante],
-        ['(=) Subtotal Passivo Não Circulante', passivoNaoCirculante],
-        ['(=) Total Passivos', passivoTotal],
-        ['(+) Patrimônio Líquido', patrimonioLiquido],
-        ['(=) Total Passivo + PL', passivoTotal + patrimonioLiquido],
-    ];
-    const noticiaDaRodada = simulacao[`Noticia_Rodada_${rodadaDecisao}`] || "Nenhuma notícia específica.";
 
     return (
         <div className="animate-fade-in pb-10">
              {/* Header */}
              <header className="mb-6 md:mb-8"> <h1 className="text-2xl md:text-3xl font-bold text-cyan-400">Painel: {empresa.Nome_Empresa}</h1> <p className="text-sm md:text-base text-gray-400 mt-1"> Simulação: {simulacao.Nome_Simulacao} | Rodada <span className="font-bold text-white">{rodadaRelatorio}</span> / {simulacao.Total_Rodadas} <span className="mx-2">|</span> Status: <span className="font-semibold text-white">{simulacao.Status}</span> </p> <Link to="/simulador/aluno" className="text-sm text-cyan-400 hover:underline mt-1 inline-block">&larr; Voltar</Link> </header>
-             
-             {/* Navegação por Abas com ajuste de stickiness */}
-             <nav className="flex flex-wrap justify-center bg-gray-800 rounded-lg p-2 mb-6 md:mb-8 gap-2 sticky top-0 z-10 shadow"> {/* Alterado de top-4 para top-0 */}
-                {abasRelatorio.map(tab => ( <button key={tab.id} onClick={() => setAbaAtiva(tab.id)} className={`flex items-center justify-center px-3 py-2 rounded-md font-semibold flex-grow transition-colors text-xs md:text-sm whitespace-nowrap ${abaAtiva === tab.id ? 'bg-cyan-500 text-white shadow-md' : 'bg-gray-700 hover:bg-cyan-600 text-gray-300'}`}> {tab.label} </button> ))} 
-                {!isSubmetido && <div className="w-full md:w-auto md:border-l border-gray-600 md:mx-2 hidden md:block"></div>} 
-                {!isSubmetido && abasDecisao.map(tab => ( <button key={tab.id} onClick={() => setAbaAtiva(tab.id)} className={`flex items-center justify-center px-3 py-2 rounded-md font-semibold flex-grow transition-colors text-xs md:text-sm whitespace-nowrap ${abaAtiva === tab.id ? 'bg-cyan-500 text-white shadow-md' : 'bg-gray-700 hover:bg-cyan-600 text-gray-300'}`}> {tab.label} {abasDecisaoCompletas[tab.id] && tab.id !== 'sumario' && <IconeCheck />} {tab.id === 'sumario' && abasDecisaoCompletas['sumario'] && <IconeCheck />} </button> ))} 
+
+             {/* Navegação por Abas */}
+             <nav className="flex flex-wrap justify-center bg-gray-800 rounded-lg p-2 mb-6 md:mb-8 gap-2 sticky top-0 z-10 shadow">
+                {abasRelatorio.map(tab => ( <button key={tab.id} onClick={() => setAbaAtiva(tab.id)} className={`flex items-center justify-center px-3 py-2 rounded-md font-semibold flex-grow transition-colors text-xs md:text-sm whitespace-nowrap ${abaAtiva === tab.id ? 'bg-cyan-500 text-white shadow-md' : 'bg-gray-700 hover:bg-cyan-600 text-gray-300'}`}> {tab.label} </button> ))}
+                {!isSubmetido && <div className="w-full md:w-auto md:border-l border-gray-600 md:mx-2 hidden md:block"></div>}
+                {!isSubmetido && abasDecisao.map(tab => ( <button key={tab.id} onClick={() => setAbaAtiva(tab.id)} className={`flex items-center justify-center px-3 py-2 rounded-md font-semibold flex-grow transition-colors text-xs md:text-sm whitespace-nowrap ${abaAtiva === tab.id ? 'bg-cyan-500 text-white shadow-md' : 'bg-gray-700 hover:bg-cyan-600 text-gray-300'}`}> {tab.label} {abasDecisaoCompletas[tab.id] && tab.id !== 'sumario' && <IconeCheck />} {tab.id === 'sumario' && abasDecisaoCompletas['sumario'] && <IconeCheck />} </button> ))} {/* CORREÇÃO APLICADA AQUI */}
              </nav>
-             
-             {/* Conteúdo Principal (Aba Briefing agora inclui o Resumo) */}
+
+             {/* Conteúdo Principal - Renderização Condicional */}
              <main className="mb-8">
-                 {abaAtiva === 'briefing' && ( 
-                    <div className="space-y-6 animate-fade-in"> 
-                        {/* Notícia da Rodada */}
-                        <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 p-4 md:p-6 rounded-lg shadow"> 
-                            <h3 className="text-lg md:text-xl font-semibold mb-2 text-yellow-800"> <span role="img" aria-label="Newspaper" className="mr-2">📰</span> Notícia (R{rodadaDecisao}) </h3> 
-                            <p className="text-sm md:text-base whitespace-pre-wrap">{noticiaDaRodada}</p> 
-                        </div> 
-                        
-                        {/* Resultados Financeiros e Operacionais */}
-                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow"> 
-                            <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2"> <span role="img" aria-label="Chart" className="mr-2">📈</span> Resultados (R{rodadaRelatorio}) </h3> 
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6"> 
-                                <RelatorioFinanceiro titulo="DRE" dados={dadosDRE} /> 
-                                <RelatorioFinanceiro titulo="Balanço" dados={dadosBalanco} isBalanco={true} /> 
-                                <div className="bg-gray-700 p-4 rounded-lg shadow"> 
-                                    <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">Operações e P&D</h4> 
-                                    <ul className="space-y-2 text-sm"> <li className="flex justify-between items-center"><span className="text-gray-300">Capacidade:</span> <span className="font-medium text-white">{Number(estadoRodada.Capacidade_Fabrica || 0).toLocaleString('pt-BR')} Unid.</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Produção:</span> <span className="font-medium text-white">{Number(estadoRodada.Producao_Efetiva || 0).toLocaleString('pt-BR')} Unid.</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Estoque:</span> <span className="font-medium text-white">{Number(estadoRodada.Estoque_Final_Unidades || 0).toLocaleString('pt-BR')} Unid.</span></li> <li className="pt-2 mt-2 border-t border-gray-600 flex justify-between items-center"><span className="text-gray-300">Nível Câmera:</span> <span className="font-semibold text-cyan-300">Nível {estadoRodada.Nivel_PD_Camera || 1}</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Nível Bateria:</span> <span className="font-semibold text-cyan-300">Nível {estadoRodada.Nivel_PD_Bateria || 1}</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Nível IA:</span> <span className="font-semibold text-cyan-300">Nível {estadoRodada.Nivel_PD_IA || 1}</span></li> </ul> 
-                                    {(estadoRodada.Noticia_Producao_Risco || estadoRodada.Noticia_Ruptura_Estoque || estadoRodada.Divida_Emergencia > 0) && ( <div className="mt-4 pt-3 border-t border-gray-600"> <h5 className="text-md font-semibold text-yellow-400 mb-2">Alertas da Rodada {rodadaRelatorio}:</h5> <ul className="space-y-1 text-xs text-yellow-200 list-disc list-inside"> {estadoRodada.Noticia_Producao_Risco && <li>{estadoRodada.Noticia_Producao_Risco}</li>} {estadoRodada.Noticia_Ruptura_Estoque && <li>{estadoRodada.Noticia_Ruptura_Estoque}</li>} {estadoRodada.Divida_Emergencia > 0 && <li className="text-red-400 font-semibold">Empréstimo de Emergência contraído!</li>} </ul> </div> )} 
-                                </div> 
-                            </div> 
-                        </div> 
-
-                        {/* NOVO: Renderiza o Resumo das Decisões Anteriores */}
-                        {rodadaRelatorio > 0 && <ResumoDecisoesRodada decisoes={decisoesAnteriores} />}
-
-                        {/* Briefing Original (inalterado) */}
-                        <details className="bg-gray-800 p-4 md:p-6 rounded-lg shadow group"> 
-                            <summary className="text-lg font-semibold text-cyan-400 cursor-pointer list-none flex justify-between items-center"> <span>Briefing Original</span> <span className="text-cyan-500 group-open:rotate-180 transition-transform duration-200">▼</span> </summary> 
-                            <div className="mt-3 pt-3 border-t border-gray-700"> <p className="text-gray-300 text-sm whitespace-pre-wrap">{simulacao.Cenario_Inicial_Descricao || "-"}</p> </div> 
-                        </details> 
-                    </div> 
+                 {/* Renderiza o componente de Resultados/Briefing */}
+                 {abaAtiva === 'briefing' && (
+                    <ResultadosBriefing
+                        simulacao={simulacao}
+                        estadoRodada={estadoRodada} // Pode ser null inicialmente
+                        decisoesAnteriores={decisoesAnteriores}
+                        rodadaDecisao={rodadaDecisao}
+                        rodadaRelatorio={rodadaRelatorio}
+                    />
                  )}
-                 {/* Outras abas (inalterado) */}
-                 {abaAtiva === 'concorrencia' && <AbaConcorrencia simulacao={simulacao} rodadaAtual={rodadaRelatorio} idSimulacao={simulacaoId} />} {abaAtiva === 'ranking' && <AbaRanking rodadaAtual={rodadaRelatorio} idSimulacao={simulacaoId} />}
-                 {!isSubmetido ? ( <> {abaAtiva === 'rede' && <AbaRedeNegocios simulacao={simulacao} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />} {abaAtiva === 'pd' && <AbaPD simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />} {abaAtiva === 'operacoes' && <AbaOperacoes simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />} {abaAtiva === 'marketing' && <AbaMarketing simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />} {abaAtiva === 'financas' && <AbaFinancas simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} rodadaRelatorio={rodadaRelatorio} />} {abaAtiva === 'sumario' && <SumarioDecisoes simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} rodadaRelatorio={rodadaRelatorio} />} </> ) : ( (abasDecisao.some(a => a.id === abaAtiva)) && ( <div className="text-center text-green-400 py-10 bg-gray-800 rounded-lg shadow-lg mt-6 animate-fade-in"> <p className="text-lg font-semibold">Decisões da Rodada {rodadaDecisao} submetidas.</p> <p className="mt-2 text-gray-300">Aguarde o processamento.</p> </div> ) )}
+                 {/* Renderiza as Abas de Decisão (se não submetido) */}
+                 {!isSubmetido ? (
+                    <>
+                         {abaAtiva === 'rede' && <AbaRedeNegocios simulacao={simulacao} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />}
+                         {abaAtiva === 'pd' && <AbaPD simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />}
+                         {abaAtiva === 'operacoes' && <AbaOperacoes simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />}
+                         {abaAtiva === 'marketing' && <AbaMarketing simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />}
+                         {abaAtiva === 'financas' && <AbaFinancas simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} rodadaRelatorio={rodadaRelatorio} />}
+                         {/* Renderiza o componente SumarioDecisoes importado */}
+                         {abaAtiva === 'sumario' && (
+                            <SumarioDecisoes
+                                simulacao={simulacao}
+                                estadoRodada={estadoRodada}
+                                decisoes={decisoes}
+                                decisaoRef={decisaoRef} // Passa a referência do documento
+                                rodadaDecisoes={rodadaDecisao} // Nome da prop ajustado para corresponder ao componente externo
+                                rodadaRelatorio={rodadaRelatorio}
+                            />
+                         )}
+                    </>
+                 ) : (
+                    // Mensagem se submetido e tentando ver aba de decisão
+                    (abasDecisao.some(a => a.id === abaAtiva)) && (
+                        <div className="text-center text-green-400 py-10 bg-gray-800 rounded-lg shadow-lg mt-6 animate-fade-in">
+                            <p className="text-lg font-semibold">Decisões da Rodada {rodadaDecisao} submetidas.</p>
+                            <p className="mt-2 text-gray-300">Aguarde o processamento.</p>
+                        </div>
+                    )
+                 )}
+                 {/* Aba Concorrência e Ranking (placeholders) */}
+                 {abaAtiva === 'concorrencia' && <AbaConcorrencia simulacao={simulacao} rodadaAtual={rodadaRelatorio} idSimulacao={simulacaoId} />}
+                 {abaAtiva === 'ranking' && <AbaRanking rodadaAtual={rodadaRelatorio} idSimulacao={simulacaoId} />}
             </main>
         </div>
     );
