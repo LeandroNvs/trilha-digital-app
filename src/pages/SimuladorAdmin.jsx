@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import useCollection from '../hooks/useCollection.js';
-import { db, appId } from '../firebase/config.js';
-import ModalConfirmacao from '../components/ModalConfirmacao.jsx';
+import useCollection from '../hooks/useCollection.js'; // Extensão readicionada
+import { db, appId } from '../firebase/config.js'; // Extensão readicionada
+import ModalConfirmacao from '../components/ModalConfirmacao.jsx'; // Extensão readicionada
 // ATUALIZADO: Importações necessárias para Clonar e Excluir
 import { 
     deleteDoc, doc, addDoc, getDoc, serverTimestamp, 
     collection, writeBatch, getDocs, query 
 } from 'firebase/firestore'; 
-import { processarRodada } from '../simulador/motor.js';
+import { processarRodada } from '../simulador/motor.js'; // Extensão readicionada
 
 // --- Ícones Adicionados ---
 // Ícone para Clonar (Copiar)
@@ -18,6 +18,7 @@ const IconeClonar = () => (
     </svg>
 );
 
+// --- ÍCONE ADICIONADO ---
 // Ícone para Spinner (Loading)
 const IconeSpinner = () => (
     <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -25,7 +26,59 @@ const IconeSpinner = () => (
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
     </svg>
 );
-// --- Fim dos Ícones ---
+// --- FIM DO ÍCONE ADICIONADO ---
+
+
+// --- FUNÇÃO ADICIONADA (copiada do SimuladorForm.jsx) ---
+// Função para criar as empresas e o estado inicial (Rodada 0)
+const gerarRodadaZero = async (simId, simParams, simulacoesCollectionPath) => {
+    const batch = writeBatch(db);
+    const numEmpresas = Number(simParams.Num_Empresas) || 6;
+    const nomesEmpresas = ['Alpha', 'Nexus', 'Quantum', 'Orion', 'Sirius', 'Vega', 'Phoenix', 'Centauri', 'Lyra', 'Draco'].slice(0, numEmpresas);
+
+    nomesEmpresas.forEach((nome) => {
+        const empresaRef = doc(db, simulacoesCollectionPath, simId, 'empresas', nome);
+        const estadoInicialRef = doc(db, simulacoesCollectionPath, simId, 'empresas', nome, 'estados', '0');
+        batch.set(empresaRef, { Nome_Empresa: nome, Integrantes_Usuarios_IDs: [] });
+
+        const dividaInicialLP = Number(simParams.Divida_Inicial) || 0;
+        const prazoLP = Number(simParams.Prazo_Fixo_Longo_Prazo) || 4; 
+
+        const estadoInicial = {
+            Rodada: 0,
+            Caixa: Number(simParams.Caixa_Inicial) || 0,
+            Divida_CP: 0,
+            Divida_LP_Saldo: dividaInicialLP,
+            Divida_LP_Rodadas_Restantes: dividaInicialLP > 0 ? prazoLP : 0,
+            Divida_Emergencia: 0,
+            Imobilizado_Bruto: Number(simParams.Valor_Contabil_Imobilizado) || 0,
+            Depreciacao_Acumulada: 0,
+            Capacidade_Fabrica: Number(simParams.Capacidade_Producao_Inicial) || 0,
+            Nivel_PD_Camera: Number(simParams.Nivel_Inicial_PD_Camera) || 1,
+            Nivel_PD_Bateria: Number(simParams.Nivel_Inicial_PD_Bateria) || 1,
+            Nivel_PD_Sist_Operacional_e_IA: Number(simParams.Nivel_Inicial_PD_Sist_Operacional_e_IA) || 1, 
+            Nivel_PD_Atualizacao_Geral: Number(simParams.Nivel_Inicial_PD_Atualizacao_Geral) || 1, 
+            Progresso_PD_Camera: 0, Progresso_PD_Bateria: 0, 
+            Progresso_PD_Sist_Operacional_e_IA: 0, 
+            Progresso_PD_Atualizacao_Geral: 0, 
+            Vendas_Receita: 0, Custo_Produtos_Vendidos: 0,
+            Despesas_Operacionais: Number(simParams.Custo_Fixo_Operacional) || 0,
+            Lucro_Bruto: 0,
+            Lucro_Operacional: 0 - (Number(simParams.Custo_Fixo_Operacional) || 0),
+            Lucro_Liquido: 0 - (Number(simParams.Custo_Fixo_Operacional) || 0),
+            Estoque_Final_Unidades: 0, Custo_Estoque_Final: 0,
+            Lucro_Acumulado: 0, Valor_Marca_Acumulado: 0, IDG_Score: 0, IDG_Metricas: {}
+        };
+        batch.set(estadoInicialRef, estadoInicial);
+    });
+
+    const simRef = doc(db, simulacoesCollectionPath, simId);
+    // ATUALIZA o status do clone de 'Configurando' para 'Ativa - Rodada 1'
+    batch.update(simRef, { Status: 'Ativa - Rodada 1', Rodada_Atual: 0 }); 
+    await batch.commit();
+    console.log(`Rodada 0 gerada com sucesso para ${numEmpresas} empresas (clone).`);
+};
+// --- FIM DA FUNÇÃO ADICIONADA ---
 
 
 function SimuladorAdmin() {
@@ -45,7 +98,7 @@ function SimuladorAdmin() {
     const [cloningId, setCloningId] = useState(null); 
 
     const handleCriarNova = () => {
-        navigate('/simulador/form'); // Usando /form
+        navigate('/simulador/novo'); // Usando /novo (como está no App.jsx)
     };
 
     // ATUALIZADO: Lógica de "Deep Delete" (exclusão profunda)
@@ -128,7 +181,12 @@ function SimuladorAdmin() {
 
             // 3. Adicionar o novo documento
             const simulacoesCollectionRef = collection(db, simulacoesCollectionPath);
-            await addDoc(simulacoesCollectionRef, cloneParams);
+            const newSimDoc = await addDoc(simulacoesCollectionRef, cloneParams);
+
+            // --- CORREÇÃO ADICIONADA ---
+            // 4. Chamar a função para gerar as empresas e o estado 0 para o clone
+            await gerarRodadaZero(newSimDoc.id, cloneParams, simulacoesCollectionPath);
+            // --- FIM DA CORREÇÃO ---
 
         } catch (error) {
             console.error("Erro ao clonar simulação:", error);
@@ -197,7 +255,10 @@ function SimuladorAdmin() {
                                     <Link to={`/simulador/designar/${sim.id}`} className="bg-gray-500 hover:bg-gray-600 text-white py-1 px-3 rounded text-sm">
                                         Designar Alunos
                                     </Link>
-                                    <Link to={`/simulador/form/${sim.id}`} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded text-sm">
+                                    
+                                    {/* --- CORREÇÃO AQUI --- */}
+                                    {/* O link estava apontando para /simulador/form/ mas a rota em App.jsx é /simulador/editar/ */}
+                                    <Link to={`/simulador/editar/${sim.id}`} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded text-sm">
                                         Editar
                                     </Link>
                                     
@@ -232,8 +293,8 @@ function SimuladorAdmin() {
                 <ModalConfirmacao 
                     titulo="Confirmar Exclusão" 
                     mensagem={`Excluir "${itemParaExcluir.Nome_Simulacao || itemParaExcluir.id}"? Todos os dados associados (empresas, rodadas, decisões) serão perdidos permanentemente.`} 
-                    onConfirm={handleExcluir} 
-                    onCancel={() => setItemParaExcluir(null)} 
+                    onConfirmar={handleExcluir} 
+                    onCancelar={() => setItemParaExcluir(null)} 
                 />
             )}
             
@@ -241,8 +302,8 @@ function SimuladorAdmin() {
                 <ModalConfirmacao 
                     titulo="Confirmar Processamento" 
                     mensagem={`Tem certeza que deseja processar a Rodada ${modalConfirmarProcessamento.Rodada_Atual + 1} para "${modalConfirmarProcessamento.Nome_Simulacao}"? Esta ação é irreversível e processará as decisões de todas as equipes.`} 
-                    onConfirm={handleProcessarConfirmado} 
-                    onCancel={() => setModalConfirmarProcessamento(null)} 
+                    onConfirmar={handleProcessarConfirmado} 
+                    onCancelar={() => setModalConfirmarProcessamento(null)} 
                 />
             )}
         </div>
