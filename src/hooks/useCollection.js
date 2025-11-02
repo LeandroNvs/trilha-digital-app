@@ -1,43 +1,72 @@
-import { useState, useEffect } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase/config'; // Importa a instância do db
+import { useState, useEffect, useRef } from 'react';
+import { db } from '../firebase/config';
+import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 
 /**
- * Um hook customizado que escuta as mudanças em uma coleção do Firestore.
- * @param {string} path O caminho para a coleção no Firestore (ex: 'usuarios').
- * @returns {Array} Um array com os documentos da coleção.
+ * Hook customizado que escuta uma coleção e (opcionalmente) aplica queries.
+ * Retorna um objeto com dados, erro e estado de carregamento.
  */
-const useCollection = (collectionPath) => {
-    const [data, setData] = useState([]);
+export const useCollection = (collectionPath, _q, _orderBy) => {
+    const [documents, setDocuments] = useState(null); // Inicia como null para sabermos que não carregou
+    const [error, setError] = useState(null);
+    const [isLoading, setIsLoading] = useState(true); // Inicia carregando
+
+    // Usando useRef para evitar loops infinitos de dependência
+    const q = useRef(_q).current;
+    const ob = useRef(_orderBy).current;
 
     useEffect(() => {
-        // Se o caminho não for fornecido, não faz nada.
-        if (!collectionPath) {
-            setData([]);
-            return;
-        };
+        // Se collectionPath ou a query (se for obrigatória) não estiverem prontos
+        if (!collectionPath || (q && !q.length)) {
+            setIsLoading(false);
+            // Se a query era esperada (q=true) mas veio vazia (ex: user.uid ainda não carregou),
+            // não definimos documentos, apenas paramos de carregar.
+            // Se q não era esperado (q=false/null), continuamos.
+            if (q) { // Se 'q' era esperado mas veio nulo (ex: user.uid a carregar)
+                 setDocuments([]); // Retorna vazio se a query é nula mas esperada
+                 return;
+            }
+        }
+        
+        setIsLoading(true); // Inicia o carregamento
+        setError(null);
+        let ref = collection(db, collectionPath);
 
-        const collectionRef = collection(db, collectionPath);
+        // Aplicando a query (where) se ela existir
+        if (q && q.length > 0) {
+            ref = query(ref, where(...q));
+        }
+        
+        // Aplicando o orderBy se ele existir
+        if (ob && ob.length > 0) {
+            ref = query(ref, orderBy(...ob));
+        }
 
-        // onSnapshot cria um ouvinte em tempo real.
-        // A função callback será executada sempre que os dados na coleção mudarem.
-        const unsubscribe = onSnapshot(collectionRef, (snapshot) => {
-            const results = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            setData(results);
+        const unsubscribe = onSnapshot(ref, (snapshot) => {
+            let results = [];
+            snapshot.docs.forEach(doc => {
+                results.push({ ...doc.data(), id: doc.id });
+            });
+
+            setDocuments(results);
+            setError(null);
+            setIsLoading(false); // Carregamento concluído
+        }, (err) => {
+            console.error(err);
+            setError('Falha ao carregar os dados: ' + err.message);
+            setIsLoading(false); // Carregamento falhou
         });
 
-        // A função de limpeza do useEffect.
-        // Ela é chamada quando o componente que usa o hook é "desmontado".
-        // Isso cancela o ouvinte, evitando vazamentos de memória.
+        // Limpa o listener ao desmontar o componente
         return () => unsubscribe();
 
-    }, [collectionPath]); // O efeito será re-executado se o caminho da coleção mudar.
+    }, [collectionPath, q, ob]); // Depende do nome da coleção e das referências estáveis
 
-    return data;
+    return { documents, error, isLoading }; // Retorna o objeto
 };
 
+// Renomeado para 'export' em vez de 'export default' se 'useAuthContext'
+// também for exportado do mesmo ficheiro, ou manter 'default' se for o único.
+// Vamos assumir que é o default baseado no seu ficheiro.
 export default useCollection;
 

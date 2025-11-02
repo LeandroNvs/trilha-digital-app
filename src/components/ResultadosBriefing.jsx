@@ -1,41 +1,86 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db, appId } from '../firebase/config.js'; // Ajuste o caminho conforme sua estrutura
 
-// --- Ícones (Copiados de SimuladorPainel para independência) ---
-const IconeInfo = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block ml-1 text-gray-400 hover:text-cyan-400 cursor-pointer" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>;
+// --- Componentes Internos de Relatório ---
 
-// --- Componente RelatorioFinanceiro (Movido para cá) ---
-function RelatorioFinanceiro({ titulo, dados, isBalanco = false }) {
-    // Função formatarBRL agora mostra centavos
-    const formatarBRL = (num) => {
-        if (num === null || num === undefined) return '-';
-        const valorNumerico = Number(num);
-        const cor = valorNumerico < 0 ? 'text-red-400' : 'text-white';
-        const valorFormatado = valorNumerico.toLocaleString('pt-BR', {
-            style: 'currency',
-            currency: 'BRL',
-            minimumFractionDigits: 2, // Garante 2 casas decimais
-            maximumFractionDigits: 2
-        });
-        return (<span className={cor}>{valorFormatado}</span>);
+// Componente para formatar números
+function FormatNumero({ valor, tipo = 'decimal', comCor = false }) {
+    const num = Number(valor);
+    if (isNaN(num)) return '-';
+
+    let options = {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
     };
-    const getRowStyle = (label) => { if (!label) return ""; if (label.startsWith('(=)') || label.startsWith('Subtotal') || label.startsWith('Total')) { return "font-semibold border-t border-gray-600 pt-1"; } if (label.startsWith('(-)') || label.startsWith('(+)') ) { return "pl-2"; } return ""; };
-    return ( <div className="bg-gray-700 p-4 rounded-lg shadow"> <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">{titulo}</h4> <div className="space-y-1 text-sm"> {dados.map(([label, valor], index) => ( <div key={`${label}-${index}`} className={`flex justify-between items-center py-1 ${getRowStyle(label)} ${label?.includes('---') ? 'border-t border-dashed border-gray-600 mt-1 pt-1' : 'border-b border-gray-600 last:border-b-0'}`}> <span className="text-gray-300">{label ? label.replace(/^[(=)\-+ ]+|[ ]+$/g, '') : ''}:</span> <span className="font-medium">{formatarBRL(valor)}</span> </div> ))} {isBalanco && dados.length > 0 && ( <div className="flex justify-between items-center pt-2 mt-2 border-t-2 border-cyan-500 text-xs"> <span className="text-gray-400 font-semibold">Total Ativo = Total Passivo + PL ?</span> </div> )} </div> </div> );
+
+    if (tipo === 'moeda') {
+        options.style = 'currency';
+        options.currency = 'BRL';
+    } else if (tipo === 'unidade') {
+        options.minimumFractionDigits = 0;
+        options.maximumFractionDigits = 0;
+    } else if (tipo === 'percent') {
+        options.style = 'percent';
+    }
+
+    const valorFormatado = num.toLocaleString('pt-BR', options);
+
+    if (comCor) {
+        const cor = num < 0 ? 'text-red-400' : (num > 0 ? 'text-green-400' : 'text-gray-400');
+        return <span className={cor}>{valorFormatado}</span>;
+    }
+    return valorFormatado;
 }
 
-// --- Componente ResumoDecisoesRodada (Movido para cá) ---
+
+// Componente RelatorioFinanceiro (DRE/Balanço)
+function RelatorioFinanceiro({ titulo, dados, isBalanco = false }) {
+    const getRowStyle = (label) => {
+        if (!label) return "";
+        if (label.startsWith('(=)') || label.startsWith('Subtotal') || label.startsWith('Total')) {
+            return "font-semibold border-t border-gray-600 pt-1";
+        }
+        if (label.startsWith('(-)') || label.startsWith('(+)')) {
+            return "pl-2";
+        }
+        return "";
+    };
+    return (
+        <div className="bg-gray-700 p-4 rounded-lg shadow">
+            <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">{titulo}</h4>
+            <div className="space-y-1 text-sm">
+                {dados.map(([label, valor], index) => (
+                    <div key={`${label}-${index}`} className={`flex justify-between items-center py-1 ${getRowStyle(label)} ${label?.includes('---') ? 'border-t border-dashed border-gray-600 mt-1 pt-1' : 'border-b border-gray-600 last:border-b-0'}`}>
+                        <span className="text-gray-300">{label ? label.replace(/^[(=)\-+ ]+|[ ]+$/g, '') : ''}:</span>
+                        <span className="font-medium">
+                            <FormatNumero valor={valor} tipo="moeda" comCor={true} />
+                        </span>
+                    </div>
+                ))}
+                {isBalanco && dados.length > 0 && (
+                    <div className="flex justify-between items-center pt-2 mt-2 border-t-2 border-cyan-500 text-xs">
+                        <span className="text-gray-400 font-semibold">Total Ativo = Total Passivo + PL ?</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// Componente ResumoDecisoesRodada
 function ResumoDecisoesRodada({ decisoes }) {
     if (!decisoes || Object.keys(decisoes).length === 0 || decisoes.Status_Decisao === 'Pendente') {
         return (
             <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow mt-6">
                 <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">
-                    <span role="img" aria-label="Clipboard" className="mr-2">📋</span> Decisões da Rodada Anterior
+                    <span role="img" aria-label="Clipboard" className="mr-2">📋</span> Decisões (Rodada {decisoes?.Rodada || '?'})
                 </h3>
                 <p className="text-gray-500 text-center py-4">Nenhuma decisão registrada para esta rodada.</p>
             </div>
         );
     }
 
-    // formatBRL agora mostra centavos
     const formatBRL = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const formatNum = (num) => (Number(num) || 0).toLocaleString('pt-BR');
 
@@ -56,7 +101,8 @@ function ResumoDecisoesRodada({ decisoes }) {
                     <h4 className="font-semibold text-gray-200 mb-2">P&D (Investimento)</h4>
                     <p className="text-gray-400">Câmera: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Camera)}</span></p>
                     <p className="text-gray-400">Bateria: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Bateria)}</span></p>
-                    <p className="text-gray-400">IA: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_IA)}</span></p>
+                    <p className="text-gray-400">SO/IA: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Sist_Operacional_e_IA)}</span></p>
+                    <p className="text-gray-400">Atual. Geral: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Atualizacao_Geral)}</span></p>
                 </div>
                 {/* Operações */}
                 <div className="bg-gray-700 p-4 rounded-lg">
@@ -64,14 +110,15 @@ function ResumoDecisoesRodada({ decisoes }) {
                     <p className="text-gray-400">Produção: <span className="font-medium text-white">{formatNum(decisoes.Producao_Planejada)} unid.</span></p>
                     <p className="text-gray-400">Expansão: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Expansao_Fabrica)}</span></p>
                 </div>
-                {/* Marketing */}
+                {/* Marketing Premium */}
                 <div className="bg-gray-700 p-4 rounded-lg md:col-span-1 lg:col-span-1">
                     <h4 className="font-semibold text-gray-200 mb-2">Marketing (Seg. Premium)</h4>
                     <p className="text-gray-400">Preço: <span className="font-medium text-white">{formatBRL(decisoes.Preco_Segmento_1)}</span></p>
                     <p className="text-gray-400">Investimento: <span className="font-medium text-white">{formatBRL(decisoes.Marketing_Segmento_1)}</span></p>
                 </div>
+                {/* Marketing Básico */}
                  <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Marketing (Seg. Massa)</h4>
+                    <h4 className="font-semibold text-gray-200 mb-2">Marketing (Seg. Básico)</h4>
                     <p className="text-gray-400">Preço: <span className="font-medium text-white">{formatBRL(decisoes.Preco_Segmento_2)}</span></p>
                     <p className="text-gray-400">Investimento: <span className="font-medium text-white">{formatBRL(decisoes.Marketing_Segmento_2)}</span></p>
                 </div>
@@ -88,98 +135,202 @@ function ResumoDecisoesRodada({ decisoes }) {
 }
 
 
-// --- NOVO COMPONENTE EXPORTADO: ResultadosBriefing ---
-function ResultadosBriefing({ simulacao, estadoRodada, decisoesAnteriores, rodadaDecisao, rodadaRelatorio }) {
+// --- Componente Principal (ResultadosBriefing) ---
+function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio, rodadaDecisao }) {
+    
+    // Estado para o seletor de rodada. Começa na rodada atual.
+    const [rodadaSelecionada, setRodadaSelecionada] = useState(rodadaRelatorio);
+    // Estado para guardar os dados históricos (estado e decisões) da rodada selecionada
+    const [dadosVisao, setDadosVisao] = useState({ estado: null, decisoes: null, loading: true });
 
-     // formatBRLDisplay agora mostra centavos
-     const formatBRLDisplay = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Atualiza o seletor se a rodada principal mudar
+    useEffect(() => {
+        setRodadaSelecionada(rodadaRelatorio);
+    }, [rodadaRelatorio]);
 
-     // Dados DRE e Balanço (cálculos movidos para cá)
-     const dadosDRE = useMemo(() => {
-        if (!estadoRodada) return []; // Retorna array vazio se estadoRodada for null
-        return [
-            ['(+) Receita de Vendas', estadoRodada.Vendas_Receita],
-            ['(-) Custo Produtos Vendidos (CPV)', estadoRodada.Custo_Produtos_Vendidos],
-            ['(=) Lucro Bruto', estadoRodada.Lucro_Bruto],
-            ['(-) Despesas Operacionais', estadoRodada.Despesas_Operacionais_Outras],
-            ['(=) Lucro Operacional (EBIT)', estadoRodada.Lucro_Operacional_EBIT],
-            ['(-) Despesas Financeiras (Juros)', (estadoRodada.Despesas_Juros_CP || 0) + (estadoRodada.Despesas_Juros_Emergencia || 0) + (estadoRodada.Despesas_Juros_LP || 0)],
-            ['(=) Lucro Líquido da Rodada', estadoRodada.Lucro_Liquido],
+    // Efeito para buscar os dados da rodada SELECIONADA
+    useEffect(() => {
+        if (!simulacaoId || !empresaId) return;
+
+        const fetchDadosHistoricos = async () => {
+            setDadosVisao({ estado: null, decisoes: null, loading: true });
+            
+            const basePath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas/${empresaId}`;
+            const estadoRef = doc(db, basePath, 'estados', rodadaSelecionada.toString());
+            // Busca as decisões da rodada SELECIONADA (que já passou)
+            const decisoesRef = doc(db, basePath, 'decisoes', rodadaSelecionada.toString()); 
+
+            try {
+                const [estadoSnap, decisoesSnap] = await Promise.all([
+                    getDoc(estadoRef),
+                    getDoc(decisoesRef)
+                ]);
+
+                setDadosVisao({
+                    estado: estadoSnap.exists() ? estadoSnap.data() : null,
+                    decisoes: decisoesSnap.exists() ? decisoesSnap.data() : null,
+                    loading: false
+                });
+
+            } catch (error) {
+                console.error("Erro ao buscar dados históricos:", error);
+                setDadosVisao({ estado: null, decisoes: null, loading: false }); // Para o loading em caso de erro
+            }
+        };
+
+        fetchDadosHistoricos();
+    }, [simulacaoId, empresaId, rodadaSelecionada]); // Re-busca quando a rodada selecionada muda
+
+    
+    // --- Cálculos para DRE e Balanço (Memoizados) ---
+    // Usam os dados de 'dadosVisao.estado'
+    const { dadosDRE, dadosBalanco } = useMemo(() => {
+        const estado = dadosVisao.estado;
+        if (!estado) return { dadosDRE: [], dadosBalanco: [] };
+
+        // DRE
+        const dadosDRE = [
+            ['(+) Receita de Vendas', estado.Vendas_Receita],
+            ['(-) Custo Produtos Vendidos (CPV)', estado.Custo_Produtos_Vendidos],
+            ['(=) Lucro Bruto', estado.Lucro_Bruto],
+            ['(-) Despesas Operacionais', estado.Despesas_Operacionais_Outras], // Inclui P&D, Mkt, Fixo
+            ['(=) Lucro Operacional (EBIT)', estado.Lucro_Operacional_EBIT],
+            ['(-) Despesas Financeiras (Juros)', (estado.Despesas_Juros_CP || 0) + (estado.Despesas_Juros_Emergencia || 0) + (estado.Despesas_Juros_LP || 0)],
+            ['(=) Lucro Líquido (Rodada)', estado.Lucro_Liquido],
+            ['--- ACUMULADO ---', null],
+            ['(=) Lucro Acumulado (Total)', estado.Lucro_Acumulado],
         ];
-    }, [estadoRodada]);
 
-    const dadosBalanco = useMemo(() => {
-        if (!estadoRodada) return []; // Retorna array vazio se estadoRodada for null
-        const imobilizadoLiquido = (estadoRodada.Imobilizado_Bruto || 0) - (estadoRodada.Depreciacao_Acumulada || 0);
-        const ativoTotal = (estadoRodada.Caixa || 0) + (estadoRodada.Custo_Estoque_Final || 0) + imobilizadoLiquido;
-        const saldoLP = estadoRodada.Divida_LP_Saldo || 0;
-        const rodadasLP = estadoRodada.Divida_LP_Rodadas_Restantes || 0;
-        const parcelaPrincipalLPProxima = (rodadasLP > 0) ? saldoLP / rodadasLP : 0;
-        const dividaCPVencendoBalanco = estadoRodada.Divida_CP || 0;
-        const dividaEmergVencendoBalanco = estadoRodada.Divida_Emergencia || 0;
+        // Balanço
+        const imobilizadoLiquido = (estado.Imobilizado_Bruto || 0) - (estado.Depreciacao_Acumulada || 0);
+        const ativoTotal = (estado.Caixa || 0) + (estado.Custo_Estoque_Final || 0) + imobilizadoLiquido;
+        
+        const saldoLP = estado.Divida_LP_Saldo || 0;
+        const rodadasLP = estado.Divida_LP_Rodadas_Restantes || 0;
+        // Parcela de LP que vencerá na *próxima* rodada (baseado no saldo ATUAL)
+        const parcelaPrincipalLPProxima = (rodadasLP > 0) ? saldoLP / rodadasLP : 0; 
+        
+        const dividaCPVencendoBalanco = estado.Divida_CP || 0; // Dívida CP (vence R+1)
+        const dividaEmergVencendoBalanco = estado.Divida_Emergencia || 0; // Dívida Emerg (vence R+1)
+        
         const passivoCirculante = dividaCPVencendoBalanco + dividaEmergVencendoBalanco + parcelaPrincipalLPProxima;
         const passivoNaoCirculante = saldoLP > 0 ? Math.max(0, saldoLP - parcelaPrincipalLPProxima) : 0;
         const passivoTotal = passivoCirculante + passivoNaoCirculante;
-        const patrimonioLiquidoCalculado = estadoRodada.Lucro_Acumulado || 0; // PL simplificado
+        
+        // PL = Ativo - Passivo
+        const patrimonioLiquido = ativoTotal - passivoTotal; 
 
-        return [
-            ['(+) Caixa', estadoRodada.Caixa],
-            ['(+) Estoque (Custo)', estadoRodada.Custo_Estoque_Final],
+        const dadosBalanco = [
+            ['(+) Caixa', estado.Caixa],
+            ['(+) Estoque (Custo)', estado.Custo_Estoque_Final],
             ['(+) Imobilizado (Líquido)', imobilizadoLiquido],
             ['(=) Total Ativos', ativoTotal],
             ['--- PASSIVOS E PL ---', null],
-            ['(+) Dívida Curto Prazo (Venc. R'+rodadaDecisao+')', dividaCPVencendoBalanco],
-            ['(+) Dívida Emergência (Venc. R'+rodadaDecisao+')', dividaEmergVencendoBalanco],
-            ['(+) Parcela LP (Venc. R'+rodadaDecisao+')', parcelaPrincipalLPProxima],
+            ['(+) Dívida Curto Prazo (Venc. R'+(estado.Rodada+1)+')', dividaCPVencendoBalanco],
+            ['(+) Dívida Emergência (Venc. R'+(estado.Rodada+1)+')', dividaEmergVencendoBalanco],
+            ['(+) Parcela LP (Venc. R'+(estado.Rodada+1)+')', parcelaPrincipalLPProxima],
             ['(=) Subtotal Passivo Circulante', passivoCirculante],
             ['(+) Saldo Dívida LP (Restante)', passivoNaoCirculante],
             ['(=) Subtotal Passivo Não Circulante', passivoNaoCirculante],
             ['(=) Total Passivos', passivoTotal],
-            ['(+) Lucro Acumulado (PL)', patrimonioLiquidoCalculado],
-            ['(=) Total Passivo + PL', passivoTotal + patrimonioLiquidoCalculado],
+            ['(+) Patrimônio Líquido', patrimonioLiquido],
+            ['(=) Total Passivo + PL', passivoTotal + patrimonioLiquido],
         ];
-    }, [estadoRodada, rodadaDecisao]);
+
+        return { dadosDRE, dadosBalanco };
+
+    }, [dadosVisao.estado]);
+
+    // Opções para o seletor de rodada
+    const opcoesRodada = Array.from({ length: rodadaRelatorio + 1 }, (_, i) => i); // Cria array [0, 1, ..., rodadaRelatorio]
+    
+    // Notícia (só mostra a da rodada de decisão)
+    const noticiaDaRodada = simulacao[`Noticia_Rodada_${rodadaDecisao}`] || "Nenhuma notícia específica para esta rodada.";
 
 
-     const noticiaDaRodada = simulacao && simulacao[`Noticia_Rodada_${rodadaDecisao}`] ? simulacao[`Noticia_Rodada_${rodadaDecisao}`] : "Nenhuma notícia específica.";
-
-     // Adiciona verificação para estadoRodada antes de renderizar DRE/Balanço
-     if (!estadoRodada) {
-         return <div className="text-center text-gray-500 py-10">Aguardando dados da rodada...</div>;
-     }
-
-     return (
-        <div className="space-y-6 animate-fade-in">
-            {/* Notícia da Rodada */}
-            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 p-4 md:p-6 rounded-lg shadow">
-                <h3 className="text-lg md:text-xl font-semibold mb-2 text-yellow-800"> <span role="img" aria-label="Newspaper" className="mr-2">📰</span> Notícia (R{rodadaDecisao}) </h3>
-                <p className="text-sm md:text-base whitespace-pre-wrap">{noticiaDaRodada}</p>
-            </div>
-
-            {/* Resultados Financeiros e Operacionais */}
-            <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow">
-                <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2"> <span role="img" aria-label="Chart" className="mr-2">📈</span> Resultados (R{rodadaRelatorio}) </h3>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-                    <RelatorioFinanceiro titulo="DRE" dados={dadosDRE} />
-                    <RelatorioFinanceiro titulo="Balanço" dados={dadosBalanco} isBalanco={true} />
-                    <div className="bg-gray-700 p-4 rounded-lg shadow">
-                        <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">Operações e P&D</h4>
-                        <ul className="space-y-2 text-sm"> <li className="flex justify-between items-center"><span className="text-gray-300">Capacidade:</span> <span className="font-medium text-white">{Number(estadoRodada.Capacidade_Fabrica || 0).toLocaleString('pt-BR')} Unid.</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Produção:</span> <span className="font-medium text-white">{Number(estadoRodada.Producao_Efetiva || 0).toLocaleString('pt-BR')} Unid.</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Estoque:</span> <span className="font-medium text-white">{Number(estadoRodada.Estoque_Final_Unidades || 0).toLocaleString('pt-BR')} Unid.</span></li> <li className="pt-2 mt-2 border-t border-gray-600 flex justify-between items-center"><span className="text-gray-300">Nível Câmera:</span> <span className="font-semibold text-cyan-300">Nível {estadoRodada.Nivel_PD_Camera || 1}</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Nível Bateria:</span> <span className="font-semibold text-cyan-300">Nível {estadoRodada.Nivel_PD_Bateria || 1}</span></li> <li className="flex justify-between items-center"><span className="text-gray-300">Nível IA:</span> <span className="font-semibold text-cyan-300">Nível {estadoRodada.Nivel_PD_IA || 1}</span></li> </ul>
-                        {(estadoRodada.Noticia_Producao_Risco || estadoRodada.Noticia_Ruptura_Estoque || estadoRodada.Divida_Emergencia > 0) && ( <div className="mt-4 pt-3 border-t border-gray-600"> <h5 className="text-md font-semibold text-yellow-400 mb-2">Alertas da Rodada {rodadaRelatorio}:</h5> <ul className="space-y-1 text-xs text-yellow-200 list-disc list-inside"> {estadoRodada.Noticia_Producao_Risco && <li>{estadoRodada.Noticia_Producao_Risco}</li>} {estadoRodada.Noticia_Ruptura_Estoque && <li>{estadoRodada.Noticia_Ruptura_Estoque}</li>} {estadoRodada.Divida_Emergencia > 0 && <li className="text-red-400 font-semibold">Empréstimo de Emergência contraído!</li>} </ul> </div> )}
-                    </div>
+    return (
+        <div className="space-y-6 animate-fade-in"> 
+            
+            {/* 1. Acordeon de Notícia (Sempre mostra a notícia da PRÓXIMA rodada) */}
+            <details className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 p-4 md:p-6 rounded-lg shadow group" open> 
+                <summary className="text-lg md:text-xl font-semibold text-yellow-800 cursor-pointer list-none flex justify-between items-center"> 
+                    <span> <span role="img" aria-label="Newspaper" className="mr-2">📰</span> Notícia (Para Rodada {rodadaDecisao}) </span>
+                    <span className="text-yellow-700 group-open:rotate-180 transition-transform duration-200">▼</span> 
+                </summary> 
+                <div className="mt-3 pt-3 border-t border-yellow-300">
+                    <p className="text-sm md:text-base whitespace-pre-wrap">{noticiaDaRodada}</p> 
                 </div>
+            </details> 
+
+            {/* 2. Seletor de Rodada Histórica */}
+            <div className="bg-gray-800 p-4 rounded-lg shadow flex items-center gap-4">
+                <label htmlFor="rodadaSelect" className="text-lg font-semibold text-gray-300">
+                    Visualizar Resultados da Rodada:
+                </label>
+                <select 
+                    id="rodadaSelect"
+                    value={rodadaSelecionada}
+                    onChange={(e) => setRodadaSelecionada(Number(e.target.value))}
+                    className="bg-gray-700 p-2 rounded-lg text-white font-bold focus:ring-2 focus:ring-cyan-500"
+                >
+                    {opcoesRodada.map(r => (
+                        <option key={r} value={r}>
+                            Rodada {r} {r === 0 ? '(Inicial)' : (r === rodadaRelatorio ? '(Atual)' : '')}
+                        </option>
+                    ))}
+                </select>
             </div>
 
-            {/* Renderiza o Resumo das Decisões Anteriores */}
-            {rodadaRelatorio > 0 && <ResumoDecisoesRodada decisoes={decisoesAnteriores} />}
+            {/* 3. Conteúdo dos Resultados (DRE, Balanço, Operações) */}
+            {dadosVisao.loading ? (
+                <p className="text-center text-gray-400 py-10">Carregando dados da Rodada {rodadaSelecionada}...</p>
+            ) : dadosVisao.estado ? (
+                <>
+                    {/* Resultados Financeiros e Operacionais */}
+                    <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow"> 
+                        <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2"> 
+                            <span role="img" aria-label="Chart" className="mr-2">📈</span> Resultados (Rodada {rodadaSelecionada}) 
+                        </h3> 
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6"> 
+                            <RelatorioFinanceiro titulo="DRE" dados={dadosDRE} /> 
+                            <RelatorioFinanceiro titulo="Balanço" dados={dadosBalanco} isBalanco={true} /> 
+                            <div className="bg-gray-700 p-4 rounded-lg shadow"> 
+                                <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">Operações e P&D</h4> 
+                                <ul className="space-y-2 text-sm"> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Capacidade:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Capacidade_Fabrica} tipo="unidade" /> Unid.</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Produção:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Producao_Efetiva} tipo="unidade" /> Unid.</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Estoque:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Estoque_Final_Unidades} tipo="unidade" /> Unid.</span></li> 
+                                    
+                                    <li className="pt-2 mt-2 border-t border-gray-600 flex justify-between items-center"><span className="text-gray-300">Nível Câmera:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Camera || 1}</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Nível Bateria:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Bateria || 1}</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Nível SO/IA:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Sist_Operacional_e_IA || 1}</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Nível Atual. Geral:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Atualizacao_Geral || 1}</span></li> 
+                                </ul> 
+                                
+                                {(dadosVisao.estado.Noticia_Producao_Risco || dadosVisao.estado.Noticia_Ruptura_Estoque || dadosVisao.estado.Divida_Emergencia > 0) && ( 
+                                    <div className="mt-4 pt-3 border-t border-gray-600"> 
+                                        <h5 className="text-md font-semibold text-yellow-400 mb-2">Alertas da Rodada {rodadaSelecionada}:</h5> 
+                                        <ul className="space-y-1 text-xs text-yellow-200 list-disc list-inside"> 
+                                            {dadosVisao.estado.Noticia_Producao_Risco && <li>{dadosVisao.estado.Noticia_Producao_Risco}</li>} 
+                                            {dadosVisao.estado.Noticia_Ruptura_Estoque && <li>{dadosVisao.estado.Noticia_Ruptura_Estoque}</li>} 
+                                            {dadosVisao.estado.Divida_Emergencia > 0 && <li className="text-red-400 font-semibold">Empréstimo de Emergência contraído!</li>} 
+                                        </ul> 
+                                    </div> 
+                                )} 
+                            </div> 
+                        </div> 
+                    </div> 
 
-            {/* Briefing Original */}
-            <details className="bg-gray-800 p-4 md:p-6 rounded-lg shadow group">
-                <summary className="text-lg font-semibold text-cyan-400 cursor-pointer list-none flex justify-between items-center"> <span>Briefing Original</span> <span className="text-cyan-500 group-open:rotate-180 transition-transform duration-200">▼</span> </summary>
-                <div className="mt-3 pt-3 border-t border-gray-700"> <p className="text-gray-300 text-sm whitespace-pre-wrap">{simulacao?.Cenario_Inicial_Descricao || "-"}</p> </div>
-            </details>
-        </div>
+                    {/* 4. Resumo das Decisões (só mostra se não for R0) */}
+                    {rodadaSelecionada > 0 && <ResumoDecisoesRodada decisoes={dadosVisao.decisoes} />}
+
+                </>
+            ) : (
+                <p className="text-center text-yellow-400 py-10">Dados não encontrados para a Rodada {rodadaSelecionada}.</p>
+            )}
+        </div> 
     );
- }
+}
 
- export default ResultadosBriefing; // Exporta o componente
+export default ResultadosBriefing;
+

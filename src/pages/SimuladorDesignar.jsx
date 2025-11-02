@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { doc, getDoc, updateDoc, collection, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, writeBatch, query, where } from 'firebase/firestore'; // Adicionado query e where
 import { db, appId } from '../firebase/config';
-import useCollection from '../hooks/useCollection';
+// CORREÇÃO: A importação do hook está correta
+import useCollection from '../hooks/useCollection'; 
 
-// --- Ícone de Edição Simples ---
+// --- Ícones (sem alteração) ---
 const IconeEditar = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline-block ml-2 text-gray-400 hover:text-yellow-400 cursor-pointer" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>;
 const IconeRemover = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
 
@@ -15,18 +16,29 @@ function SimuladorDesignar() {
     const [loading, setLoading] = useState(false); // Para salvar designações
     const [erro, setErro] = useState('');
 
-    // Busca todos os usuários (alunos, professores, etc.)
-    const todosUsuarios = useCollection('usuarios'); // Hook `useCollection` para buscar usuários
-    // Busca as empresas desta simulação
-    const empresasCollectionPath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas`;
-    const empresas = useCollection(empresasCollectionPath); // Hook já re-renderiza on change
+    // --- CORREÇÃO: Desestruturar o retorno do useCollection ---
+    
+    // 1. Criar a query para 'usuarios'
+    // Usamos useMemo para garantir que a referência da query seja estável
+    const queryAlunos = useMemo(() => {
+        // Retorna a query no formato [field, operator, value] que o hook espera
+        return ['papel', '==', 'aluno'];
+    }, []); 
 
-    // Filtra apenas alunos
-    const alunos = useMemo(() => todosUsuarios.filter(u => u.papel === 'aluno'), [todosUsuarios]);
+    // 2. Usar o hook com a query e desestruturar a resposta
+    const { documents: alunos, isLoading: isLoadingUsuarios, error: errorUsuarios } = useCollection(
+        'usuarios', 
+        queryAlunos // Passa a query
+    );
+    
+    // 3. Fazer o mesmo para 'empresas'
+    const empresasCollectionPath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas`;
+    const { documents: empresas, isLoading: isLoadingEmpresas, error: errorEmpresas } = useCollection(empresasCollectionPath); 
+    
     // Estado para designações { empresaId: [alunoId1, alunoId2], ... }
     const [assign, setAssign] = useState({});
 
-    // --- Estados para Edição de Nomes ---
+    // --- Estados para Edição de Nomes (sem alteração) ---
     const [editingEmpresaId, setEditingEmpresaId] = useState(null);
     const [editedName, setEditedName] = useState('');
     const [loadingName, setLoadingName] = useState(false);
@@ -35,6 +47,7 @@ function SimuladorDesignar() {
     // Carrega a simulação e inicializa as designações
     useEffect(() => {
         // Define as designações iniciais quando as empresas carregam ou mudam
+        // CORREÇÃO: Tratar 'empresas' como 'null' durante o carregamento
         if (empresas && empresas.length > 0) {
             const initialAssign = {};
             empresas.forEach(empresa => {
@@ -59,7 +72,9 @@ function SimuladorDesignar() {
              setErro("Erro ao carregar dados da simulação.");
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [simulacaoId, db, empresas]); // Dependência em `empresas` para recarregar designações se elas mudarem no Firestore
+    }, [simulacaoId, db, empresas]); // Dependência em `empresas` para recarregar designações
+
+    // --- Lógica de Add/Remove/Save (sem alteração) ---
 
     // Calcula quais alunos já estão designados em alguma empresa
     const alunosDesignadosIds = useMemo(() => {
@@ -71,8 +86,9 @@ function SimuladorDesignar() {
     }, [assign]);
 
     // Filtra alunos que ainda não foram designados
+    // CORREÇÃO: Tratar 'alunos' como 'null'
     const alunosDisponiveis = useMemo(() => {
-        return alunos.filter(aluno => !alunosDesignadosIds.has(aluno.id));
+        return (alunos || []).filter(aluno => !alunosDesignadosIds.has(aluno.id));
     }, [alunos, alunosDesignadosIds]);
 
     // --- IMPLEMENTAÇÃO handleAddAluno ---
@@ -113,7 +129,8 @@ function SimuladorDesignar() {
         setErro('');
         try {
             const batch = writeBatch(db);
-            empresas.forEach(empresa => {
+            // CORREÇÃO: 'empresas' pode ser null
+            (empresas || []).forEach(empresa => {
                 const empresaRef = doc(db, empresasCollectionPath, empresa.id);
                 // Pega a lista atualizada do estado 'assign' para esta empresa
                 const integrantesAtualizados = assign[empresa.id] || [];
@@ -132,14 +149,14 @@ function SimuladorDesignar() {
     // --- FIM DA IMPLEMENTAÇÃO ---
 
     // Função auxiliar para pegar o nome do aluno pelo ID
-    const getAlunoNome = (alunoId) => alunos.find(a => a.id === alunoId)?.nome || 'Aluno ?';
+    const getAlunoNome = (alunoId) => (alunos || []).find(a => a.id === alunoId)?.nome || 'Aluno ?';
     // Função auxiliar para pegar o objeto aluno completo pelo ID
-    const getAluno = (alunoId) => alunos.find(a => a.id === alunoId);
+    const getAluno = (alunoId) => (alunos || []).find(a => a.id === alunoId);
 
     // --- Funções para Edição de Nomes (inalteradas) ---
-    const handleEditNameClick = (empresa) => { /* ... */ setEditingEmpresaId(empresa.id); setEditedName(empresa.Nome_Empresa || empresa.id); setErrorName(''); };
-    const handleNameChange = (event) => { /* ... */ setEditedName(event.target.value); };
-    const handleCancelEdit = () => { /* ... */ setEditingEmpresaId(null); setEditedName(''); setErrorName(''); };
+    const handleEditNameClick = (empresa) => { setEditingEmpresaId(empresa.id); setEditedName(empresa.Nome_Empresa || empresa.id); setErrorName(''); };
+    const handleNameChange = (event) => { setEditedName(event.target.value); };
+    const handleCancelEdit = () => { setEditingEmpresaId(null); setEditedName(''); setErrorName(''); };
     const handleSaveName = async (empresaId) => {
         if (!editedName.trim()) { setErrorName("O nome não pode ficar em branco."); return; }
         setLoadingName(true); setErrorName('');
@@ -162,12 +179,26 @@ function SimuladorDesignar() {
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(nome)}&background=0D8ABC&color=fff&size=32`; // size=32 para combinar com w-6 h-6
     };
 
+    // --- CORREÇÃO: Adicionando Handlers de Loading e Erro ---
+    if (isLoadingUsuarios || isLoadingEmpresas) {
+        return <div className="text-center p-10 text-gray-400 animate-pulse">Carregando dados...</div>;
+    }
+
+    // Combina os erros dos hooks com os erros locais
+    const erroFatal = errorUsuarios || errorEmpresas || erro;
+    if (erroFatal) {
+        // Se o erro for um objeto (do hook), usa .message, senão usa o string
+        const mensagemErro = typeof erroFatal === 'object' ? erroFatal.message : erroFatal;
+        return <p className="text-red-400 bg-red-900 p-4 rounded-lg m-8">Erro: {mensagemErro}</p>;
+    }
+    // --- Fim da Correção ---
+
     return (
         <div className="bg-gray-800 shadow-lg rounded-xl p-8 animate-fade-in max-w-7xl mx-auto">
             <h2 className="text-2xl font-bold text-cyan-400 mb-2">Designar Alunos e Editar Empresas</h2>
             <p className="text-lg text-gray-300 mb-6">{simulacao?.Nome_Simulacao || 'Carregando nome...'}</p>
 
-            {erro && <p className="text-red-400 bg-red-900 p-3 rounded-lg mb-4">{erro}</p>}
+            {/* Removido 'erro' daqui, já tratado acima */}
             {errorName && <p className="text-red-400 bg-red-900 p-3 rounded-lg mb-4">{errorName}</p>}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -195,7 +226,8 @@ function SimuladorDesignar() {
                                         title={`Designar ${aluno.nome}`}
                                     >
                                         <option value="">Designar...</option>
-                                        {empresas.map(empresa => (
+                                        {/* CORREÇÃO: 'empresas' pode ser null */}
+                                        {(empresas || []).map(empresa => (
                                             <option key={`${aluno.id}-opt-${empresa.id}`} value={empresa.id}>
                                                 {empresa.Nome_Empresa || empresa.id}
                                             </option>
@@ -211,7 +243,8 @@ function SimuladorDesignar() {
 
                 {/* Colunas das Empresas - MODIFICADA para usar getAvatarUrl */}
                 <div className="md:col-span-2 grid grid-cols-1 lg:grid-cols-2 gap-4 h-[calc(100vh-250px)] overflow-y-auto pr-2"> {/* Altura e scroll */}
-                    {empresas.map(empresa => (
+                    {/* CORREÇÃO: 'empresas' pode ser null */}
+                    {(empresas || []).map(empresa => (
                         <div key={empresa.id} className="bg-gray-900 p-4 rounded-lg flex flex-col justify-between">
                             <div>
                                 <div className="flex justify-between items-center mb-1">
@@ -229,7 +262,7 @@ function SimuladorDesignar() {
                                             <button onClick={handleCancelEdit} className="bg-gray-600 hover:bg-gray-700 text-white text-xs font-bold py-1 px-2 rounded" disabled={loadingName}> Cancelar </button>
                                         </div>
                                     ) : (
-                                         <Link to={`/simulador/painel/${simulacaoId}/${empresa.id}`} target="_blank" rel="noopener noreferrer" className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1 px-3 rounded" title="Ver o painel desta empresa"> Ver Painel </Link>
+                                        <Link to={`/simulador/painel/${simulacaoId}/${empresa.id}`} target="_blank" rel="noopener noreferrer" className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1 px-3 rounded" title="Ver o painel desta empresa"> Ver Painel </Link>
                                     )}
                                 </div>
                                  {(empresa.Nome_Empresa && empresa.Nome_Empresa !== empresa.id) && ( <p className="text-xs text-gray-500 mb-3">(ID Original: {empresa.id})</p> )}

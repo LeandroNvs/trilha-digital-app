@@ -119,6 +119,7 @@ export async function processarRodada(simulacaoId, simulacao) {
                 Divida_Emergencia: 0, // Será definido se necessário NESTA rodada
                 Divida_LP_Saldo: estadoAtualSnap.data().Divida_LP_Saldo || 0,
                 Divida_LP_Rodadas_Restantes: estadoAtualSnap.data().Divida_LP_Rodadas_Restantes || 0,
+                Noticia_Financeira_Emergencia: null // NOVO: Para alertar o aluno sobre o empréstimo forçado
             }
         });
     }
@@ -357,8 +358,9 @@ export async function processarRodada(simulacaoId, simulacao) {
 
         // Simulação de Risco (Fornecedor A)
         // USA OS PARÂMETROS DO FORM
-        const riscoFornecedorA = simulacao.Risco_Fornecedor_A_Prob / 100 || 0; 
-        const perdaFornecedorA = simulacao.Risco_Fornecedor_A_Perda / 100 || 0;
+        const riscoFornecedorA = (simulacao.Fornecedor_Tela_A_Desc.includes("20%")) ? 0.20 : 0; // Exemplo simplificado, ideal é ter campos numéricos
+        const perdaFornecedorA = (simulacao.Fornecedor_Tela_A_Desc.includes("15%")) ? 0.15 : 0; // Exemplo simplificado
+        
         if (decisoes.Escolha_Fornecedor_Tela === 'A' && Math.random() < riscoFornecedorA) {
             const perda = Math.floor(producaoEfetiva * perdaFornecedorA);
             producaoEfetiva -= perda;
@@ -380,7 +382,20 @@ export async function processarRodada(simulacaoId, simulacao) {
 
         const cpvTotalProducao = producaoEfetiva * custoVariavelUnitario;
 
-        // Subtrai CPV do Caixa
+        // --- ATUALIZAÇÃO: Verifica se há caixa para produção ---
+        if (estadoNovo.Caixa < cpvTotalProducao) {
+            const shortfall = cpvTotalProducao - estadoNovo.Caixa;
+            estadoNovo.Divida_Emergencia += shortfall; // Adiciona o shortfall à dívida de emergência
+            
+            const msgAlerta = `!!! EMERGÊNCIA (Produção) !!! Caixa ${estadoNovo.Caixa.toLocaleString('pt-BR')} insuficiente para Custo Produção ${cpvTotalProducao.toLocaleString('pt-BR')}. Empréstimo de Emergência de ${shortfall.toLocaleString('pt-BR')} contraído.`;
+            
+            console.warn(`[${empresa.id}] R${proximaRodada}: ${msgAlerta}`);
+            
+            // Adiciona a notícia para o aluno ver na próxima rodada
+            estadoNovo.Noticia_Financeira_Emergencia = `Caixa insuficiente (${estadoNovo.Caixa.toLocaleString('pt-BR')}) para cobrir custos de produção (${cpvTotalProducao.toLocaleString('pt-BR')}). Um Empréstimo de Emergência de ${shortfall.toLocaleString('pt-BR')} foi contraído automaticamente com juros punitivos.`;
+        }
+        
+        // Subtrai CPV do Caixa (o caixa PODE ficar negativo, mas a Dívida de Emergência foi registrada)
         estadoNovo.Caixa -= cpvTotalProducao;
         console.log(`[${empresa.id}] R${proximaRodada}: Produziu ${producaoEfetiva.toLocaleString('pt-BR')} unid. Custo Unit: ${custoVariavelUnitario.toFixed(2)}. CPV Total: ${cpvTotalProducao.toLocaleString('pt-BR')}. Caixa: ${estadoNovo.Caixa.toLocaleString('pt-BR')}`);
 
@@ -426,6 +441,9 @@ export async function processarRodada(simulacaoId, simulacao) {
     const mktPremium = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_1 || 0);
     const mktMassa = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_2 || 0);
     
+    // 5. NOVO: Lista de P&D Básico
+    const niveisAtualGeral = dadosProcessamento.map(e => e.estadoNovo.Nivel_PD_Atualizacao_Geral || 1);
+
     let somaAtratividadePremium = 0; let somaAtratividadeMassa = 0;
     // --- FIM DO BLOCO CORRIGIDO ---
 
@@ -454,7 +472,6 @@ export async function processarRodada(simulacaoId, simulacao) {
         // --- Cálculo Atratividade Básico (Massa) (ATUALIZADO) ---
         // Cálculo de P&D Básico (usa "Atualização Geral")
         // NORMALIZANDO o nível de P&D Básico entre os concorrentes
-        const niveisAtualGeral = dadosProcessamento.map(e => e.estadoNovo.Nivel_PD_Atualizacao_Geral || 1);
         const nPDBasico = normalizarValor(estadoNovo.Nivel_PD_Atualizacao_Geral || 1, niveisAtualGeral); // Nota é o nível NORMALIZADO
         
         // Cálculo de Mkt Básico
@@ -569,9 +586,10 @@ export async function processarRodada(simulacaoId, simulacao) {
         const dividaCurtoPrazoTotal = (estadoNovo.Divida_CP || 0) + (estadoNovo.Divida_Emergencia || 0);
         // Se não há dívida CP, saúde é excelente (ex: score 10).
         // Se há dívida CP, score é a cobertura (Caixa / Dívida CP).
+        // Se o caixa for 0 ou negativo e houver dívida, o índice é 0.
         const indiceSaude = (dividaCurtoPrazoTotal === 0) 
             ? 10 // Valor alto arbitrário para "saúde perfeita" (sem dívida CP)
-            : (estadoNovo.Caixa || 0) / dividaCurtoPrazoTotal; // Índice de cobertura
+            : (Math.max(0, estadoNovo.Caixa || 0) / dividaCurtoPrazoTotal); // Índice de cobertura, mínimo 0
 
         return {
             id: emp.id,
