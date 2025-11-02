@@ -24,7 +24,7 @@ function aplicarRetornosDecrescentes(notaNormalizada) {
  * Encontra a mediana e define um "teto" (cap) para a normalização.
  * @param {number[]} precos - A lista de preços original.
  * @param {number} multiplicadorCap - Quantas vezes acima da mediana é considerado "irreal".
- * @returns {number[]} - A lista de preços "higienizada" para normalização.
+ * @returns {object} - Retorna os preços higienizados E o teto de sanidade.
  */
 function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
     // Filtra preços 0, Infinity ou inválidos, que não devem entrar no cálculo da mediana
@@ -32,7 +32,8 @@ function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
 
     if (precosValidos.length === 0) {
         // Retorna uma lista que faz com que normalizarValor retorne 0 ou 1, sem quebrar
-        return precos.map(() => 1); 
+        // E um teto de 1, para que qualquer preço > 0 seja considerado "acima do teto"
+        return { precosHigienizados: precos.map(() => 1), tetoSanidade: 1 }; 
     }
     
     precosValidos.sort((a, b) => a - b);
@@ -45,17 +46,19 @@ function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
 
     // Define o "teto de sanidade"
     // Um preço não pode ser mais que X vezes a mediana para fins de cálculo.
-    // Garante que o teto seja pelo menos o maior preço "válido" (caso haja poucos concorrentes)
-    const tetoSanidadeBase = mediana * multiplicadorCap;
-    const tetoSanidade = Math.max(tetoSanidadeBase, precosValidos[precosValidos.length - 1]);
+    // REMOVIDA A LÓGICA DE Math.max que incluía o outlier no teto.
+    const tetoSanidade = mediana * multiplicadorCap;
 
 
     // Mapeia a lista original, "capando" os valores irreais
-    return precos.map(p => {
+    const precosHigienizados = precos.map(p => {
         if (!isFinite(p) || p === 0) return Infinity; // Mantém a lógica de p=0 dar nota 0
-        if (p > tetoSanidade) return tetoSanidade; // "Capa" o outlier
+        if (p > tetoSanidade) return tetoSanidade; // "Capa" o outlier para a normalização
         return p; // Preço normal
     });
+
+    // Retorna o objeto com os preços e o teto
+    return { precosHigienizados, tetoSanidade };
 }
 // --- FIM DA NOVA FUNÇÃO ---
 
@@ -434,8 +437,9 @@ export async function processarRodada(simulacaoId, simulacao) {
     const multiplicadorCap = 5.0; 
 
     // 3. Higieniza as listas de preços para usar na normalização
-    const precosHigienizadosPremium = higienizarPrecosOutliers(precosBrutosPremium, multiplicadorCap);
-    const precosHigienizadosMassa = higienizarPrecosOutliers(precosBrutosMassa, multiplicadorCap);
+    //    AGORA DESESTRUTURANDO O RETORNO DA FUNÇÃO
+    const { precosHigienizados: precosHigienizadosPremium, tetoSanidade: tetoPremium } = higienizarPrecosOutliers(precosBrutosPremium, multiplicadorCap);
+    const { precosHigienizados: precosHigienizadosMassa, tetoSanidade: tetoMassa } = higienizarPrecosOutliers(precosBrutosMassa, multiplicadorCap);
     
     // 4. Listas de Marketing (inalteradas)
     const mktPremium = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_1 || 0);
@@ -461,10 +465,20 @@ export async function processarRodada(simulacaoId, simulacao) {
         const nMktPrem = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_1 || 0, mktPremium));
         
         // Cálculo de Preço Premium
-        const nPrecoPrem = normalizarValor(decisoes.Preco_Segmento_1 || Infinity, precosHigienizadosPremium, true); 
+        const precoRealPremium = decisoes.Preco_Segmento_1 || Infinity;
+        const nPrecoPrem = normalizarValor(precoRealPremium, precosHigienizadosPremium, true); 
         
-        // Atratividade Final Premium
-        const atrPrem = (nPDTotalPremium * pesoPDPremium) + (nMktPrem * pesoMktPremium) + (nPrecoPrem * pesoPrecoPremium);
+        // --- LÓGICA DE PUNIÇÃO (PREÇO ABSURDO) ---
+        let atrPrem = 0;
+        if (precoRealPremium > tetoPremium) {
+            atrPrem = 0; // Preço acima do teto de sanidade ZERA a atratividade.
+            console.warn(`[${empresa.id}] PREÇO PREMIUM ABSURDO (${precoRealPremium.toLocaleString('pt-BR')} > ${tetoPremium.toLocaleString('pt-BR')}). Atratividade zerada.`);
+        } else {
+            // Cálculo normal de atratividade
+            atrPrem = (nPDTotalPremium * pesoPDPremium) + (nMktPrem * pesoMktPremium) + (nPrecoPrem * pesoPrecoPremium);
+        }
+        // --- FIM DA LÓGICA DE PUNIÇÃO ---
+        
         empresa.estadoNovo.Atratividade_Premium = atrPrem > 0 ? atrPrem : 0; // Garante não negativo
         somaAtratividadePremium += empresa.estadoNovo.Atratividade_Premium;
 
@@ -478,10 +492,20 @@ export async function processarRodada(simulacaoId, simulacao) {
         const nMktMassa = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_2 || 0, mktMassa));
         
         // Cálculo de Preço Básico
-        const nPrecoMassa = normalizarValor(decisoes.Preco_Segmento_2 || Infinity, precosHigienizadosMassa, true);
+        const precoRealMassa = decisoes.Preco_Segmento_2 || Infinity;
+        const nPrecoMassa = normalizarValor(precoRealMassa, precosHigienizadosMassa, true);
         
-        // Atratividade Final Básico (usa novos pesos)
-        const atrMassa = (nPDBasico * pesoPDMassa) + (nMktMassa * pesoMktMassa) + (nPrecoMassa * pesoPrecoMassa);
+        // --- LÓGICA DE PUNIÇÃO (PREÇO ABSURDO) ---
+        let atrMassa = 0;
+        if (precoRealMassa > tetoMassa) {
+            atrMassa = 0; // Preço acima do teto de sanidade ZERA a atratividade.
+            console.warn(`[${empresa.id}] PREÇO MASSA ABSURDO (${precoRealMassa.toLocaleString('pt-BR')} > ${tetoMassa.toLocaleString('pt-BR')}). Atratividade zerada.`);
+        } else {
+            // Cálculo normal de atratividade
+            atrMassa = (nPDBasico * pesoPDMassa) + (nMktMassa * pesoMktMassa) + (nPrecoMassa * pesoPrecoMassa);
+        }
+        // --- FIM DA LÓGICA DE PUNIÇÃO ---
+        
         empresa.estadoNovo.Atratividade_Massa = atrMassa > 0 ? atrMassa : 0; // Garante não negativo
         somaAtratividadeMassa += empresa.estadoNovo.Atratividade_Massa;
     });

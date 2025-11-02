@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { db, appId } from '../firebase/config.js';
+import { db, appId } from '/src/firebase/config.js'; // Corrigido: Caminho absoluto
 import { doc, getDoc, collection, query, getDocs } from 'firebase/firestore';
 // Importa o LineChart e seus componentes
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-// Componente para formatar números (inalterado)
+// Componente para formatar números (ATUALIZADO)
 const FormatNumero = ({ valor, tipo = 'decimal' }) => {
     const num = Number(valor) || 0;
     if (tipo === 'moeda') {
@@ -13,6 +13,10 @@ const FormatNumero = ({ valor, tipo = 'decimal' }) => {
     }
     if (tipo === 'unidade') {
          return num.toLocaleString('pt-BR');
+    }
+    // NOVO TIPO
+    if (tipo === 'percent') {
+        return `${(num * 100).toFixed(1)}%`;
     }
     return num.toFixed(1);
 };
@@ -115,6 +119,9 @@ function SimuladorRanking() {
                                 Lucro_Acumulado: estadoData.Lucro_Acumulado || 0,
                                 Vendas_Totais: (estadoData.Vendas_Efetivas_Premium || 0) + (estadoData.Vendas_Efetivas_Massa || 0),
                                 Valor_Marca: estadoData.Valor_Marca_Acumulado || 0,
+                                // NOVOS CAMPOS ADICIONADOS
+                                Market_Share_Premium: estadoData.Market_Share_Premium || 0,
+                                Market_Share_Massa: estadoData.Market_Share_Massa || 0,
                             };
                         }
                         return null;
@@ -188,6 +195,10 @@ function SimuladorRanking() {
     }, [simulacao, rodadaSelecionada, simulacaoId]); // Gatilho principal
 
 
+    // Nomes dos segmentos para a tabela
+    const nomeSegmento1 = simulacao?.Segmento1_Nome || 'Premium';
+    const nomeSegmento2 = simulacao?.Segmento2_Nome || 'Massa';
+
     return (
         <div className="bg-gray-800 shadow-lg rounded-xl p-8 animate-fade-in">
             <div className="flex justify-between items-center mb-6">
@@ -237,6 +248,9 @@ function SimuladorRanking() {
                                 <th className="px-6 py-3 text-right">IDG Score</th>
                                 <th className="px-6 py-3 text-right">Lucro Acumulado</th>
                                 <th className="px-6 py-3 text-right">Vendas Totais (Unid.)</th>
+                                {/* NOVAS COLUNAS */}
+                                <th className="px-6 py-3 text-right">Share ({nomeSegmento1})</th>
+                                <th className="px-6 py-3 text-right">Share ({nomeSegmento2})</th>
                                 <th className="px-6 py-3 text-right">Valor da Marca</th>
                             </tr>
                         </thead>
@@ -255,6 +269,13 @@ function SimuladorRanking() {
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <FormatNumero valor={empresa.Vendas_Totais} tipo="unidade" />
+                                    </td>
+                                    {/* NOVAS CÉLULAS */}
+                                    <td className="px-6 py-4 text-right">
+                                        <FormatNumero valor={empresa.Market_Share_Premium} tipo="percent" />
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <FormatNumero valor={empresa.Market_Share_Massa} tipo="percent" />
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <FormatNumero valor={empresa.Valor_Marca} tipo="moeda" />
@@ -313,4 +334,5 @@ function SimuladorRanking() {
 }
 
 export default SimuladorRanking;
+
 
