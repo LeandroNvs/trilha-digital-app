@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
-import { db, appId } from '../firebase/config.js'; // Ajuste o caminho conforme sua estrutura
+// CORREÇÃO: Tentando um caminho absoluto (baseado na raiz /src/)
+import { db, appId } from '/src/firebase/config.js'; 
+// NOVO (RF 4.6): Adicionando imports do Recharts para o gráfico IDG
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+
 
 // --- Componentes Internos de Relatório ---
 
@@ -38,26 +42,42 @@ function FormatNumero({ valor, tipo = 'decimal', comCor = false }) {
 function RelatorioFinanceiro({ titulo, dados, isBalanco = false }) {
     const getRowStyle = (label) => {
         if (!label) return "";
-        if (label.startsWith('(=)') || label.startsWith('Subtotal') || label.startsWith('Total')) {
+        // Estilos para Totais e Subtotais
+        if (label.startsWith('(=)') || label.startsWith('Total') || label.startsWith('Subtotal')) {
             return "font-semibold border-t border-gray-600 pt-1";
         }
-        if (label.startsWith('(-)') || label.startsWith('(+)')) {
-            return "pl-2";
+        // Estilo para Linhas de Categoria (ex: --- DESPESAS ---)
+        if (label.startsWith('---')) {
+            return "font-semibold text-cyan-400 text-xs pt-2 tracking-wider";
         }
-        return "";
+        // Estilo para itens dentro de uma categoria
+        if (label.startsWith('(-)') || label.startsWith('(+)') ) {
+            return "pl-2"; // Adiciona um leve recuo
+        }
+        return "border-b border-gray-600 last:border-b-0"; // Estilo padrão da linha
     };
     return (
         <div className="bg-gray-700 p-4 rounded-lg shadow">
             <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">{titulo}</h4>
             <div className="space-y-1 text-sm">
-                {dados.map(([label, valor], index) => (
-                    <div key={`${label}-${index}`} className={`flex justify-between items-center py-1 ${getRowStyle(label)} ${label?.includes('---') ? 'border-t border-dashed border-gray-600 mt-1 pt-1' : 'border-b border-gray-600 last:border-b-0'}`}>
-                        <span className="text-gray-300">{label ? label.replace(/^[(=)\-+ ]+|[ ]+$/g, '') : ''}:</span>
-                        <span className="font-medium">
-                            <FormatNumero valor={valor} tipo="moeda" comCor={true} />
-                        </span>
-                    </div>
-                ))}
+                {dados.map(([label, valor], index) => {
+                    // Se a label for um separador, não renderiza valor
+                    if (label && label.startsWith('---')) {
+                        return (
+                             <div key={`${label}-${index}`} className={`flex justify-between items-center py-1 ${getRowStyle(label)}`}>
+                                 <span className="text-gray-300">{label.replace(/[- ]/g, '')}:</span>
+                             </div>
+                        )
+                    }
+                    return (
+                        <div key={`${label}-${index}`} className={`flex justify-between items-center py-1 ${getRowStyle(label)}`}>
+                            <span className="text-gray-300">{label ? label.replace(/^[(=)\-+ ]+|[ ]+$/g, '') : ''}:</span>
+                            <span className="font-medium">
+                                <FormatNumero valor={valor} tipo="moeda" comCor={true} />
+                            </span>
+                        </div>
+                    )
+                })}
                 {isBalanco && dados.length > 0 && (
                     <div className="flex justify-between items-center pt-2 mt-2 border-t-2 border-cyan-500 text-xs">
                         <span className="text-gray-400 font-semibold">Total Ativo = Total Passivo + PL ?</span>
@@ -129,7 +149,86 @@ function ResumoDecisoesRodada({ decisoes }) {
                     <p className="text-gray-400">Tomar LP: <span className="font-medium text-white">{formatBRL(decisoes.Tomar_Financiamento_LP)}</span></p>
                     <p className="text-gray-400">Amortizar LP: <span className="font-medium text-white">{formatBRL(decisoes.Amortizar_Divida_LP)}</span></p>
                 </div>
+                {/* ADICIONADO RF 4.2 */}
+                <div className="bg-gray-700 p-4 rounded-lg">
+                    <h4 className="font-semibold text-gray-200 mb-2">Organização</h4>
+                    <p className="text-gray-400">Capacitação: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Organiz_Capacitacao)}</span></p>
+                    <p className="text-gray-400">Mkt Institucional: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Organiz_Mkt_Institucional)}</span></p>
+                    <p className="text-gray-400">ESG: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Organiz_ESG)}</span></p>
+                </div>
             </div>
+        </div>
+    );
+}
+
+// --- NOVO (RF 4.6): Componente para o Gráfico de IDG ---
+function GraficoIDG({ metricas }) {
+    // 1. Validar e transformar os dados
+    const data = useMemo(() => {
+        if (!metricas) return [];
+        // Nomes amigáveis para o gráfico
+        const nomesMetricas = {
+            lucro: 'Lucro',
+            share: 'Mkt Share',
+            pd: 'P&D',
+            marca: 'Marca',
+            capacitacao: 'Pessoas', // RF 4.4
+            esg: 'ESG'           // RF 4.4
+        };
+        return Object.keys(nomesMetricas)
+            .map(key => ({
+                name: nomesMetricas[key],
+                // A 'nota' é a pontuação já ponderada (ex: 30 de 30)
+                Pontos: metricas[key] ? Number(metricas[key].nota.toFixed(1)) : 0 
+            }))
+            // Opcional: filtrar métricas que ainda não pontuam (ex: R1 pode não ter lucro)
+            // .filter(item => item.Pontos > 0); 
+    }, [metricas]);
+
+    if (data.length === 0) {
+        return <p className="text-sm text-gray-400 text-center py-10">Métricas de IDG ainda não calculadas para esta rodada.</p>;
+    }
+
+    // 2. Renderizar o gráfico (BarChart horizontal)
+    return (
+        <div className="w-full h-64"> {/* Altura fixa para o gráfico */}
+            <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                    data={data}
+                    layout="vertical" // Gráfico de barras horizontal
+                    margin={{ top: 0, right: 35, left: 10, bottom: 0 }} // Aumentada margem direita para o label
+                >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#4a5568" />
+                    {/* Eixo X (Numérico, 0 a 40, pois o max é 30 ou 40) */}
+                    <XAxis 
+                        type="number" 
+                        domain={[0, 40]} // Ajustar se os pesos mudarem (ex: 0.40*100=40)
+                        stroke="#9ca3af" 
+                        tick={{ fontSize: 10 }} 
+                    />
+                    {/* Eixo Y (Categorias) */}
+                    <YAxis 
+                        dataKey="name" 
+                        type="category" 
+                        stroke="#cbd5e1" 
+                        tick={{ fontSize: 11 }} 
+                        width={70} // Espaço para os nomes
+                    />
+                    <Tooltip
+                        contentStyle={{ backgroundColor: '#334155', border: 'none', borderRadius: '0.5rem' }}
+                        labelStyle={{ color: '#cbd5e1' }}
+                        cursor={{ fill: 'rgba(74, 85, 104, 0.5)' }}
+                    />
+                    {/* <Legend wrapperStyle={{ fontSize: '12px' }} /> */}
+                    <Bar 
+                        dataKey="Pontos" 
+                        fill="#06b6d4" // Cor cyan
+                        background={{ fill: '#4a5568', opacity: 0.3 }} 
+                        // Mostra o valor na ponta da barra
+                        label={{ position: 'right', fill: '#fff', fontSize: 10, formatter: (val) => `${val.toFixed(1)} pts` }} 
+                    />
+                </BarChart>
+            </ResponsiveContainer>
         </div>
     );
 }
@@ -188,20 +287,33 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
         const estado = dadosVisao.estado;
         if (!estado) return { dadosDRE: [], dadosBalanco: [] };
 
-        // DRE
+        // --- DRE DETALHADO (RF 3.6) ---
+        const despesasFinanceirasTotais = (estado.Despesas_Juros_CP || 0) + (estado.Despesas_Juros_Emergencia || 0) + (estado.Despesas_Juros_LP || 0);
+        // RF 4.2: Adiciona despesas organizacionais ao DRE
+        const despesasOrganizacionaisTotais = (estado.Despesas_Organiz_Capacitacao || 0) + (estado.Despesas_Organiz_Mkt_Institucional || 0) + (estado.Despesas_Organiz_ESG || 0);
+        // Agrupa todas as despesas operacionais não-CPV
+        const despesasOpTotais = (estado.Despesas_Operacionais_Outras || 0) + despesasOrganizacionaisTotais;
+
         const dadosDRE = [
             ['(+) Receita de Vendas', estado.Vendas_Receita],
             ['(-) Custo Produtos Vendidos (CPV)', estado.Custo_Produtos_Vendidos],
             ['(=) Lucro Bruto', estado.Lucro_Bruto],
-            ['(-) Despesas Operacionais', estado.Despesas_Operacionais_Outras], // Inclui P&D, Mkt, Fixo
+            ['--- DESPESAS OPERACIONAIS ---', null], // Separador
+            ['(-) P&D, Mkt Produto, Custo Fixo', estado.Despesas_Operacionais_Outras],
+            ['(-) Organização (Pessoas, ESG, Marca)', despesasOrganizacionaisTotais], // RF 4.2
+            ['(=) Subtotal Desp. Operacionais', despesasOpTotais],
             ['(=) Lucro Operacional (EBIT)', estado.Lucro_Operacional_EBIT],
-            ['(-) Despesas Financeiras (Juros)', (estado.Despesas_Juros_CP || 0) + (estado.Despesas_Juros_Emergencia || 0) + (estado.Despesas_Juros_LP || 0)],
-            ['(=) Lucro Líquido (Rodada)', estado.Lucro_Liquido],
-            ['--- ACUMULADO ---', null],
+            ['--- DESPESAS FINANCEIRAS ---', null], // Separador
+            ['(-) Juros (Curto Prazo)', estado.Despesas_Juros_CP],
+            ['(-) Juros (Emergência)', estado.Despesas_Juros_Emergencia],
+            ['(-) Juros (Longo Prazo)', estado.Despesas_Juros_LP],
+            ['(=) Subtotal Desp. Financeiras', despesasFinanceirasTotais],
+            ['(=) Lucro Líquido (EBT)', estado.Lucro_Liquido], // EBT = Earnings Before Tax
+            ['--- ACUMULADO ---', null], // Separador
             ['(=) Lucro Acumulado (Total)', estado.Lucro_Acumulado],
         ];
 
-        // Balanço
+        // --- BALANÇO DETALHADO (RF 3.6) ---
         const imobilizadoLiquido = (estado.Imobilizado_Bruto || 0) - (estado.Depreciacao_Acumulada || 0);
         const ativoTotal = (estado.Caixa || 0) + (estado.Custo_Estoque_Final || 0) + imobilizadoLiquido;
         
@@ -218,14 +330,19 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
         const passivoTotal = passivoCirculante + passivoNaoCirculante;
         
         // PL = Ativo - Passivo
-        const patrimonioLiquido = ativoTotal - passivoTotal; 
+        const patrimonioLiquidoTotal = ativoTotal - passivoTotal; 
+        const lucroAcumulado = estado.Lucro_Acumulado || 0;
+        // Capital Social = PL Total - Lucros Acumulados (o que "sobrou")
+        const capitalSocialEOutros = patrimonioLiquidoTotal - lucroAcumulado;
+
 
         const dadosBalanco = [
+            ['--- ATIVOS ---', null], // Separador
             ['(+) Caixa', estado.Caixa],
             ['(+) Estoque (Custo)', estado.Custo_Estoque_Final],
             ['(+) Imobilizado (Líquido)', imobilizadoLiquido],
             ['(=) Total Ativos', ativoTotal],
-            ['--- PASSIVOS E PL ---', null],
+            ['--- PASSIVOS E PL ---', null], // Separador
             ['(+) Dívida Curto Prazo (Venc. R'+(estado.Rodada+1)+')', dividaCPVencendoBalanco],
             ['(+) Dívida Emergência (Venc. R'+(estado.Rodada+1)+')', dividaEmergVencendoBalanco],
             ['(+) Parcela LP (Venc. R'+(estado.Rodada+1)+')', parcelaPrincipalLPProxima],
@@ -233,8 +350,11 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
             ['(+) Saldo Dívida LP (Restante)', passivoNaoCirculante],
             ['(=) Subtotal Passivo Não Circulante', passivoNaoCirculante],
             ['(=) Total Passivos', passivoTotal],
-            ['(+) Patrimônio Líquido', patrimonioLiquido],
-            ['(=) Total Passivo + PL', passivoTotal + patrimonioLiquido],
+            ['--- PATRIMÔNIO LÍQUIDO ---', null], // Separador
+            ['(+) Capital Social e Outros', capitalSocialEOutros],
+            ['(+) Lucros Acumulados', lucroAcumulado],
+            ['(=) Total Patrimônio Líquido', patrimonioLiquidoTotal],
+            ['(=) Total Passivo + PL', passivoTotal + patrimonioLiquidoTotal],
         ];
 
         return { dadosDRE, dadosBalanco };
@@ -286,14 +406,40 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
                 <p className="text-center text-gray-400 py-10">Carregando dados da Rodada {rodadaSelecionada}...</p>
             ) : dadosVisao.estado ? (
                 <>
+                    {/* --- NOVO CARD IDG (RF 4.6) --- */}
+                    {/* Mostra apenas se a rodada não for a inicial (R0) */}
+                    {rodadaSelecionada > 0 && (
+                        <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow mb-6">
+                            <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">
+                                <span role="img" aria-label="Trophy" className="mr-2">🏆</span> IDG (Índice de Desempenho Global) - R{rodadaSelecionada}
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                                {/* Bloco do Score Total */}
+                                <div className="md:col-span-1 flex flex-col items-center justify-center bg-gray-700 p-6 rounded-lg h-full">
+                                    <span className="text-sm font-medium text-gray-400">Pontuação Total (IDG)</span>
+                                    <span className="text-6xl font-bold text-cyan-300 my-2">
+                                        {/* Usar o FormatNumero para o score total */}
+                                        <FormatNumero valor={dadosVisao.estado.IDG_Score} tipo="decimal" />
+                                    </span>
+                                    <span className="text-xs text-gray-500">(Máx 100)</span>
+                                </div>
+                                {/* Bloco do Gráfico */}
+                                <div className="md:col-span-2">
+                                    <GraficoIDG metricas={dadosVisao.estado.IDG_Metricas} />
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {/* --- FIM DO NOVO CARD IDG --- */}
+
                     {/* Resultados Financeiros e Operacionais */}
                     <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow"> 
                         <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2"> 
                             <span role="img" aria-label="Chart" className="mr-2">📈</span> Resultados (Rodada {rodadaSelecionada}) 
                         </h3> 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6"> 
-                            <RelatorioFinanceiro titulo="DRE" dados={dadosDRE} /> 
-                            <RelatorioFinanceiro titulo="Balanço" dados={dadosBalanco} isBalanco={true} /> 
+                            <RelatorioFinanceiro titulo="DRE (Demonstrativo)" dados={dadosDRE} /> 
+                            <RelatorioFinanceiro titulo="Balanço Patrimonial" dados={dadosBalanco} isBalanco={true} /> 
                             <div className="bg-gray-700 p-4 rounded-lg shadow"> 
                                 <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">Operações e P&D</h4> 
                                 <ul className="space-y-2 text-sm"> 
@@ -333,4 +479,3 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
 }
 
 export default ResultadosBriefing;
-

@@ -142,4 +142,3 @@ function SumarioDecisoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodada
 }
 
 export default SumarioDecisoes;
-

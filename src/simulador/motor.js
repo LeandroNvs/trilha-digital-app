@@ -24,7 +24,7 @@ function aplicarRetornosDecrescentes(notaNormalizada) {
  * Encontra a mediana e define um "teto" (cap) para a normalização.
  * @param {number[]} precos - A lista de preços original.
  * @param {number} multiplicadorCap - Quantas vezes acima da mediana é considerado "irreal".
- * @returns {object} - Retorna os preços higienizados E o teto de sanidade.
+ * @returns {number[]} - A lista de preços "higienizada" para normalização.
  */
 function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
     // Filtra preços 0, Infinity ou inválidos, que não devem entrar no cálculo da mediana
@@ -32,8 +32,7 @@ function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
 
     if (precosValidos.length === 0) {
         // Retorna uma lista que faz com que normalizarValor retorne 0 ou 1, sem quebrar
-        // E um teto de 1, para que qualquer preço > 0 seja considerado "acima do teto"
-        return { precosHigienizados: precos.map(() => 1), tetoSanidade: 1 }; 
+        return precos.map(() => 1); 
     }
     
     precosValidos.sort((a, b) => a - b);
@@ -46,19 +45,17 @@ function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
 
     // Define o "teto de sanidade"
     // Um preço não pode ser mais que X vezes a mediana para fins de cálculo.
-    // REMOVIDA A LÓGICA DE Math.max que incluía o outlier no teto.
-    const tetoSanidade = mediana * multiplicadorCap;
+    // Garante que o teto seja pelo menos o maior preço "válido" (caso haja poucos concorrentes)
+    const tetoSanidadeBase = mediana * multiplicadorCap;
+    const tetoSanidade = Math.max(tetoSanidadeBase, precosValidos[precosValidos.length - 1]);
 
 
     // Mapeia a lista original, "capando" os valores irreais
-    const precosHigienizados = precos.map(p => {
+    return precos.map(p => {
         if (!isFinite(p) || p === 0) return Infinity; // Mantém a lógica de p=0 dar nota 0
-        if (p > tetoSanidade) return tetoSanidade; // "Capa" o outlier para a normalização
+        if (p > tetoSanidade) return tetoSanidade; // "Capa" o outlier
         return p; // Preço normal
     });
-
-    // Retorna o objeto com os preços e o teto
-    return { precosHigienizados, tetoSanidade };
 }
 // --- FIM DA NOVA FUNÇÃO ---
 
@@ -122,7 +119,6 @@ export async function processarRodada(simulacaoId, simulacao) {
                 Divida_Emergencia: 0, // Será definido se necessário NESTA rodada
                 Divida_LP_Saldo: estadoAtualSnap.data().Divida_LP_Saldo || 0,
                 Divida_LP_Rodadas_Restantes: estadoAtualSnap.data().Divida_LP_Rodadas_Restantes || 0,
-                Noticia_Financeira_Emergencia: null // NOVO: Para alertar o aluno sobre o empréstimo forçado
             }
         });
     }
@@ -246,10 +242,9 @@ export async function processarRodada(simulacaoId, simulacao) {
         // c) Investimentos (P&D, Expansão, Marketing) - Saem do caixa e entram como Despesa Operacional
         let investCamera = decisoes.Invest_PD_Camera || 0;
         let investBateria = decisoes.Invest_PD_Bateria || 0;
-        let investSOeIA = decisoes.Invest_PD_Sist_Operacional_e_IA || 0; // RENOMEADO
-        let investAtualGeral = decisoes.Invest_PD_Atualizacao_Geral || 0; // NOVO
+        let investIA = decisoes.Invest_PD_IA || 0;
         
-        const totalInvestPD = investCamera + investBateria + investSOeIA + investAtualGeral; // ATUALIZADO
+        const totalInvestPD = investCamera + investBateria + investIA;
         caixa -= totalInvestPD;
         estadoNovo.Despesas_Operacionais_Outras += totalInvestPD;
         logFinanceiro.push(`Investiu P&D: ${totalInvestPD.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
@@ -286,7 +281,7 @@ export async function processarRodada(simulacaoId, simulacao) {
         estadoNovo.Depreciacao_Acumulada = (estadoAtual.Depreciacao_Acumulada || 0) + ((estadoNovo.Imobilizado_Bruto || 0) * 0.05); // Depreciação (ex: 5% por rodada sobre Bruto)
 
 
-        // --- 4. ATUALIZA PROGRESSO P&D (com possível bônus) --- (ATUALIZADO)
+        // --- 4. ATUALIZA PROGRESSO P&D (com possível bônus) ---
         // Aplicar bônus de Rede (RF 2.2): Se escolheu Fornecedor D
         let fatorBonusPD = 1.0;
         if (decisoes.Escolha_Fornecedor_Chip === 'D') {
@@ -294,11 +289,9 @@ export async function processarRodada(simulacaoId, simulacao) {
             logFinanceiro.push(`Bônus P&D (Forn D): ${(fatorBonusPD*100-100).toFixed(0)}%`);
         }
         // O investimento efetivo (progresso) é o gasto * fator de bônus
-        // Bônus se aplica a Bateria e SO+IA (conforme form)
-        const investCameraEfetivo = investCamera * 1.0; // Sem bônus
+        const investCameraEfetivo = investCamera * fatorBonusPD;
         const investBateriaEfetivo = investBateria * fatorBonusPD;
-        const investSOeIAEfetivo = investSOeIA * fatorBonusPD;
-        const investAtualGeralEfetivo = investAtualGeral * 1.0; // Sem bônus
+        const investIAEfetivo = investIA * fatorBonusPD;
 
         const calcularNivel = (area, progressoAtual, investimentoEfetivo) => {
             const progressoTotal = (progressoAtual || 0) + investimentoEfetivo;
@@ -330,15 +323,10 @@ export async function processarRodada(simulacaoId, simulacao) {
 
         const { nivel: nivelCamera, progresso: progressoCamera } = calcularNivel('Camera', estadoAtual.Progresso_PD_Camera, investCameraEfetivo);
         const { nivel: nivelBateria, progresso: progressoBateria } = calcularNivel('Bateria', estadoAtual.Progresso_PD_Bateria, investBateriaEfetivo);
-        // RENOMEADO
-        const { nivel: nivelSOeIA, progresso: progressoSOeIA } = calcularNivel('Sist_Operacional_e_IA', estadoAtual.Progresso_PD_Sist_Operacional_e_IA, investSOeIAEfetivo);
-        // NOVO
-        const { nivel: nivelAtualGeral, progresso: progressoAtualGeral } = calcularNivel('Atualizacao_Geral', estadoAtual.Progresso_PD_Atualizacao_Geral, investAtualGeralEfetivo);
-        
+        const { nivel: nivelIA, progresso: progressoIA } = calcularNivel('IA', estadoAtual.Progresso_PD_IA, investIAEfetivo);
         estadoNovo.Nivel_PD_Camera = nivelCamera; estadoNovo.Progresso_PD_Camera = progressoCamera;
         estadoNovo.Nivel_PD_Bateria = nivelBateria; estadoNovo.Progresso_PD_Bateria = progressoBateria;
-        estadoNovo.Nivel_PD_Sist_Operacional_e_IA = nivelSOeIA; estadoNovo.Progresso_PD_Sist_Operacional_e_IA = progressoSOeIA; // RENOMEADO
-        estadoNovo.Nivel_PD_Atualizacao_Geral = nivelAtualGeral; estadoNovo.Progresso_PD_Atualizacao_Geral = progressoAtualGeral; // NOVO
+        estadoNovo.Nivel_PD_IA = nivelIA; estadoNovo.Progresso_PD_IA = progressoIA;
 
         console.log(logFinanceiro.join(' | ')); // Imprime o log financeiro da empresa
 
@@ -360,10 +348,8 @@ export async function processarRodada(simulacaoId, simulacao) {
         }
 
         // Simulação de Risco (Fornecedor A)
-        // USA OS PARÂMETROS DO FORM
-        const riscoFornecedorA = (simulacao.Fornecedor_Tela_A_Desc.includes("20%")) ? 0.20 : 0; // Exemplo simplificado, ideal é ter campos numéricos
-        const perdaFornecedorA = (simulacao.Fornecedor_Tela_A_Desc.includes("15%")) ? 0.15 : 0; // Exemplo simplificado
-        
+        const riscoFornecedorA = simulacao.Risco_Fornecedor_A_Prob / 100 || 0.20; // Default 20%
+        const perdaFornecedorA = simulacao.Risco_Fornecedor_A_Perda / 100 || 0.15; // Default 15%
         if (decisoes.Escolha_Fornecedor_Tela === 'A' && Math.random() < riscoFornecedorA) {
             const perda = Math.floor(producaoEfetiva * perdaFornecedorA);
             producaoEfetiva -= perda;
@@ -385,20 +371,7 @@ export async function processarRodada(simulacaoId, simulacao) {
 
         const cpvTotalProducao = producaoEfetiva * custoVariavelUnitario;
 
-        // --- ATUALIZAÇÃO: Verifica se há caixa para produção ---
-        if (estadoNovo.Caixa < cpvTotalProducao) {
-            const shortfall = cpvTotalProducao - estadoNovo.Caixa;
-            estadoNovo.Divida_Emergencia += shortfall; // Adiciona o shortfall à dívida de emergência
-            
-            const msgAlerta = `!!! EMERGÊNCIA (Produção) !!! Caixa ${estadoNovo.Caixa.toLocaleString('pt-BR')} insuficiente para Custo Produção ${cpvTotalProducao.toLocaleString('pt-BR')}. Empréstimo de Emergência de ${shortfall.toLocaleString('pt-BR')} contraído.`;
-            
-            console.warn(`[${empresa.id}] R${proximaRodada}: ${msgAlerta}`);
-            
-            // Adiciona a notícia para o aluno ver na próxima rodada
-            estadoNovo.Noticia_Financeira_Emergencia = `Caixa insuficiente (${estadoNovo.Caixa.toLocaleString('pt-BR')}) para cobrir custos de produção (${cpvTotalProducao.toLocaleString('pt-BR')}). Um Empréstimo de Emergência de ${shortfall.toLocaleString('pt-BR')} foi contraído automaticamente com juros punitivos.`;
-        }
-        
-        // Subtrai CPV do Caixa (o caixa PODE ficar negativo, mas a Dívida de Emergência foi registrada)
+        // Subtrai CPV do Caixa
         estadoNovo.Caixa -= cpvTotalProducao;
         console.log(`[${empresa.id}] R${proximaRodada}: Produziu ${producaoEfetiva.toLocaleString('pt-BR')} unid. Custo Unit: ${custoVariavelUnitario.toFixed(2)}. CPV Total: ${cpvTotalProducao.toLocaleString('pt-BR')}. Caixa: ${estadoNovo.Caixa.toLocaleString('pt-BR')}`);
 
@@ -408,23 +381,17 @@ export async function processarRodada(simulacaoId, simulacao) {
         estadoNovo.CPV_Total_Producao_Rodada = cpvTotalProducao; // Guarda o custo da produção da rodada
     });
 
-    // --- RF 3.4: Fase 3 - Simulação de Mercado (ATUALIZADO) ---
+    // --- RF 3.4: Fase 3 - Simulação de Mercado ---
     console.log("[M3][F3] Iniciando Fase 3: Simulação de Mercado");
-    // (Busca de demandas permanece igual)
+    // (Busca de demandas e pesos permanece igual...)
     const demandaPremium = simulacao[`Segmento1_Demanda_Rodada_${proximaRodada}`] || 0;
     const demandaMassa = simulacao[`Segmento2_Demanda_Rodada_${proximaRodada}`] || 0;
-    
-    // Pesos Premium
     const pesoPDPremium = simulacao[`Peso_PD_Premium_Rodada_${proximaRodada}`] || 0;
     const pesoMktPremium = simulacao[`Peso_Mkt_Premium_Rodada_${proximaRodada}`] || 0;
     const pesoPrecoPremium = simulacao[`Peso_Preco_Premium_Rodada_${proximaRodada}`] || 0;
-    // Pesos P&D (dentro do Premium)
     const pesoPDCameraPremium = simulacao[`Peso_PD_Camera_Premium_Rodada_${proximaRodada}`] || 0;
     const pesoPDBateriaPremium = simulacao[`Peso_PD_Bateria_Premium_Rodada_${proximaRodada}`] || 0;
-    const pesoPDSOeIAPremium = simulacao[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${proximaRodada}`] || 0; // RENOMEADO
-    
-    // Pesos Básico (Massa)
-    const pesoPDMassa = simulacao[`Peso_PD_Massa_Rodada_${proximaRodada}`] || 0; // NOVO
+    const pesoPDIAPremium = simulacao[`Peso_PD_IA_Premium_Rodada_${proximaRodada}`] || 0;
     const pesoMktMassa = simulacao[`Peso_Mkt_Massa_Rodada_${proximaRodada}`] || 0;
     const pesoPrecoMassa = simulacao[`Peso_Preco_Massa_Rodada_${proximaRodada}`] || 0;
 
@@ -434,94 +401,60 @@ export async function processarRodada(simulacaoId, simulacao) {
     const precosBrutosMassa = dadosProcessamento.map(e => e.decisoes.Preco_Segmento_2 || 0);
 
     // 2. Define o multiplicador de sanidade (quantas vezes acima da mediana é irreal)
+    //    Isso pode virar um Parâmetro do M1 no futuro.
     const multiplicadorCap = 5.0; 
 
     // 3. Higieniza as listas de preços para usar na normalização
-    //    AGORA DESESTRUTURANDO O RETORNO DA FUNÇÃO
-    const { precosHigienizados: precosHigienizadosPremium, tetoSanidade: tetoPremium } = higienizarPrecosOutliers(precosBrutosPremium, multiplicadorCap);
-    const { precosHigienizados: precosHigienizadosMassa, tetoSanidade: tetoMassa } = higienizarPrecosOutliers(precosBrutosMassa, multiplicadorCap);
+    const precosHigienizadosPremium = higienizarPrecosOutliers(precosBrutosPremium, multiplicadorCap);
+    const precosHigienizadosMassa = higienizarPrecosOutliers(precosBrutosMassa, multiplicadorCap);
     
     // 4. Listas de Marketing (inalteradas)
     const mktPremium = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_1 || 0);
     const mktMassa = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_2 || 0);
     
-    // 5. NOVO: Lista de P&D Básico
-    const niveisAtualGeral = dadosProcessamento.map(e => e.estadoNovo.Nivel_PD_Atualizacao_Geral || 1);
-
     let somaAtratividadePremium = 0; let somaAtratividadeMassa = 0;
     // --- FIM DO BLOCO CORRIGIDO ---
 
 
     dadosProcessamento.forEach(empresa => {
         const { estadoNovo, decisoes } = empresa;
-        // --- Cálculo Atratividade Premium (ATUALIZADO) ---
-        // Cálculo de P&D Premium
+        // Cálculo de P&D (inalterado)
         const nPD_Cam = (estadoNovo.Nivel_PD_Camera || 1) * pesoPDCameraPremium;
         const nPD_Bat = (estadoNovo.Nivel_PD_Bateria || 1) * pesoPDBateriaPremium;
-        const nPD_SOeIA = (estadoNovo.Nivel_PD_Sist_Operacional_e_IA || 1) * pesoPDSOeIAPremium; // RENOMEADO
-        const nPDTotalPremium = nPD_Cam + nPD_Bat + nPD_SOeIA; // RENOMEADO
+        const nPD_IA = (estadoNovo.Nivel_PD_IA || 1) * pesoPDIAPremium;
+        const nPDTotal = nPD_Cam + nPD_Bat + nPD_IA;
         
-        // Cálculo de Mkt Premium
+        // Cálculo de Mkt (inalterado)
         const nMktPrem = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_1 || 0, mktPremium));
         
-        // Cálculo de Preço Premium
-        const precoRealPremium = decisoes.Preco_Segmento_1 || Infinity;
-        const nPrecoPrem = normalizarValor(precoRealPremium, precosHigienizadosPremium, true); 
+        // --- LINHA CORRIGIDA (PREÇO PREMIUM) ---
+        // Usa o preço bruto da decisão, mas a lista higienizada para normalização
+        const nPrecoPrem = normalizarValor(decisoes.Preco_Segmento_1 || Infinity, precosHigienizadosPremium, true); 
         
-        // --- LÓGICA DE PUNIÇÃO (PREÇO ABSURDO) ---
-        let atrPrem = 0;
-        if (precoRealPremium > tetoPremium) {
-            atrPrem = 0; // Preço acima do teto de sanidade ZERA a atratividade.
-            console.warn(`[${empresa.id}] PREÇO PREMIUM ABSURDO (${precoRealPremium.toLocaleString('pt-BR')} > ${tetoPremium.toLocaleString('pt-BR')}). Atratividade zerada.`);
-        } else {
-            // Cálculo normal de atratividade
-            atrPrem = (nPDTotalPremium * pesoPDPremium) + (nMktPrem * pesoMktPremium) + (nPrecoPrem * pesoPrecoPremium);
-        }
-        // --- FIM DA LÓGICA DE PUNIÇÃO ---
-        
+        const atrPrem = (nPDTotal * pesoPDPremium) + (nMktPrem * pesoMktPremium) + (nPrecoPrem * pesoPrecoPremium);
         empresa.estadoNovo.Atratividade_Premium = atrPrem > 0 ? atrPrem : 0; // Garante não negativo
         somaAtratividadePremium += empresa.estadoNovo.Atratividade_Premium;
 
-        
-        // --- Cálculo Atratividade Básico (Massa) (ATUALIZADO) ---
-        // Cálculo de P&D Básico (usa "Atualização Geral")
-        // NORMALIZANDO o nível de P&D Básico entre os concorrentes
-        const nPDBasico = normalizarValor(estadoNovo.Nivel_PD_Atualizacao_Geral || 1, niveisAtualGeral); // Nota é o nível NORMALIZADO
-        
-        // Cálculo de Mkt Básico
+        // Cálculo de Mkt Massa (inalterado)
         const nMktMassa = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_2 || 0, mktMassa));
         
-        // Cálculo de Preço Básico
-        const precoRealMassa = decisoes.Preco_Segmento_2 || Infinity;
-        const nPrecoMassa = normalizarValor(precoRealMassa, precosHigienizadosMassa, true);
+        // --- LINHA CORRIGIDA (PREÇO MASSA) ---
+        // Usa o preço bruto da decisão, mas a lista higienizada para normalização
+        const nPrecoMassa = normalizarValor(decisoes.Preco_Segmento_2 || Infinity, precosHigienizadosMassa, true);
         
-        // --- LÓGICA DE PUNIÇÃO (PREÇO ABSURDO) ---
-        let atrMassa = 0;
-        if (precoRealMassa > tetoMassa) {
-            atrMassa = 0; // Preço acima do teto de sanidade ZERA a atratividade.
-            console.warn(`[${empresa.id}] PREÇO MASSA ABSURDO (${precoRealMassa.toLocaleString('pt-BR')} > ${tetoMassa.toLocaleString('pt-BR')}). Atratividade zerada.`);
-        } else {
-            // Cálculo normal de atratividade
-            atrMassa = (nPDBasico * pesoPDMassa) + (nMktMassa * pesoMktMassa) + (nPrecoMassa * pesoPrecoMassa);
-        }
-        // --- FIM DA LÓGICA DE PUNIÇÃO ---
-        
+        const atrMassa = (nMktMassa * pesoMktMassa) + (nPrecoMassa * pesoPrecoMassa);
         empresa.estadoNovo.Atratividade_Massa = atrMassa > 0 ? atrMassa : 0; // Garante não negativo
         somaAtratividadeMassa += empresa.estadoNovo.Atratividade_Massa;
     });
 
     // --- Cálculo de Market Share e Vendas Desejadas (inalterado) ---
-    // Garante que a soma da atratividade seja recalculada após o loop (embora já esteja)
-    const totalAtratividadePremium = dadosProcessamento.reduce((soma, e) => soma + e.estadoNovo.Atratividade_Premium, 0);
-    const totalAtratividadeMassa = dadosProcessamento.reduce((soma, e) => soma + e.estadoNovo.Atratividade_Massa, 0);
-
     dadosProcessamento.forEach(empresa => {
         const { estadoNovo } = empresa;
-        const sharePremium = (totalAtratividadePremium > 0) ? (estadoNovo.Atratividade_Premium / totalAtratividadePremium) : (1 / dadosProcessamento.length);
+        const sharePremium = (somaAtratividadePremium > 0) ? (estadoNovo.Atratividade_Premium / somaAtratividadePremium) : (1 / dadosProcessamento.length);
         estadoNovo.Market_Share_Premium = sharePremium;
         estadoNovo.Vendas_Desejadas_Premium = Math.floor(demandaPremium * sharePremium);
         
-        const shareMassa = (totalAtratividadeMassa > 0) ? (estadoNovo.Atratividade_Massa / totalAtratividadeMassa) : (1 / dadosProcessamento.length);
+        const shareMassa = (somaAtratividadeMassa > 0) ? (estadoNovo.Atratividade_Massa / somaAtratividadeMassa) : (1 / dadosProcessamento.length);
         estadoNovo.Market_Share_Massa = shareMassa;
         estadoNovo.Vendas_Desejadas_Massa = Math.floor(demandaMassa * shareMassa);
         
@@ -583,6 +516,8 @@ export async function processarRodada(simulacaoId, simulacao) {
         const despesasOperacionaisTotais = estadoNovo.Despesas_Operacionais_Outras; // Já inclui Mkt, P&D, Custo Fixo
         
         // Lucro Operacional (EBIT) = Lucro Bruto - Despesas Operacionais (sem juros)
+        // O motor anterior estava incluindo juros no Lucro_Operacional, o que é conceitualmente incorreto para EBITDA/EBIT.
+        // Vamos separar:
         estadoNovo.Lucro_Operacional_EBIT = estadoNovo.Lucro_Bruto - despesasOperacionaisTotais;
 
         // Despesas Financeiras Totais
@@ -600,31 +535,17 @@ export async function processarRodada(simulacaoId, simulacao) {
 
     }); // Fim do loop forEach empresa para Fase 4 e início Fase 5
 
-    // --- RF 3.6 / RF 4.4: Cálculo do Ranking (IDG) --- (ATUALIZADO)
+    // --- RF 3.6 / RF 4.4: Cálculo do Ranking (IDG) ---
     console.log("[M3][F5] Calculando Ranking (IDG)");
     const metricas = dadosProcessamento.map(emp => {
         const { estadoNovo } = emp;
         const vendasTotais = (estadoNovo.Vendas_Efetivas_Premium || 0) + (estadoNovo.Vendas_Efetivas_Massa || 0);
-        
-        // Cálculo da Saúde Financeira (Ex: Índice de Liquidez Imediata Modificado)
-        const dividaCurtoPrazoTotal = (estadoNovo.Divida_CP || 0) + (estadoNovo.Divida_Emergencia || 0);
-        // Se não há dívida CP, saúde é excelente (ex: score 10).
-        // Se há dívida CP, score é a cobertura (Caixa / Dívida CP).
-        // Se o caixa for 0 ou negativo e houver dívida, o índice é 0.
-        const indiceSaude = (dividaCurtoPrazoTotal === 0) 
-            ? 10 // Valor alto arbitrário para "saúde perfeita" (sem dívida CP)
-            : (Math.max(0, estadoNovo.Caixa || 0) / dividaCurtoPrazoTotal); // Índice de cobertura, mínimo 0
-
         return {
             id: emp.id,
             lucroAcumulado: estadoNovo.Lucro_Acumulado || 0,
             marketShare: vendasTotaisSetor > 0 ? (vendasTotais / vendasTotaisSetor) : 0,
-            // ATUALIZADO: Soma os 4 níveis de P&D
-            nivelTotalPD: (estadoNovo.Nivel_PD_Camera || 1) + 
-                          (estadoNovo.Nivel_PD_Bateria || 1) + 
-                          (estadoNovo.Nivel_PD_Sist_Operacional_e_IA || 1) + 
-                          (estadoNovo.Nivel_PD_Atualizacao_Geral || 1),
-            saudeFinanceira: indiceSaude, // NOVO
+            nivelTotalPD: (estadoNovo.Nivel_PD_Camera || 1) + (estadoNovo.Nivel_PD_Bateria || 1) + (estadoNovo.Nivel_PD_IA || 1),
+            valorMarca: estadoNovo.Valor_Marca_Acumulado || 0,
         };
     });
     
@@ -633,8 +554,9 @@ export async function processarRodada(simulacaoId, simulacao) {
         const min = Math.min(...todosValores); 
         const max = Math.max(...todosValores); 
         if (min === max) return (valor >= min ? 100 : 0); // Todos iguais (ou só 1), quem tem o valor é 100
-        // Para métricas onde negativo é ruim (lucro, saude), ajustamos o min
-        const minAjustado = Math.min(min, 0); // Garante que o "piso" seja 0 ou o pior lucro/indice
+        if (max === 0) return 0; // Se o máximo é 0, todos são 0
+        // Para métricas onde negativo é muito ruim (lucro), ajustamos o min
+        const minAjustado = Math.min(min, 0); // Garante que o "piso" seja 0 ou o pior lucro
         const divisor = (max - minAjustado) === 0 ? 1 : (max - minAjustado);
         
         return Math.max(0, ((valor - minAjustado) / divisor) * 100); // Garante 0-100
@@ -643,30 +565,28 @@ export async function processarRodada(simulacaoId, simulacao) {
     const lucros = metricas.map(m => m.lucroAcumulado);
     const shares = metricas.map(m => m.marketShare);
     const pds = metricas.map(m => m.nivelTotalPD);
-    const saudes = metricas.map(m => m.saudeFinanceira); // NOVO
+    const marcas = metricas.map(m => m.valorMarca);
     
-    // Pesos do IDG (Lidos da simulação)
-    const pesoLucro = simulacao.Peso_IDG_Lucro || 0.30;
-    const pesoShare = simulacao.Peso_IDG_Share || 0.25;
+    // Pesos do IDG (Exemplo - podem vir do M1 futuramente)
+    const pesoLucro = simulacao.Peso_IDG_Lucro || 0.40;
+    const pesoShare = simulacao.Peso_IDG_Share || 0.30;
     const pesoPD = simulacao.Peso_IDG_PD || 0.20;
-    const pesoSaude = simulacao.Peso_IDG_Saude_Financeira || 0.25; // NOVO
+    const pesoMarca = simulacao.Peso_IDG_Marca || 0.10;
 
     dadosProcessamento.forEach(empresa => {
         const metrica = metricas.find(m => m.id === empresa.id);
         const notaLucro = normalizarMetrica(metrica.lucroAcumulado, lucros) * pesoLucro;
         const notaShare = normalizarMetrica(metrica.marketShare, shares) * pesoShare;
         const notaPD = normalizarMetrica(metrica.nivelTotalPD, pds) * pesoPD;
-        const notaSaude = normalizarMetrica(metrica.saudeFinanceira, saudes) * pesoSaude; // NOVO
-        
-        empresa.estadoNovo.IDG_Score = notaLucro + notaShare + notaPD + notaSaude; // ATUALIZADO
-        
+        const notaMarca = normalizarMetrica(metrica.valorMarca, marcas) * pesoMarca;
+        empresa.estadoNovo.IDG_Score = notaLucro + notaShare + notaPD + notaMarca;
         empresa.estadoNovo.IDG_Metricas = { 
             lucro: { valor: metrica.lucroAcumulado, nota: notaLucro },
             share: { valor: metrica.marketShare, nota: notaShare },
             pd: { valor: metrica.nivelTotalPD, nota: notaPD },
-            saude: { valor: metrica.saudeFinanceira, nota: notaSaude } // ATUALIZADO
+            marca: { valor: metrica.valorMarca, nota: notaMarca }
         };
-         console.log(`[${empresa.id}] IDG: L=${notaLucro.toFixed(1)} S=${notaShare.toFixed(1)} P=${notaPD.toFixed(1)} S=${notaSaude.toFixed(1)} | TOTAL: ${empresa.estadoNovo.IDG_Score.toFixed(1)}`); // ATUALIZADO
+         console.log(`[${empresa.id}] IDG: L=${notaLucro.toFixed(1)} S=${notaShare.toFixed(1)} P=${notaPD.toFixed(1)} M=${notaMarca.toFixed(1)} | TOTAL: ${empresa.estadoNovo.IDG_Score.toFixed(1)}`);
     });
 
     // --- RF 3.6: Fase 5 - Persistência de Dados ---
@@ -706,4 +626,3 @@ export async function processarRodada(simulacaoId, simulacao) {
 
     return { sucesso: true, rodadaProcessada: proximaRodada };
 }
-

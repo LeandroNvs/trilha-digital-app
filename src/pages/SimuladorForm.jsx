@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc, setDoc, addDoc, collection, serverTimestamp, writeBatch } from 'firebase/firestore';
-// CORREÇÃO v6: Caminho relativo
+// CORREÇÃO v7: Caminho relativo corrigido
 import { db, appId } from '../firebase/config.js';
 
 // --- Ícones ---
@@ -62,21 +62,25 @@ function SimuladorForm() {
             // Aba 2: Cenário
             Cenario_Inicial_Descricao: 'Bem-vindos à Guerra dos Ecossistemas Móveis! Vocês assumem o comando de uma das novas fabricantes de smartphones em um mercado dinâmico e competitivo. O cenário inicial é de crescimento, mas a concorrência é acirrada e a tecnologia evolui rapidamente. Suas decisões estratégicas em P&D, Operações, Marketing, Finanças e Rede de Negócios determinarão o sucesso ou fracasso da sua empresa. Boa sorte!', Taxa_Base_Inflacao: 3,
             // Aba 3: Mercado
-            Segmento1_Nome: 'Premium', Segmento2_Nome: 'Básico', // ATUALIZADO
+            Segmento1_Nome: 'Premium', Segmento2_Nome: 'Básico',
             // Aba 4: Setup Inicial
             Tipo_Setup: 'Simetrico', Caixa_Inicial: 200000000, Divida_Inicial: 0, 
             Valor_Contabil_Imobilizado: 100000000, Capacidade_Producao_Inicial: 1000000,
             Custo_Fixo_Operacional: 20000000, Custo_Variavel_Montagem_Base: 120,
             Nivel_Inicial_PD_Camera: 1, Nivel_Inicial_PD_Bateria: 1, 
-            Nivel_Inicial_PD_Sist_Operacional_e_IA: 1, // RENOMEADO
-            Nivel_Inicial_PD_Atualizacao_Geral: 1, // NOVO
+            Nivel_Inicial_PD_Sist_Operacional_e_IA: 1,
+            Nivel_Inicial_PD_Atualizacao_Geral: 1,
+            // NOVOS NÍVEIS INICIAIS (ORGANIZACIONAIS)
+            Nivel_Inicial_Capacitacao: 1,
+            Nivel_Inicial_Qualidade: 1,
+            Nivel_Inicial_ESG: 1,
             // Aba 5: Custos P&D/Expansão
             Custo_PD_Camera_Nivel_2: 30000000, Custo_PD_Camera_Nivel_3: 50000000, Custo_PD_Camera_Nivel_4: 80000000, Custo_PD_Camera_Nivel_5: 120000000,
             Custo_PD_Bateria_Nivel_2: 25000000, Custo_PD_Bateria_Nivel_3: 45000000, Custo_PD_Bateria_Nivel_4: 70000000, Custo_PD_Bateria_Nivel_5: 110000000,
-            Custo_PD_Sist_Operacional_e_IA_Nivel_2: 40000000, Custo_PD_Sist_Operacional_e_IA_Nivel_3: 60000000, Custo_PD_Sist_Operacional_e_IA_Nivel_4: 90000000, Custo_PD_Sist_Operacional_e_IA_Nivel_5: 140000000, // RENOMEADO
-            Custo_PD_Atualizacao_Geral_Nivel_2: 20000000, Custo_PD_Atualizacao_Geral_Nivel_3: 35000000, Custo_PD_Atualizacao_Geral_Nivel_4: 55000000, Custo_PD_Atualizacao_Geral_Nivel_5: 80000000, // NOVO
+            Custo_PD_Sist_Operacional_e_IA_Nivel_2: 40000000, Custo_PD_Sist_Operacional_e_IA_Nivel_3: 60000000, Custo_PD_Sist_Operacional_e_IA_Nivel_4: 90000000, Custo_PD_Sist_Operacional_e_IA_Nivel_5: 140000000,
+            Custo_PD_Atualizacao_Geral_Nivel_2: 20000000, Custo_PD_Atualizacao_Geral_Nivel_3: 35000000, Custo_PD_Atualizacao_Geral_Nivel_4: 55000000, Custo_PD_Atualizacao_Geral_Nivel_5: 80000000,
             Custo_Expansao_Lote: 10000000, Incremento_Capacidade_Lote: 100000,
-            // Aba 6: Rede de Negócios (TEXTOS ATUALIZADOS)
+            // Aba 6: Rede de Negócios
             Fornecedor_Tela_A_Desc: 'Fornecedor A (Natureza: Contratual/Transacional): Foco em Custo. Vínculo fraco, 20% de risco de perda de 15% da produção.', 
             Fornecedor_Tela_A_Custo: 50,
             Fornecedor_Tela_B_Desc: 'Fornecedor B (Natureza: Relacional): Foco em Confiabilidade. Vínculo forte, 0% de risco. Custo mais elevado.', 
@@ -85,13 +89,24 @@ function SimuladorForm() {
             Fornecedor_Chip_C_Custo: 80,
             Fornecedor_Chip_D_Desc: 'Fornecedor D (Parceria Estratégica/Influência): Custo elevado, mas oferece +10% de bônus (desenvolvimento) nos investimentos em P&D (Bateria e SO+IA).', 
             Fornecedor_Chip_D_Custo: 95, Fornecedor_Chip_D_Bonus_PD_Percent: 10,
-            // Aba 7: Finanças
+            // Aba 7: Finanças (ATUALIZADO)
             Taxa_Juros_Curto_Prazo: 5, Taxa_Juros_Emergencia: 10, Taxa_Juros_Longo_Prazo: 3, Prazo_Fixo_Longo_Prazo: 4, 
-            // Aba 8: Pesos Ranking IDG (ATUALIZADO)
+            Limite_CP_Percent_Ativo_Circulante: 50, // NOVO
+            Limite_LP_Percent_Patrimonio_Liquido: 100, // NOVO
+            // Aba 8: Pesos Ranking IDG
             Peso_IDG_Lucro: 0.30, 
             Peso_IDG_Share: 0.25,
             Peso_IDG_PD: 0.20,
-            Peso_IDG_Saude_Financeira: 0.25, // NOVO (substitui Marca)
+            Peso_IDG_Saude_Financeira: 0.25,
+            // *** NOVA ABA 10: Orçamento Organizacional ***
+            Orcamento_Organizacional_Por_Rodada: 20000000, // NOVO
+            // Custos Capacitação
+            Custo_Nivel_Capacitacao_2: 15000000, Custo_Nivel_Capacitacao_3: 25000000, Custo_Nivel_Capacitacao_4: 40000000, Custo_Nivel_Capacitacao_5: 60000000, // NOVO
+            Reducao_Custo_Montagem_Por_Nivel_Capacitacao_Percent: 2, // NOVO (Reduz 2% do Custo_Variavel_Montagem_Base por nível)
+            // Custos Qualidade
+            Custo_Nivel_Qualidade_2: 15000000, Custo_Nivel_Qualidade_3: 25000000, Custo_Nivel_Qualidade_4: 40000000, Custo_Nivel_Qualidade_5: 60000000, // NOVO
+            // Custos ESG
+            Custo_Nivel_ESG_2: 10000000, Custo_Nivel_ESG_3: 20000000, Custo_Nivel_ESG_4: 30000000, Custo_Nivel_ESG_5: 45000000, // NOVO
             // Status Interno
             Status: 'Configurando', Rodada_Atual: 0,
         };
@@ -106,11 +121,16 @@ function SimuladorForm() {
             state[`Peso_PD_Premium_Rodada_${i}`] = 0.5; state[`Peso_Mkt_Premium_Rodada_${i}`] = 0.3; state[`Peso_Preco_Premium_Rodada_${i}`] = 0.2;
             // Pesos P&D (dentro do Premium) (Aba 8 - Atratividade)
             state[`Peso_PD_Camera_Premium_Rodada_${i}`] = 0.4; state[`Peso_PD_Bateria_Premium_Rodada_${i}`] = 0.3; 
-            state[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${i}`] = 0.3; // RENOMEADO
+            state[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${i}`] = 0.3;
             // Pesos Básico (Massa) (Aba 8 - Atratividade)
-            state[`Peso_PD_Massa_Rodada_${i}`] = 0.2; // NOVO
+            state[`Peso_PD_Massa_Rodada_${i}`] = 0.2; 
             state[`Peso_Mkt_Massa_Rodada_${i}`] = 0.3; 
-            state[`Peso_Preco_Massa_Rodada_${i}`] = 0.5; // AJUSTADO (0.2 + 0.3 + 0.5 = 1.0)
+            state[`Peso_Preco_Massa_Rodada_${i}`] = 0.5;
+            // *** NOVOS PESOS (Aba 8) - Impacto Organizacional ***
+            state[`Peso_Qualidade_Premium_Rodada_${i}`] = 0.0; // Novo peso (P&D agora será 0.5 - 0.0 = 0.5)
+            state[`Peso_ESG_Premium_Rodada_${i}`] = 0.0; // Novo peso
+            state[`Peso_Qualidade_Massa_Rodada_${i}`] = 0.0; // Novo peso (P&D Básico será 0.2 - 0.0 = 0.2)
+            state[`Peso_ESG_Massa_Rodada_${i}`] = 0.0; // Novo peso
         }
         return state;
     };
@@ -131,11 +151,15 @@ function SimuladorForm() {
 Opção A (Contratual/Transacional): Foco em Custo. Vínculo fraco, com risco de falha na entrega (definido por você).
 Opção B (Relacional): Foco em Confiabilidade. Vínculo forte, sem risco, custo mais elevado.
 Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvimento) nos investimentos em P&D.`,
-        financasTaxas: `Defina as taxas de juros POR RODADA e o prazo dos financiamentos:\n\nCurto Prazo (%): Taxa alta para capital de giro. Pago automaticamente na rodada seguinte.\n\nEmergência (%): Taxa PUNITIVA se a empresa não conseguir pagar o Curto Prazo. Também vence na rodada seguinte.\n\nLongo Prazo (%): Taxa menor para investimentos. O pagamento é automático em parcelas (Principal + Juros sobre saldo devedor).\n\nPrazo LP (Rodadas): Duração fixa (ex: 4 rodadas) para pagamento do Financiamento de Longo Prazo. O principal é dividido por este prazo para calcular a amortização por rodada.`,
-        atratividade: (params) => `Define como o Market Share será calculado (RF 3.4) PARA CADA RODADA. Os pesos determinam a importância de cada fator (P&D, Marketing, Preço) na decisão de compra do cliente em cada segmento.\n\n
-- ${params.Segmento1_Nome} (Pesos Gerais): Define a importância de P&D vs Mkt vs Preço para o segmento Premium.
-- ${params.Segmento1_Nome} (Pesos P&D): Define quais tecnologias (Câmera, Bateria, SO+IA) são mais valorizadas *dentro* da nota de P&D do Premium.
-- ${params.Segmento2_Nome} (Pesos Gerais): Define a importância de P&D vs Mkt vs Preço para o segmento Básico.
+        // ** ATUALIZADO: Texto de Ajuda Finanças **
+        financasTaxas: `Defina as taxas de juros POR RODADA, o prazo dos financiamentos e os LIMITES de alavancagem:\n\nTaxas de Juros (% por rodada): Define o custo do dinheiro para CP (Curto Prazo), Emergência e LP (Longo Prazo).\n
+Prazo LP (Rodadas): Duração fixa (ex: 4 rodadas) para pagamento do Financiamento de Longo Prazo.\n
+Limite CP (% Ativo Circulante): Limita novos empréstimos de CP a um percentual do (Caixa + Estoque) da rodada anterior.\n
+Limite LP (% Patrimônio Líquido): Limita novos financiamentos de LP a um percentual do (Ativo Total - Passivo Total) da rodada anterior.`,
+        atratividade: (params) => `Define como o Market Share será calculado (RF 3.4) PARA CADA RODADA. Os pesos determinam a importância de cada fator na decisão de compra do cliente em cada segmento.\n\n
+- ${params.Segmento1_Nome} (Pesos Gerais): Define a importância de P&D vs Mkt vs Preço vs Qualidade vs ESG.
+- ${params.Segmento1_Nome} (Pesos P&D): Define quais tecnologias (Câmera, Bateria, SO+IA) são mais valorizadas *dentro* da nota de P&D.
+- ${params.Segmento2_Nome} (Pesos Gerais): Define a importância de P&D (Atual. Geral) vs Mkt vs Preço vs Qualidade vs ESG.\n
 - IMPORTANTE: Os pesos de cada seção DEVEM SOMAR 1.0 (ou 100%) para cada rodada.`,
         rankingIDG: `Define os pesos do Ranking Final (IDG - Índice de Desempenho Global). Estes são os critérios para definir o vencedor do jogo.\n\n
 - Lucro Acumulado: Recompensa o resultado econômico (DRE).
@@ -143,6 +167,11 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
 - Nível P&D: Recompensa a inovação (Ativos Estratégicos).
 - Saúde Financeira: Recompensa a boa gestão do balanço (Caixa vs Dívidas).
 - IMPORTANTE: Os pesos do IDG DEVEM SOMAR 1.0 (ou 100%).`,
+        // ** NOVA AJUDA: Orçamento Organizacional **
+        orcamentoOrganizacional: `Define o "Orçamento Organizacional" (RF 5.1). Este é um TETO de gastos POR RODADA que o aluno deve alocar entre Marketing, Qualidade, Capacitação e ESG.\n\n
+- Orçamento (R$): O valor máximo total que pode ser gasto nessas 4 áreas a cada rodada.\n
+- Custos Capacitação/Qualidade/ESG: Custo TOTAL ACUMULADO (R$) para atingir CADA nível (similar ao P&D).\n
+- Redução Custo (%): Percentual que o Custo de Montagem Base será reduzido PARA CADA NÍVEL de Capacitação atingido (Ex: Nível 3 com 2% = 6% de redução).`,
         eventos: `Escreva as "Notícias de Mercado" que os alunos receberão no início de cada rodada futura (RF 4.5). Use isso para introduzir mudanças, desafios ou oportunidades (Ex: aumento de custo, nova tecnologia, mudança na demanda).`
     }), []); // Removido 'params' da dependência, será passado como função
 
@@ -154,9 +183,10 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
         { id: 'setupInicial', titulo: '4. Setup Inicial', keys: ['Caixa_Inicial', 'Capacidade_Producao_Inicial', 'Custo_Fixo_Operacional', 'Custo_Variavel_Montagem_Base'], help: helpTexts.setupInicial },
         { id: 'custosInvestimento', titulo: '5. Custos (P&D/Exp)', keys: [`Custo_PD_Camera_Nivel_2`, 'Custo_Expansao_Lote', 'Incremento_Capacidade_Lote', 'Custo_PD_Atualizacao_Geral_Nivel_2'], help: helpTexts.custosInvestimento },
         { id: 'redeNegocios', titulo: '6. Custos (Rede)', keys: ['Fornecedor_Tela_A_Custo', 'Fornecedor_Tela_B_Custo', 'Fornecedor_Chip_C_Custo', 'Fornecedor_Chip_D_Custo'], help: helpTexts.redeNegocios },
-        { id: 'financasTaxas', titulo: '7. Finanças (Taxas)', keys: ['Taxa_Juros_Curto_Prazo', 'Taxa_Juros_Emergencia', 'Taxa_Juros_Longo_Prazo', 'Prazo_Fixo_Longo_Prazo'], help: helpTexts.financasTaxas },
-        { id: 'atratividade', titulo: '8. Pesos (Mercado/IDG)', keys: [`Peso_PD_Premium_Rodada_1`, `Peso_Mkt_Premium_Rodada_1`, `Peso_Preco_Premium_Rodada_1`, `Peso_PD_Massa_Rodada_1`, `Peso_Mkt_Massa_Rodada_1`, `Peso_Preco_Massa_Rodada_1`, 'Peso_IDG_Lucro'], help: helpTexts.atratividade(params) }, // Passa params
-        { id: 'eventos', titulo: '9. Eventos (Notícias)', keys: [], help: helpTexts.eventos }
+        { id: 'financasTaxas', titulo: '7. Finanças (Taxas/Limites)', keys: ['Taxa_Juros_Curto_Prazo', 'Taxa_Juros_Emergencia', 'Taxa_Juros_Longo_Prazo', 'Prazo_Fixo_Longo_Prazo', 'Limite_CP_Percent_Ativo_Circulante', 'Limite_LP_Percent_Patrimonio_Liquido'], help: helpTexts.financasTaxas }, // ATUALIZADO
+        { id: 'atratividade', titulo: '8. Pesos (Mercado/IDG)', keys: [`Peso_PD_Premium_Rodada_1`, `Peso_Mkt_Premium_Rodada_1`, `Peso_Preco_Premium_Rodada_1`, `Peso_PD_Massa_Rodada_1`, `Peso_Mkt_Massa_Rodada_1` , `Peso_Preco_Massa_Rodada_1`, 'Peso_IDG_Lucro'], help: helpTexts.atratividade(params) }, // Passa params
+        { id: 'orcamentoOrganizacional', titulo: '9. Orçamento Org.', keys: ['Orcamento_Organizacional_Por_Rodada', 'Custo_Nivel_Capacitacao_2', 'Custo_Nivel_Qualidade_2', 'Custo_Nivel_ESG_2', 'Reducao_Custo_Montagem_Por_Nivel_Capacitacao_Percent'], help: helpTexts.orcamentoOrganizacional }, // NOVA ABA
+        { id: 'eventos', titulo: '10. Eventos (Notícias)', keys: [], help: helpTexts.eventos } // ABA 10
     ], [helpTexts, params]); // Adiciona params como dependência
 
     // Efeito para carregar dados se estiver editando (inalterado na lógica, mas inclui novos campos)
@@ -265,11 +295,16 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
                 Progresso_PD_Camera: 0, Progresso_PD_Bateria: 0, 
                 Progresso_PD_Sist_Operacional_e_IA: 0, // RENOMEADO
                 Progresso_PD_Atualizacao_Geral: 0, // NOVO
+                // P&D ORGANIZACIONAL (NOVO)
+                Nivel_Qualidade: Number(simParams.Nivel_Inicial_Qualidade) || 1,
+                Nivel_Capacitacao: Number(simParams.Nivel_Inicial_Capacitacao) || 1,
+                Nivel_ESG: Number(simParams.Nivel_Inicial_ESG) || 1,
+                Progresso_Qualidade: 0, Progresso_Capacitacao: 0, Progresso_ESG: 0,
                 // Restante
                 Vendas_Receita: 0, Custo_Produtos_Vendidos: 0,
-                Despesas_Operacionais: Number(simParams.Custo_Fixo_Operacional) || 0,
+                Despesas_Operacionais_Outras: Number(simParams.Custo_Fixo_Operacional) || 0, // RENOMEADO PELO MOTOR
                 Lucro_Bruto: 0,
-                Lucro_Operacional: 0 - (Number(simParams.Custo_Fixo_Operacional) || 0),
+                Lucro_Operacional_EBIT: 0 - (Number(simParams.Custo_Fixo_Operacional) || 0), // RENOMEADO
                 Lucro_Liquido: 0 - (Number(simParams.Custo_Fixo_Operacional) || 0),
                 Estoque_Final_Unidades: 0, Custo_Estoque_Final: 0,
                 Lucro_Acumulado: 0, Valor_Marca_Acumulado: 0, IDG_Score: 0, IDG_Metricas: {}
@@ -305,14 +340,16 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
         // Validação de soma dos pesos
         const totalRodadas = Number(dadosParaSalvar.Total_Rodadas) || 0;
         for (let i = 1; i <= totalRodadas; i++) {
-            const somaPesosPremium = (dadosParaSalvar[`Peso_PD_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Mkt_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Preco_Premium_Rodada_${i}`] || 0);
-            const somaPesosPDPremium = (dadosParaSalvar[`Peso_PD_Camera_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_PD_Bateria_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${i}`] || 0); // RENOMEADO
-            const somaPesosMassa = (dadosParaSalvar[`Peso_PD_Massa_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Mkt_Massa_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Preco_Massa_Rodada_${i}`] || 0); // ATUALIZADO
+            // ATUALIZADO: Inclui Qualidade e ESG nos pesos
+            const somaPesosPremium = (dadosParaSalvar[`Peso_PD_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Mkt_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Preco_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Qualidade_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_ESG_Premium_Rodada_${i}`] || 0);
+            const somaPesosPDPremium = (dadosParaSalvar[`Peso_PD_Camera_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_PD_Bateria_Premium_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${i}`] || 0);
+            const somaPesosMassa = (dadosParaSalvar[`Peso_PD_Massa_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Mkt_Massa_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Preco_Massa_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_Qualidade_Massa_Rodada_${i}`] || 0) + (dadosParaSalvar[`Peso_ESG_Massa_Rodada_${i}`] || 0);
+            
             if (Math.abs(somaPesosPremium - 1) > 0.01 || Math.abs(somaPesosPDPremium - 1) > 0.01 || Math.abs(somaPesosMassa - 1) > 0.01) {
                 setErro(`Erro Rodada ${i}: Pesos devem somar 1.0.`); setLoading(false); setAbaAtiva('atratividade'); return;
             }
         }
-        // Validação Pesos IDG (ATUALIZADO)
+        // Validação Pesos IDG
         const somaPesosIDG = (dadosParaSalvar.Peso_IDG_Lucro || 0) + (dadosParaSalvar.Peso_IDG_Share || 0) + (dadosParaSalvar.Peso_IDG_PD || 0) + (dadosParaSalvar.Peso_IDG_Saude_Financeira || 0);
         if (Math.abs(somaPesosIDG - 1) > 0.01) {
             setErro(`Erro Pesos IDG: Pesos devem somar 1.0 (soma atual: ${somaPesosIDG}).`); setLoading(false); setAbaAtiva('atratividade'); return;
@@ -326,6 +363,14 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
         if (dadosParaSalvar.Prazo_Fixo_Longo_Prazo <= 0 || !Number.isInteger(dadosParaSalvar.Prazo_Fixo_Longo_Prazo) ) {
              setErro("Prazo LP deve ser inteiro positivo."); setLoading(false); setAbaAtiva('financasTaxas'); return;
         }
+        // NOVAS VALIDAÇÕES (FINANÇAS E ORÇAMENTO)
+        if (dadosParaSalvar.Limite_CP_Percent_Ativo_Circulante < 0 || dadosParaSalvar.Limite_LP_Percent_Patrimonio_Liquido < 0) {
+             setErro("Limites de financiamento não podem ser negativos."); setLoading(false); setAbaAtiva('financasTaxas'); return;
+        }
+         if (dadosParaSalvar.Orcamento_Organizacional_Por_Rodada < 0) {
+             setErro("Orçamento Organizacional não pode ser negativo."); setLoading(false); setAbaAtiva('orcamentoOrganizacional'); return;
+        }
+
 
         try {
             let currentSimId = simulacaoId; // Renomeado para evitar conflito
@@ -376,19 +421,34 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
                 {/* Aba 3: Mercado */}
                 <div className={abaAtiva === 'mercado' ? 'block' : 'hidden'}> <AbaConteudo title="3. Mercado" isComplete={abasCompletas.mercado} helpText={helpTexts.mercado} onHelpClick={abrirModalAjuda}> <div className="space-y-4 mt-2"> <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-gray-700 pb-4"> <div><label htmlFor="Segmento1_Nome" className="block text-sm font-medium text-gray-400 mb-1">Seg. 1</label><input type="text" id="Segmento1_Nome" value={params.Segmento1_Nome} onChange={handleParamChange} className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label htmlFor="Segmento2_Nome" className="block text-sm font-medium text-gray-400 mb-1">Seg. 2</label><input type="text" id="Segmento2_Nome" value={params.Segmento2_Nome} onChange={handleParamChange} className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div> <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto pr-2"> <h4 className="text-md font-semibold text-gray-300 mb-2">Demanda (Unid.)</h4> {Array.from({ length: Math.max(0, Number(params.Total_Rodadas) || 0) }, (_, i) => i + 1).map(r => ( <div key={`dem-${r}`} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end border-b border-gray-700 pb-4 last:border-b-0"> <span className="font-semibold text-gray-300 md:col-span-1 self-center">Rodada {r}</span> <div className="md:col-span-2 grid grid-cols-2 gap-4"> <InputNumericoMasked id={`Segmento1_Demanda_Rodada_${r}`} name={`Segmento1_Demanda_Rodada_${r}`} label={params.Segmento1_Nome} value={params[`Segmento1_Demanda_Rodada_${r}`]} onChange={handleParamChange} sufixo="Unid." required /> <InputNumericoMasked id={`Segmento2_Demanda_Rodada_${r}`} name={`Segmento2_Demanda_Rodada_${r}`} label={params.Segmento2_Nome} value={params[`Segmento2_Demanda_Rodada_${r}`]} onChange={handleParamChange} sufixo="Unid." required /> </div> </div> ))} </div> </div> </AbaConteudo> </div>
                 {/* Aba 4: Setup Inicial (ATUALIZADO) */}
-                <div className={abaAtiva === 'setupInicial' ? 'block' : 'hidden'}> <AbaConteudo title="4. Setup Inicial (Simétrico)" isComplete={abasCompletas.setupInicial} helpText={helpTexts.setupInicial} onHelpClick={abrirModalAjuda}> <div className="mt-2 space-y-6"> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">Financeiro</h4> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <InputMoedaMasked id="Caixa_Inicial" label="Caixa (R$)" value={params.Caixa_Inicial} onChange={handleParamChange} required /> <InputMoedaMasked id="Divida_Inicial" label="Dívida LP Inicial (R$)" value={params.Divida_Inicial} onChange={handleParamChange} required /> <InputMoedaMasked id="Valor_Contabil_Imobilizado" label="Imobilizado (R$)" value={params.Valor_Contabil_Imobilizado} onChange={handleParamChange} required /> </div> </div> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">Operações</h4> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <InputNumericoMasked id="Capacidade_Producao_Inicial" label="Capacidade" value={params.Capacidade_Producao_Inicial} onChange={handleParamChange} sufixo="Unid." required /> <InputMoedaMasked id="Custo_Fixo_Operacional" label="Custo Fixo/Rodada (R$)" value={params.Custo_Fixo_Operacional} onChange={handleParamChange} required /> <InputMoedaMasked id="Custo_Variavel_Montagem_Base" label="Custo Base de Montagem (R$/Unid.)" value={params.Custo_Variavel_Montagem_Base} onChange={handleParamChange} required /> </div> </div> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">P&D Inicial (Níveis 1-5)</h4> <div className="grid grid-cols-1 md:grid-cols-4 gap-4"> <div><label className="text-xs">Câmera</label><input type="number" id="Nivel_Inicial_PD_Camera" value={params.Nivel_Inicial_PD_Camera} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Bateria</label><input type="number" id="Nivel_Inicial_PD_Bateria" value={params.Nivel_Inicial_PD_Bateria} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Sist. Operacional e IA</label><input type="number" id="Nivel_Inicial_PD_Sist_Operacional_e_IA" value={params.Nivel_Inicial_PD_Sist_Operacional_e_IA} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Atualização Geral</label><input type="number" id="Nivel_Inicial_PD_Atualizacao_Geral" value={params.Nivel_Inicial_PD_Atualizacao_Geral} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div> </div> </div> </AbaConteudo> </div>
+                <div className={abaAtiva === 'setupInicial' ? 'block' : 'hidden'}> <AbaConteudo title="4. Setup Inicial (Simétrico)" isComplete={abasCompletas.setupInicial} helpText={helpTexts.setupInicial} onHelpClick={abrirModalAjuda}> <div className="mt-2 space-y-6"> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">Financeiro</h4> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <InputMoedaMasked id="Caixa_Inicial" label="Caixa (R$)" value={params.Caixa_Inicial} onChange={handleParamChange} required /> <InputMoedaMasked id="Divida_Inicial" label="Dívida LP Inicial (R$)" value={params.Divida_Inicial} onChange={handleParamChange} required /> <InputMoedaMasked id="Valor_Contabil_Imobilizado" label="Imobilizado (R$)" value={params.Valor_Contabil_Imobilizado} onChange={handleParamChange} required /> </div> </div> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">Operações</h4> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <InputNumericoMasked id="Capacidade_Producao_Inicial" label="Capacidade" value={params.Capacidade_Producao_Inicial} onChange={handleParamChange} sufixo="Unid." required /> <InputMoedaMasked id="Custo_Fixo_Operacional" label="Custo Fixo/Rodada (R$)" value={params.Custo_Fixo_Operacional} onChange={handleParamChange} required /> <InputMoedaMasked id="Custo_Variavel_Montagem_Base" label="Custo Base de Montagem (R$/Unid.)" value={params.Custo_Variavel_Montagem_Base} onChange={handleParamChange} required /> </div> </div> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">P&D Inicial (Níveis 1-5)</h4> <div className="grid grid-cols-1 md:grid-cols-4 gap-4"> <div><label className="text-xs">Câmera</label><input type="number" id="Nivel_Inicial_PD_Camera" value={params.Nivel_Inicial_PD_Camera} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Bateria</label><input type="number" id="Nivel_Inicial_PD_Bateria" value={params.Nivel_Inicial_PD_Bateria} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Sist. Operacional e IA</label><input type="number" id="Nivel_Inicial_PD_Sist_Operacional_e_IA" value={params.Nivel_Inicial_PD_Sist_Operacional_e_IA} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Atualização Geral</label><input type="number" id="Nivel_Inicial_PD_Atualizacao_Geral" value={params.Nivel_Inicial_PD_Atualizacao_Geral} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div> </div> 
+                    {/* NOVO: NÍVEIS INICIAIS ORGANIZACIONAIS */}
+                    <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">Organizacional Inicial (Níveis 1-5)</h4> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <div><label className="text-xs">Capacitação</label><input type="number" id="Nivel_Inicial_Capacitacao" value={params.Nivel_Inicial_Capacitacao} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Qualidade</label><input type="number" id="Nivel_Inicial_Qualidade" value={params.Nivel_Inicial_Qualidade} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">ESG</label><input type="number" id="Nivel_Inicial_ESG" value={params.Nivel_Inicial_ESG} onChange={handleParamChange} min="1" max="5" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div> </div>
+                </div> </AbaConteudo> </div>
                 {/* Aba 5: Custos P&D/Expansão (ATUALIZADO) */}
                 <div className={abaAtiva === 'custosInvestimento' ? 'block' : 'hidden'}> <AbaConteudo title="5. Custos (P&D/Expansão)" isComplete={abasCompletas.custosInvestimento} helpText={helpTexts.custosInvestimento} onHelpClick={abrirModalAjuda}> <div className="mt-2 space-y-6"> <div className="pt-4 border-t border-gray-700"> <h4 className="font-semibold text-gray-300 mb-2">Custos P&D (R$)</h4> {['Camera', 'Bateria', 'Sist_Operacional_e_IA', 'Atualizacao_Geral'].map(area => ( <div key={area} className="mb-4 last:mb-0"> <h5 className="text-md font-medium text-gray-400 mb-1">{area.replace(/_/g, ' ')}</h5> <div className="grid grid-cols-2 md:grid-cols-4 gap-2"> {[2, 3, 4, 5].map(nivel => (<InputMoedaMasked key={`${area}-${nivel}`} id={`Custo_PD_${area}_Nivel_${nivel}`} label={`Custo Total Acum. p/ Nível ${nivel}`} value={params[`Custo_PD_${area}_Nivel_${nivel}`]} onChange={handleParamChange} required />))} </div> </div> ))} </div> <div className="pt-4 border-t border-gray-700"> <h4 className="font-semibold text-gray-300 mb-2">Custo Expansão Fábrica</h4> <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> <InputMoedaMasked id="Custo_Expansao_Lote" label="Custo por Lote (R$)" value={params.Custo_Expansao_Lote} onChange={handleParamChange} required /> <InputNumericoMasked id="Incremento_Capacidade_Lote" label="Capacidade/Lote" value={params.Incremento_Capacidade_Lote} onChange={handleParamChange} sufixo="Unid." required /> </div> </div> </div> </AbaConteudo> </div>
                 {/* Aba 6: Rede de Negócios (ATUALIZADO) */}
                 <div className={abaAtiva === 'redeNegocios' ? 'block' : 'hidden'}> <AbaConteudo title="6. Parâmetros Rede (Fornecedores)" isComplete={abasCompletas.redeNegocios} helpText={helpTexts.redeNegocios} onHelpClick={abrirModalAjuda}> <div className="mt-2 space-y-6"> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">Fornecedores de Tela</h4> <div className="grid grid-cols-1 md:grid-cols-2 gap-6"> <div className="space-y-2"> <label className="text-sm">Opção A (Contratual)</label> <textarea id="Fornecedor_Tela_A_Desc" value={params.Fornecedor_Tela_A_Desc} onChange={handleParamChange} rows="3" className="w-full bg-gray-700 p-2 rounded-lg" required /> <InputMoedaMasked id="Fornecedor_Tela_A_Custo" label="Custo (R$/Unid.)" value={params.Fornecedor_Tela_A_Custo} onChange={handleParamChange} required /> </div> <div className="space-y-2"> <label className="text-sm">Opção B (Relacional)</label> <textarea id="Fornecedor_Tela_B_Desc" value={params.Fornecedor_Tela_B_Desc} onChange={handleParamChange} rows="3" className="w-full bg-gray-700 p-2 rounded-lg" required /> <InputMoedaMasked id="Fornecedor_Tela_B_Custo" label="Custo (R$/Unid.)" value={params.Fornecedor_Tela_B_Custo} onChange={handleParamChange} required /> </div> </div> </div> <div className="pt-4 border-t border-gray-700"><h4 className="font-semibold text-gray-300 mb-2">Fornecedores de Chip</h4> <div className="grid grid-cols-1 md:grid-cols-2 gap-6"> <div className="space-y-2"> <label className="text-sm">Opção C (Padrão)</label> <textarea id="Fornecedor_Chip_C_Desc" value={params.Fornecedor_Chip_C_Desc} onChange={handleParamChange} rows="3" className="w-full bg-gray-700 p-2 rounded-lg" required /> <InputMoedaMasked id="Fornecedor_Chip_C_Custo" label="Custo (R$/Unid.)" value={params.Fornecedor_Chip_C_Custo} onChange={handleParamChange} required /> </div> <div className="space-y-2"> <label className="text-sm">Opção D (Parceria Estratégica)</label> <textarea id="Fornecedor_Chip_D_Desc" value={params.Fornecedor_Chip_D_Desc} onChange={handleParamChange} rows="3" className="w-full bg-gray-700 p-2 rounded-lg" required /> <div className="grid grid-cols-2 gap-4"> <InputMoedaMasked id="Fornecedor_Chip_D_Custo" label="Custo (R$/Unid.)" value={params.Fornecedor_Chip_D_Custo} onChange={handleParamChange} required /> <div><label className="text-xs">Bônus P&D (%)</label><input type="number" id="Fornecedor_Chip_D_Bonus_PD_Percent" value={params.Fornecedor_Chip_D_Bonus_PD_Percent} onChange={handleParamChange} min="0" max="100" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div> </div> </div> </div> </div> </AbaConteudo> </div>
-                {/* Aba 7: Finanças (Taxas) */}
+                {/* ** ATUALIZADO: Aba 7: Finanças (Taxas/Limites) ** */}
                 <div className={abaAtiva === 'financasTaxas' ? 'block' : 'hidden'}>
-                    <AbaConteudo title="7. Finanças (Taxas e Prazos)" isComplete={abasCompletas.financasTaxas} helpText={helpTexts.financasTaxas} onHelpClick={abrirModalAjuda}>
-                        <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
-                             <div><label htmlFor="Taxa_Juros_Curto_Prazo" className="block text-xs font-medium text-gray-400 mb-1">Juros Curto Prazo (%/Rodada)</label><input type="number" id="Taxa_Juros_Curto_Prazo" value={params.Taxa_Juros_Curto_Prazo} onChange={handleParamChange} min="0" step="0.1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
-                             <div><label htmlFor="Taxa_Juros_Emergencia" className="block text-xs font-medium text-gray-400 mb-1">Juros Emergência (%/Rodada)</label><input type="number" id="Taxa_Juros_Emergencia" value={params.Taxa_Juros_Emergencia} onChange={handleParamChange} min="0" step="0.1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
-                             <div><label htmlFor="Taxa_Juros_Longo_Prazo" className="block text-xs font-medium text-gray-400 mb-1">Juros Longo Prazo (%/Rodada)</label><input type="number" id="Taxa_Juros_Longo_Prazo" value={params.Taxa_Juros_Longo_Prazo} onChange={handleParamChange} min="0" step="0.1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
-                             <div><label htmlFor="Prazo_Fixo_Longo_Prazo" className="block text-xs font-medium text-gray-400 mb-1">Prazo Fixo LP (Rodadas)</label><input type="number" id="Prazo_Fixo_Longo_Prazo" value={params.Prazo_Fixo_Longo_Prazo} onChange={handleParamChange} min="1" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                    <AbaConteudo title="7. Finanças (Taxas e Limites)" isComplete={abasCompletas.financasTaxas} helpText={helpTexts.financasTaxas} onHelpClick={abrirModalAjuda}>
+                        <div className="mt-2 space-y-6">
+                            <div className="pt-4 border-t border-gray-700">
+                                <h4 className="font-semibold text-gray-300 mb-2">Taxas e Prazos</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-end">
+                                    <div><label htmlFor="Taxa_Juros_Curto_Prazo" className="block text-xs font-medium text-gray-400 mb-1">Juros Curto Prazo (%/Rodada)</label><input type="number" id="Taxa_Juros_Curto_Prazo" value={params.Taxa_Juros_Curto_Prazo} onChange={handleParamChange} min="0" step="0.1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                    <div><label htmlFor="Taxa_Juros_Emergencia" className="block text-xs font-medium text-gray-400 mb-1">Juros Emergência (%/Rodada)</label><input type="number" id="Taxa_Juros_Emergencia" value={params.Taxa_Juros_Emergencia} onChange={handleParamChange} min="0" step="0.1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                    <div><label htmlFor="Taxa_Juros_Longo_Prazo" className="block text-xs font-medium text-gray-400 mb-1">Juros Longo Prazo (%/Rodada)</label><input type="number" id="Taxa_Juros_Longo_Prazo" value={params.Taxa_Juros_Longo_Prazo} onChange={handleParamChange} min="0" step="0.1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                    <div><label htmlFor="Prazo_Fixo_Longo_Prazo" className="block text-xs font-medium text-gray-400 mb-1">Prazo Fixo LP (Rodadas)</label><input type="number" id="Prazo_Fixo_Longo_Prazo" value={params.Prazo_Fixo_Longo_Prazo} onChange={handleParamChange} min="1" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                </div>
+                            </div>
+                            <div className="pt-4 border-t border-gray-700">
+                                <h4 className="font-semibold text-gray-300 mb-2">Limites de Alavancagem</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div><label htmlFor="Limite_CP_Percent_Ativo_Circulante" className="block text-xs font-medium text-gray-400 mb-1">Limite CP (% Ativo Circulante)</label><input type="number" id="Limite_CP_Percent_Ativo_Circulante" value={params.Limite_CP_Percent_Ativo_Circulante} onChange={handleParamChange} min="0" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                    <div><label htmlFor="Limite_LP_Percent_Patrimonio_Liquido" className="block text-xs font-medium text-gray-400 mb-1">Limite LP (% Patrimônio Líquido)</label><input type="number" id="Limite_LP_Percent_Patrimonio_Liquido" value={params.Limite_LP_Percent_Patrimonio_Liquido} onChange={handleParamChange} min="0" step="1" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                </div>
+                            </div>
                         </div>
                     </AbaConteudo>
                 </div>
@@ -414,17 +474,64 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
                             <div key={`atr-${r}`} className="space-y-6 border-b border-gray-700 pb-4 mb-4 last:border-b-0"> 
                                 <h4 className="font-semibold text-gray-300 text-lg">Rodada {r}</h4> 
                                 {/* Pesos Gerais Premium */}
-                                <div className="p-4 bg-gray-900 rounded"><h5 className="font-semibold text-gray-300 mb-2">{params.Segmento1_Nome} (Pesos Gerais, Soma=1.0)</h5><div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <div><label className="text-xs">Peso P&D</label><input type="number" name={`Peso_PD_Premium_Rodada_${r}`} value={params[`Peso_PD_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Mkt</label><input type="number" name={`Peso_Mkt_Premium_Rodada_${r}`} value={params[`Peso_Mkt_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Preço</label><input type="number" name={`Peso_Preco_Premium_Rodada_${r}`} value={params[`Peso_Preco_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div></div> 
+                                <div className="p-4 bg-gray-900 rounded"><h5 className="font-semibold text-gray-300 mb-2">{params.Segmento1_Nome} (Pesos Gerais, Soma=1.0)</h5><div className="grid grid-cols-1 md:grid-cols-5 gap-4"> <div><label className="text-xs">Peso P&D</label><input type="number" name={`Peso_PD_Premium_Rodada_${r}`} value={params[`Peso_PD_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Mkt</label><input type="number" name={`Peso_Mkt_Premium_Rodada_${r}`} value={params[`Peso_Mkt_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Preço</label><input type="number" name={`Peso_Preco_Premium_Rodada_${r}`} value={params[`Peso_Preco_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                    <div><label className="text-xs">Peso Qualidade</label><input type="number" name={`Peso_Qualidade_Premium_Rodada_${r}`} value={params[`Peso_Qualidade_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso ESG</label><input type="number" name={`Peso_ESG_Premium_Rodada_${r}`} value={params[`Peso_ESG_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                </div></div> 
                                 {/* Pesos P&D (Dentro Premium) */}
                                 <div className="p-4 bg-gray-900 rounded"><h5 className="font-semibold text-gray-300 mb-2">{params.Segmento1_Nome} (Pesos P&D, Soma=1.0)</h5><div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <div><label className="text-xs">Peso Câmera</label><input type="number" name={`Peso_PD_Camera_Premium_Rodada_${r}`} value={params[`Peso_PD_Camera_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Bateria</label><input type="number" name={`Peso_PD_Bateria_Premium_Rodada_${r}`} value={params[`Peso_PD_Bateria_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Sist. Op. e IA</label><input type="number" name={`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${r}`} value={params[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div></div> 
                                 {/* Pesos Gerais Básico (Massa) */}
-                                <div className="p-4 bg-gray-900 rounded"><h4 className="font-semibold text-gray-300 mb-2">{params.Segmento2_Nome} (Pesos Gerais, Soma=1.0)</h4><div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <div><label className="text-xs">Peso P&D (Atual. Geral)</label><input type="number" name={`Peso_PD_Massa_Rodada_${r}`} value={params[`Peso_PD_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Mkt</label><input type="number" name={`Peso_Mkt_Massa_Rodada_${r}`} value={params[`Peso_Mkt_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Preço</label><input type="number" name={`Peso_Preco_Massa_Rodada_${r}`} value={params[`Peso_Preco_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> </div></div> 
+                                <div className="p-4 bg-gray-900 rounded"><h4 className="font-semibold text-gray-300 mb-2">{params.Segmento2_Nome} (Pesos Gerais, Soma=1.0)</h4><div className="grid grid-cols-1 md:grid-cols-5 gap-4"> <div><label className="text-xs">Peso P&D (Atual. Geral)</label><input type="number" name={`Peso_PD_Massa_Rodada_${r}`} value={params[`Peso_PD_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Mkt</label><input type="number" name={`Peso_Mkt_Massa_Rodada_${r}`} value={params[`Peso_Mkt_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso Preço</label><input type="number" name={`Peso_Preco_Massa_Rodada_${r}`} value={params[`Peso_Preco_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                    <div><label className="text-xs">Peso Qualidade</label><input type="number" name={`Peso_Qualidade_Massa_Rodada_${r}`} value={params[`Peso_Qualidade_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div> <div><label className="text-xs">Peso ESG</label><input type="number" name={`Peso_ESG_Massa_Rodada_${r}`} value={params[`Peso_ESG_Massa_Rodada_${r}`]} onChange={handleParamChange} min="0" max="1" step="0.01" className="w-full bg-gray-700 p-2 rounded-lg" required /></div>
+                                </div></div> 
                             </div> 
                         ))} 
                     </div> 
                 </AbaConteudo> </div>
-                {/* Aba 9: Eventos (Notícias) */}
-                <div className={abaAtiva === 'eventos' ? 'block' : 'hidden'}> <AbaConteudo title="9. Eventos de Mercado (Notícias)" isComplete={abasCompletas.eventos} helpText={helpTexts.eventos} onHelpClick={abrirModalAjuda}> <div className="mt-2 space-y-4 max-h-[400px] overflow-y-auto pr-2"> {Array.from({ length: Math.max(0, Number(params.Total_Rodadas) || 0) }, (_, i) => i + 1).map(r => ( <div key={`noticia-${r}`}> <label htmlFor={`Noticia_Rodada_${r}`} className="block text-sm font-medium text-gray-400 mb-1">Notícia Início Rodada {r}</label> <textarea id={`Noticia_Rodada_${r}`} name={`Noticia_Rodada_${r}`} value={params[`Noticia_Rodada_${r}`]} onChange={handleParamChange} rows="3" className="w-full bg-gray-700 p-3 rounded-lg" placeholder={`O que acontecerá no início da Rodada ${r}?`} /> </div> ))} </div> </AbaConteudo> </div>
+
+                {/* ** NOVA ABA 9: Orçamento Organizacional ** */}
+                <div className={abaAtiva === 'orcamentoOrganizacional' ? 'block' : 'hidden'}>
+                    <AbaConteudo title="9. Orçamento Organizacional e Custos" isComplete={abasCompletas.orcamentoOrganizacional} helpText={helpTexts.orcamentoOrganizacional} onHelpClick={abrirModalAjuda}>
+                        <div className="mt-2 space-y-6">
+                            <div className="pt-4 border-t border-gray-700">
+                                <h4 className="font-semibold text-gray-300 mb-2">Orçamento</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <InputMoedaMasked id="Orcamento_Organizacional_Por_Rodada" label="Orçamento por Rodada (R$)" value={params.Orcamento_Organizacional_Por_Rodada} onChange={handleParamChange} required />
+                                </div>
+                            </div>
+                            <div className="pt-4 border-t border-gray-700">
+                                <h4 className="font-semibold text-gray-300 mb-2">Custos Acumulados p/ Nível (R$)</h4>
+                                {/* Capacitação */}
+                                <div className="mb-4 last:mb-0">
+                                    <h5 className="text-md font-medium text-gray-400 mb-1">Capacitação (Reduz Custo Montagem)</h5>
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                        <div className="md:col-span-1">
+                                            <label className="text-xs">Redução Custo/Nível (%)</label>
+                                            <input type="number" id="Reducao_Custo_Montagem_Por_Nivel_Capacitacao_Percent" value={params.Reducao_Custo_Montagem_Por_Nivel_Capacitacao_Percent} onChange={handleParamChange} min="0" step="0.1" className="w-full bg-gray-700 p-2 rounded-lg" required />
+                                        </div>
+                                        {[2, 3, 4, 5].map(nivel => (<InputMoedaMasked key={`Capacitacao-${nivel}`} id={`Custo_Nivel_Capacitacao_Nivel_${nivel}`} label={`Custo Total p/ Nível ${nivel}`} value={params[`Custo_Nivel_Capacitacao_Nivel_${nivel}`]} onChange={handleParamChange} required />))}
+                                    </div>
+                                </div>
+                                {/* Qualidade */}
+                                <div className="mb-4 last:mb-0">
+                                    <h5 className="text-md font-medium text-gray-400 mb-1">Qualidade (Impacta Atratividade)</h5>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                        {[2, 3, 4, 5].map(nivel => (<InputMoedaMasked key={`Qualidade-${nivel}`} id={`Custo_Nivel_Qualidade_Nivel_${nivel}`} label={`Custo Total p/ Nível ${nivel}`} value={params[`Custo_Nivel_Qualidade_Nivel_${nivel}`]} onChange={handleParamChange} required />))}
+                                    </div>
+                                </div>
+                                {/* ESG */}
+                                <div className="mb-4 last:mb-0">
+                                    <h5 className="text-md font-medium text-gray-400 mb-1">ESG (Impacta Atratividade e IDG)</h5>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                        {[2, 3, 4, 5].map(nivel => (<InputMoedaMasked key={`ESG-${nivel}`} id={`Custo_Nivel_ESG_Nivel_${nivel}`} label={`Custo Total p/ Nível ${nivel}`} value={params[`Custo_Nivel_ESG_Nivel_${nivel}`]} onChange={handleParamChange} required />))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </AbaConteudo>
+                </div>
+
+                {/* Aba 10: Eventos (Notícias) */}
+                <div className={abaAtiva === 'eventos' ? 'block' : 'hidden'}> <AbaConteudo title="10. Eventos de Mercado (Notícias)" isComplete={abasCompletas.eventos} helpText={helpTexts.eventos} onHelpClick={abrirModalAjuda}> <div className="mt-2 space-y-4 max-h-[400px] overflow-y-auto pr-2"> {Array.from({ length: Math.max(0, Number(params.Total_Rodadas) || 0) }, (_, i) => i + 1).map(r => ( <div key={`noticia-${r}`}> <label htmlFor={`Noticia_Rodada_${r}`} className="block text-sm font-medium text-gray-400 mb-1">Notícia Início Rodada {r}</label> <textarea id={`Noticia_Rodada_${r}`} name={`Noticia_Rodada_${r}`} value={params[`Noticia_Rodada_${r}`]} onChange={handleParamChange} rows="3" className="w-full bg-gray-700 p-3 rounded-lg" placeholder={`O que acontecerá no início da Rodada ${r}?`} /> </div> ))} </div> </AbaConteudo> </div>
 
                 {/* Botões Finais */}
                 <div className="flex justify-end gap-4 pt-6 mt-6 border-t border-gray-700"> <button type="button" onClick={() => navigate('/simulador/admin')} className="bg-gray-600 hover:bg-gray-700 font-bold py-2 px-6 rounded-lg" disabled={loading}> Cancelar </button> <button type="submit" className="bg-cyan-500 hover:bg-cyan-600 font-bold py-2 px-6 rounded-lg" disabled={loading}> {loading ? 'Salvando...' : (isEditing ? 'Salvar Alterações' : 'Salvar e Iniciar Simulação')} </button> </div>
@@ -437,4 +544,3 @@ Opção D (Parceria/Influência): Custo elevado, mas oferece bônus (desenvolvim
 }
 
 export default SimuladorForm;
-
