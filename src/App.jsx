@@ -2,30 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from './firebase/config.js'; // Corrigido
+import { auth, db } from './firebase/config'; // Corrigido
 
 // Componentes e Páginas
-import Sidebar from './components/Sidebar.jsx'; // Corrigido
-import PaginaLogin from './pages/Login.jsx'; // Corrigido
-import PaginaCadastro from './pages/Cadastro.jsx'; // Corrigido
-import PaginaEsqueciSenha from './pages/EsqueciSenha.jsx'; // Corrigido
-import PaginaDashboard from './pages/Dashboard.jsx'; // Corrigido
-import AnaliseProjetos from './pages/AnaliseProjetos.jsx'; // Corrigido
-import PaginaAnalise from './pages/PaginaAnalise.jsx'; // Corrigido
-import PaginaInstituicoes from './pages/Instituicoes.jsx'; // Corrigido
-import PaginaCursos from './pages/Cursos.jsx'; // Corrigido
-import PaginaDisciplinas from './pages/Disciplinas.jsx'; // Corrigido
-import PaginaTurmas from './pages/Turmas.jsx'; // Corrigido
-import PaginaGrupos from './pages/Grupos.jsx'; // Corrigido
-import PaginaAlunos from './pages/Alunos.jsx'; // Corrigido
-import SimuladorHub from './pages/SimuladorHub.jsx'; // Corrigido
-import SimuladorAdmin from './pages/SimuladorAdmin.jsx'; // Corrigido
-import SimuladorForm from './pages/SimuladorForm.jsx'; // Corrigido
-import SimuladorDesignar from './pages/SimuladorDesignar.jsx'; // Corrigido
-import SimuladorAlunoHub from './pages/SimuladorAlunoHub.jsx'; // Corrigido
-import SimuladorPainel from './pages/SimuladorPainel.jsx'; // Corrigido
-// --- NOVO COMPONENTE ---
-import SimuladorRanking from './pages/SimuladorRanking.jsx';
+import Sidebar from './components/Sidebar'; // Corrigido
+import PaginaLogin from './pages/Login'; // Corrigido
+import PaginaCadastro from './pages/Cadastro'; // Corrigido
+import PaginaEsqueciSenha from './pages/EsqueciSenha'; // Corrigido
+import PaginaDashboard from './pages/Dashboard'; // Corrigido
+import AnaliseProjetos from './pages/AnaliseProjetos'; // Corrigido
+import PaginaAnalise from './pages/PaginaAnalise'; // Corrigido
+import PaginaInstituicoes from './pages/Instituicoes'; // Corrigido
+import PaginaCursos from './pages/Cursos'; // Corrigido
+import PaginaDisciplinas from './pages/Disciplinas'; // Corrigido
+import PaginaTurmas from './pages/Turmas'; // Corrigido
+import PaginaGrupos from './pages/Grupos'; // Corrigido
+import PaginaAlunos from './pages/Alunos'; // Corrigido
+import SimuladorHub from './pages/SimuladorHub'; // Corrigido
+import SimuladorAdmin from './pages/SimuladorAdmin'; // Corrigido
+import SimuladorForm from './pages/SimuladorForm'; // Corrigido
+import SimuladorDesignar from './pages/SimuladorDesignar'; // Corrigido
+import SimuladorAlunoHub from './pages/SimuladorAlunoHub'; // Corrigido
+import SimuladorPainel from './pages/SimuladorPainel'; // Corrigido
+// --- NOVOS COMPONENTES ---
+import SimuladorRanking from './pages/SimuladorRanking'; // Corrigido
+import SimuladorRelatorio from './pages/SimuladorRelatorio'; // Corrigido
+import SimuladorAnalyticsVendas from './pages/SimuladorAnalyticsVendas'; // Corrigido
 
 
 // --- Layouts e Rotas ---
@@ -37,8 +39,11 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         if (pathname === '/simulador/novo') { return 'Nova Simulação'; }
         if (pathname.startsWith('/simulador/editar/')) { return 'Editar Simulação'; }
         if (pathname.startsWith('/simulador/designar/')) { return 'Designar Alunos'; }
-        // --- NOVA ROTA ---
         if (pathname.startsWith('/simulador/ranking/')) { return 'Ranking da Simulação'; }
+        // --- NOVAS ROTAS ---
+        if (pathname.startsWith('/simulador/relatorio/')) { return 'Relatório por Empresa'; }
+        if (pathname.startsWith('/simulador/analytics/vendas/')) { return 'Analytics de Vendas'; }
+        // --- FIM NOVAS ROTAS ---
         if (pathname === '/simulador/admin') { return 'Admin Simulador'; }
         if (pathname === '/simulador/aluno') { return 'Meus Jogos'; }
         if (pathname.startsWith('/simulador/painel/')) { return 'Painel da Empresa'; }
@@ -144,8 +149,10 @@ function App() {
                     <Route path="simulador/novo" element={<SimuladorForm />} /> 
                     <Route path="simulador/editar/:simulacaoId" element={<SimuladorForm />} />
                     <Route path="simulador/designar/:simulacaoId" element={<SimuladorDesignar />} />
-                    {/* --- NOVA ROTA ADICIONADA --- */}
                     <Route path="simulador/ranking/:simulacaoId" element={<SimuladorRanking />} />
+                    {/* --- NOVAS ROTAS ADICIONADAS --- */}
+                    <Route path="simulador/relatorio/:simulacaoId" element={<SimuladorRelatorio />} />
+                    <Route path="simulador/analytics/vendas/:simulacaoId" element={<SimuladorAnalyticsVendas />} />
                 </Route>
 
                 {/* Rotas de Admin (Parametrização) (inalteradas) */}
