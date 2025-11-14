@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 // CORREÇÃO: Tentando um caminho absoluto (baseado na raiz /src/)
 import { db, appId } from '/src/firebase/config.js'; 
 // NOVO (RF 4.6): Adicionando imports do Recharts para o gráfico IDG
@@ -247,38 +247,47 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
         setRodadaSelecionada(rodadaRelatorio);
     }, [rodadaRelatorio]);
 
-    // Efeito para buscar os dados da rodada SELECIONADA
+    // Efeito para buscar os dados da rodada SELECIONADA em tempo real
     useEffect(() => {
-        if (!simulacaoId || !empresaId) return;
+        if (!simulacaoId || !empresaId) {
+            setDadosVisao({ estado: null, decisoes: null, loading: false });
+            return;
+        }
 
-        const fetchDadosHistoricos = async () => {
-            setDadosVisao({ estado: null, decisoes: null, loading: true });
-            
-            const basePath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas/${empresaId}`;
-            const estadoRef = doc(db, basePath, 'estados', rodadaSelecionada.toString());
-            // Busca as decisões da rodada SELECIONADA (que já passou)
-            const decisoesRef = doc(db, basePath, 'decisoes', rodadaSelecionada.toString()); 
+        setDadosVisao({ estado: null, decisoes: null, loading: true });
 
-            try {
-                const [estadoSnap, decisoesSnap] = await Promise.all([
-                    getDoc(estadoRef),
-                    getDoc(decisoesRef)
-                ]);
+        const basePath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas/${empresaId}`;
+        const estadoRef = doc(db, basePath, 'estados', rodadaSelecionada.toString());
+        const decisoesRef = doc(db, basePath, 'decisoes', rodadaSelecionada.toString());
 
-                setDadosVisao({
-                    estado: estadoSnap.exists() ? estadoSnap.data() : null,
-                    decisoes: decisoesSnap.exists() ? decisoesSnap.data() : null,
-                    loading: false
-                });
+        const unsubEstado = onSnapshot(estadoRef, (docSnap) => {
+            setDadosVisao(prev => ({
+                ...prev,
+                estado: docSnap.exists() ? docSnap.data() : null,
+                loading: false // Para o loading assim que o primeiro dado (estado) chegar
+            }));
+        }, (error) => {
+            console.error("Erro ao ouvir snapshot do estado:", error);
+            setDadosVisao(prev => ({ ...prev, estado: null, loading: false }));
+        });
 
-            } catch (error) {
-                console.error("Erro ao buscar dados históricos:", error);
-                setDadosVisao({ estado: null, decisoes: null, loading: false }); // Para o loading em caso de erro
-            }
+        const unsubDecisoes = onSnapshot(decisoesRef, (docSnap) => {
+            setDadosVisao(prev => ({
+                ...prev,
+                decisoes: docSnap.exists() ? docSnap.data() : null
+            }));
+        }, (error) => {
+            console.error("Erro ao ouvir snapshot de decisões:", error);
+            setDadosVisao(prev => ({ ...prev, decisoes: null }));
+        });
+
+        // Função de limpeza para desinscrever dos listeners ao desmontar ou quando as dependências mudarem
+        return () => {
+            unsubEstado();
+            unsubDecisoes();
         };
 
-        fetchDadosHistoricos();
-    }, [simulacaoId, empresaId, rodadaSelecionada]); // Re-busca quando a rodada selecionada muda
+    }, [simulacaoId, empresaId, rodadaSelecionada, appId]); // Re-busca quando a rodada selecionada muda
 
     
     // --- Cálculos para DRE e Balanço (Memoizados) ---
