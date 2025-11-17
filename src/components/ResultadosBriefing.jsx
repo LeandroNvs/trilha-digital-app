@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-// CORREÇÃO: Tentando um caminho absoluto (baseado na raiz /src/)
-import { db, appId } from '/src/firebase/config.js'; 
+import { doc, getDoc } from 'firebase/firestore';
+// CORREÇÃO: Caminho relativo para o config (assumindo que este arquivo está em /src/components/)
+import { db, appId } from '/src/firebase/config'; 
 // NOVO (RF 4.6): Adicionando imports do Recharts para o gráfico IDG
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -57,7 +57,7 @@ function RelatorioFinanceiro({ titulo, dados, isBalanco = false }) {
         return "border-b border-gray-600 last:border-b-0"; // Estilo padrão da linha
     };
     return (
-        <div className="bg-gray-700 p-4 rounded-lg shadow">
+        <div className="bg-gray-700 p-4 rounded-lg shadow h-full">
             <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">{titulo}</h4>
             <div className="space-y-1 text-sm">
                 {dados.map(([label, valor], index) => {
@@ -88,8 +88,10 @@ function RelatorioFinanceiro({ titulo, dados, isBalanco = false }) {
     );
 }
 
-// Componente ResumoDecisoesRodada
-function ResumoDecisoesRodada({ decisoes }) {
+// =================================================================
+// MUDANÇA: ResumoDecisoesRodada
+// =================================================================
+function ResumoDecisoesRodada({ decisoes, simulacao }) {
     if (!decisoes || Object.keys(decisoes).length === 0 || decisoes.Status_Decisao === 'Pendente') {
         return (
             <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow mt-6">
@@ -103,6 +105,8 @@ function ResumoDecisoesRodada({ decisoes }) {
 
     const formatBRL = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const formatNum = (num) => (Number(num) || 0).toLocaleString('pt-BR');
+    const seg1Nome = simulacao?.Segmento1_Nome || 'S1';
+    const seg2Nome = simulacao?.Segmento2_Nome || 'S2';
 
     return (
         <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow mt-6">
@@ -110,12 +114,29 @@ function ResumoDecisoesRodada({ decisoes }) {
                 <span role="img" aria-label="Clipboard" className="mr-2">📋</span> Decisões Tomadas (Rodada {decisoes.Rodada})
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-sm">
-                {/* Rede */}
+                
+                {/* Rede S1 */}
                 <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Rede</h4>
-                    <p className="text-gray-400">Tela: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_Tela || '?'}</span></p>
-                    <p className="text-gray-400">Chip: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_Chip || '?'}</span></p>
+                    <h4 className="font-semibold text-gray-200 mb-2">Rede ({seg1Nome})</h4>
+                    <p className="text-gray-400">Tela: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_S1_Tela || '?'}</span></p>
+                    <p className="text-gray-400">Chip: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_S1_Chip || '?'}</span></p>
                 </div>
+                
+                {/* Rede S2 */}
+                <div className="bg-gray-700 p-4 rounded-lg">
+                    <h4 className="font-semibold text-gray-200 mb-2">Rede ({seg2Nome})</h4>
+                    <p className="text-gray-400">Tela: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_S2_Tela || '?'}</span></p>
+                    <p className="text-gray-400">Chip: <span className="font-medium text-white">Opção {decisoes.Escolha_Fornecedor_S2_Chip || '?'}</span></p>
+                </div>
+                
+                {/* Operações */}
+                <div className="bg-gray-700 p-4 rounded-lg">
+                    <h4 className="font-semibold text-gray-200 mb-2">Operações</h4>
+                    <p className="text-gray-400">Produção ({seg1Nome}): <span className="font-medium text-white">{formatNum(decisoes.Producao_Planejada_S1)} unid.</span></p>
+                    <p className="text-gray-400">Produção ({seg2Nome}): <span className="font-medium text-white">{formatNum(decisoes.Producao_Planejada_S2)} unid.</span></p>
+                    <p className="text-gray-400">Expansão: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Expansao_Fabrica)}</span></p>
+                </div>
+                
                 {/* P&D */}
                 <div className="bg-gray-700 p-4 rounded-lg">
                     <h4 className="font-semibold text-gray-200 mb-2">P&D (Investimento)</h4>
@@ -124,24 +145,20 @@ function ResumoDecisoesRodada({ decisoes }) {
                     <p className="text-gray-400">SO/IA: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Sist_Operacional_e_IA)}</span></p>
                     <p className="text-gray-400">Atual. Geral: <span className="font-medium text-white">{formatBRL(decisoes.Invest_PD_Atualizacao_Geral)}</span></p>
                 </div>
-                {/* Operações */}
-                <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Operações</h4>
-                    <p className="text-gray-400">Produção: <span className="font-medium text-white">{formatNum(decisoes.Producao_Planejada)} unid.</span></p>
-                    <p className="text-gray-400">Expansão: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Expansao_Fabrica)}</span></p>
-                </div>
+
                 {/* Marketing Premium */}
-                <div className="bg-gray-700 p-4 rounded-lg md:col-span-1 lg:col-span-1">
-                    <h4 className="font-semibold text-gray-200 mb-2">Marketing (Seg. Premium)</h4>
+                <div className="bg-gray-700 p-4 rounded-lg">
+                    <h4 className="font-semibold text-gray-200 mb-2">Marketing ({seg1Nome})</h4>
                     <p className="text-gray-400">Preço: <span className="font-medium text-white">{formatBRL(decisoes.Preco_Segmento_1)}</span></p>
                     <p className="text-gray-400">Investimento: <span className="font-medium text-white">{formatBRL(decisoes.Marketing_Segmento_1)}</span></p>
                 </div>
                 {/* Marketing Básico */}
                  <div className="bg-gray-700 p-4 rounded-lg">
-                    <h4 className="font-semibold text-gray-200 mb-2">Marketing (Seg. Básico)</h4>
+                    <h4 className="font-semibold text-gray-200 mb-2">Marketing ({seg2Nome})</h4>
                     <p className="text-gray-400">Preço: <span className="font-medium text-white">{formatBRL(decisoes.Preco_Segmento_2)}</span></p>
                     <p className="text-gray-400">Investimento: <span className="font-medium text-white">{formatBRL(decisoes.Marketing_Segmento_2)}</span></p>
                 </div>
+                
                 {/* Finanças */}
                 <div className="bg-gray-700 p-4 rounded-lg">
                     <h4 className="font-semibold text-gray-200 mb-2">Finanças</h4>
@@ -149,7 +166,8 @@ function ResumoDecisoesRodada({ decisoes }) {
                     <p className="text-gray-400">Tomar LP: <span className="font-medium text-white">{formatBRL(decisoes.Tomar_Financiamento_LP)}</span></p>
                     <p className="text-gray-400">Amortizar LP: <span className="font-medium text-white">{formatBRL(decisoes.Amortizar_Divida_LP)}</span></p>
                 </div>
-                {/* ADICIONADO RF 4.2 */}
+
+                {/* Organização */}
                 <div className="bg-gray-700 p-4 rounded-lg">
                     <h4 className="font-semibold text-gray-200 mb-2">Organização</h4>
                     <p className="text-gray-400">Capacitação: <span className="font-medium text-white">{formatBRL(decisoes.Invest_Organiz_Capacitacao)}</span></p>
@@ -161,7 +179,9 @@ function ResumoDecisoesRodada({ decisoes }) {
     );
 }
 
-// --- NOVO (RF 4.6): Componente para o Gráfico de IDG ---
+// =================================================================
+// MUDANÇA: GraficoIDG (para incluir novas métricas)
+// =================================================================
 function GraficoIDG({ metricas }) {
     // 1. Validar e transformar os dados
     const data = useMemo(() => {
@@ -171,18 +191,16 @@ function GraficoIDG({ metricas }) {
             lucro: 'Lucro',
             share: 'Mkt Share',
             pd: 'P&D',
-            marca: 'Marca',
-            capacitacao: 'Pessoas', // RF 4.4
-            esg: 'ESG'           // RF 4.4
+            saude: 'Saúde Fin.', // NOVO
+            org: 'Org/ESG'       // NOVO
+            // 'marca' foi removido ou substituído por 'org'
         };
         return Object.keys(nomesMetricas)
             .map(key => ({
                 name: nomesMetricas[key],
-                // A 'nota' é a pontuação já ponderada (ex: 30 de 30)
+                // A 'nota' é a pontuação já ponderada
                 Pontos: metricas[key] ? Number(metricas[key].nota.toFixed(1)) : 0 
             }))
-            // Opcional: filtrar métricas que ainda não pontuam (ex: R1 pode não ter lucro)
-            // .filter(item => item.Pontos > 0); 
     }, [metricas]);
 
     if (data.length === 0) {
@@ -195,14 +213,13 @@ function GraficoIDG({ metricas }) {
             <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                     data={data}
-                    layout="vertical" // Gráfico de barras horizontal
-                    margin={{ top: 0, right: 35, left: 10, bottom: 0 }} // Aumentada margem direita para o label
+                    layout="vertical"
+                    margin={{ top: 0, right: 35, left: 10, bottom: 0 }}
                 >
                     <CartesianGrid strokeDasharray="3 3" stroke="#4a5568" />
-                    {/* Eixo X (Numérico, 0 a 40, pois o max é 30 ou 40) */}
+                    {/* Eixo X (Numérico) - Domínio removido para ser automático */}
                     <XAxis 
                         type="number" 
-                        domain={[0, 40]} // Ajustar se os pesos mudarem (ex: 0.40*100=40)
                         stroke="#9ca3af" 
                         tick={{ fontSize: 10 }} 
                     />
@@ -212,19 +229,17 @@ function GraficoIDG({ metricas }) {
                         type="category" 
                         stroke="#cbd5e1" 
                         tick={{ fontSize: 11 }} 
-                        width={70} // Espaço para os nomes
+                        width={70}
                     />
                     <Tooltip
                         contentStyle={{ backgroundColor: '#334155', border: 'none', borderRadius: '0.5rem' }}
                         labelStyle={{ color: '#cbd5e1' }}
                         cursor={{ fill: 'rgba(74, 85, 104, 0.5)' }}
                     />
-                    {/* <Legend wrapperStyle={{ fontSize: '12px' }} /> */}
                     <Bar 
                         dataKey="Pontos" 
-                        fill="#06b6d4" // Cor cyan
+                        fill="#06B6D4" // Cor cyan
                         background={{ fill: '#4a5568', opacity: 0.3 }} 
-                        // Mostra o valor na ponta da barra
                         label={{ position: 'right', fill: '#fff', fontSize: 10, formatter: (val) => `${val.toFixed(1)} pts` }} 
                     />
                 </BarChart>
@@ -237,121 +252,105 @@ function GraficoIDG({ metricas }) {
 // --- Componente Principal (ResultadosBriefing) ---
 function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio, rodadaDecisao }) {
     
-    // Estado para o seletor de rodada. Começa na rodada atual.
     const [rodadaSelecionada, setRodadaSelecionada] = useState(rodadaRelatorio);
-    // Estado para guardar os dados históricos (estado e decisões) da rodada selecionada
     const [dadosVisao, setDadosVisao] = useState({ estado: null, decisoes: null, loading: true });
 
-    // Atualiza o seletor se a rodada principal mudar
     useEffect(() => {
         setRodadaSelecionada(rodadaRelatorio);
     }, [rodadaRelatorio]);
 
-    // Efeito para buscar os dados da rodada SELECIONADA em tempo real
     useEffect(() => {
-        if (!simulacaoId || !empresaId) {
-            setDadosVisao({ estado: null, decisoes: null, loading: false });
-            return;
-        }
+        if (!simulacaoId || !empresaId) return;
 
-        setDadosVisao({ estado: null, decisoes: null, loading: true });
+        const fetchDadosHistoricos = async () => {
+            setDadosVisao({ estado: null, decisoes: null, loading: true });
+            
+            const basePath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas/${empresaId}`;
+            const estadoRef = doc(db, basePath, 'estados', rodadaSelecionada.toString());
+            const decisoesRef = doc(db, basePath, 'decisoes', rodadaSelecionada.toString()); 
 
-        const basePath = `/artifacts/${appId}/public/data/simulacoes/${simulacaoId}/empresas/${empresaId}`;
-        const estadoRef = doc(db, basePath, 'estados', rodadaSelecionada.toString());
-        const decisoesRef = doc(db, basePath, 'decisoes', rodadaSelecionada.toString());
+            try {
+                const [estadoSnap, decisoesSnap] = await Promise.all([
+                    getDoc(estadoRef),
+                    getDoc(decisoesRef)
+                ]);
 
-        const unsubEstado = onSnapshot(estadoRef, (docSnap) => {
-            setDadosVisao(prev => ({
-                ...prev,
-                estado: docSnap.exists() ? docSnap.data() : null,
-                loading: false // Para o loading assim que o primeiro dado (estado) chegar
-            }));
-        }, (error) => {
-            console.error("Erro ao ouvir snapshot do estado:", error);
-            setDadosVisao(prev => ({ ...prev, estado: null, loading: false }));
-        });
+                setDadosVisao({
+                    estado: estadoSnap.exists() ? estadoSnap.data() : null,
+                    decisoes: decisoesSnap.exists() ? decisoesSnap.data() : null,
+                    loading: false
+                });
 
-        const unsubDecisoes = onSnapshot(decisoesRef, (docSnap) => {
-            setDadosVisao(prev => ({
-                ...prev,
-                decisoes: docSnap.exists() ? docSnap.data() : null
-            }));
-        }, (error) => {
-            console.error("Erro ao ouvir snapshot de decisões:", error);
-            setDadosVisao(prev => ({ ...prev, decisoes: null }));
-        });
-
-        // Função de limpeza para desinscrever dos listeners ao desmontar ou quando as dependências mudarem
-        return () => {
-            unsubEstado();
-            unsubDecisoes();
+            } catch (error) {
+                console.error("Erro ao buscar dados históricos:", error);
+                setDadosVisao({ estado: null, decisoes: null, loading: false });
+            }
         };
 
-    }, [simulacaoId, empresaId, rodadaSelecionada, appId]); // Re-busca quando a rodada selecionada muda
+        fetchDadosHistoricos();
+    }, [simulacaoId, empresaId, rodadaSelecionada]);
 
     
     // --- Cálculos para DRE e Balanço (Memoizados) ---
-    // Usam os dados de 'dadosVisao.estado'
     const { dadosDRE, dadosBalanco } = useMemo(() => {
         const estado = dadosVisao.estado;
         if (!estado) return { dadosDRE: [], dadosBalanco: [] };
 
-        // --- DRE DETALHADO (RF 3.6) ---
+        // --- DRE DETALHADO (RF 3.6 / RF 4.2) ---
         const despesasFinanceirasTotais = (estado.Despesas_Juros_CP || 0) + (estado.Despesas_Juros_Emergencia || 0) + (estado.Despesas_Juros_LP || 0);
-        // RF 4.2: Adiciona despesas organizacionais ao DRE
         const despesasOrganizacionaisTotais = (estado.Despesas_Organiz_Capacitacao || 0) + (estado.Despesas_Organiz_Mkt_Institucional || 0) + (estado.Despesas_Organiz_ESG || 0);
-        // Agrupa todas as despesas operacionais não-CPV
         const despesasOpTotais = (estado.Despesas_Operacionais_Outras || 0) + despesasOrganizacionaisTotais;
 
         const dadosDRE = [
             ['(+) Receita de Vendas', estado.Vendas_Receita],
             ['(-) Custo Produtos Vendidos (CPV)', estado.Custo_Produtos_Vendidos],
             ['(=) Lucro Bruto', estado.Lucro_Bruto],
-            ['--- DESPESAS OPERACIONAIS ---', null], // Separador
+            ['--- DESPESAS OPERACIONAIS ---', null],
             ['(-) P&D, Mkt Produto, Custo Fixo', estado.Despesas_Operacionais_Outras],
-            ['(-) Organização (Pessoas, ESG, Marca)', despesasOrganizacionaisTotais], // RF 4.2
+            ['(-) Organização (Pessoas, ESG, Marca)', despesasOrganizacionaisTotais],
             ['(=) Subtotal Desp. Operacionais', despesasOpTotais],
             ['(=) Lucro Operacional (EBIT)', estado.Lucro_Operacional_EBIT],
-            ['--- DESPESAS FINANCEIRAS ---', null], // Separador
-            ['(-) Juros (Curto Prazo)', estado.Despesas_Juros_CP],
+            ['--- DESPESAS FINANCEIRAS ---', null],
+            ['(-) Juros (CP)', estado.Despesas_Juros_CP],
             ['(-) Juros (Emergência)', estado.Despesas_Juros_Emergencia],
-            ['(-) Juros (Longo Prazo)', estado.Despesas_Juros_LP],
+            ['(-) Juros (LP)', estado.Despesas_Juros_LP],
             ['(=) Subtotal Desp. Financeiras', despesasFinanceirasTotais],
-            ['(=) Lucro Líquido (EBT)', estado.Lucro_Liquido], // EBT = Earnings Before Tax
-            ['--- ACUMULADO ---', null], // Separador
+            ['(=) Lucro Líquido (EBT)', estado.Lucro_Liquido],
+            ['--- ACUMULADO ---', null],
             ['(=) Lucro Acumulado (Total)', estado.Lucro_Acumulado],
         ];
 
-        // --- BALANÇO DETALHADO (RF 3.6) ---
+        // --- BALANÇO DETALHADO (MUDANÇA: Estoque) ---
+        // MUDANÇA: Soma os dois estoques
+        const custoEstoqueTotal = (estado.Custo_Estoque_S1 || 0) + (estado.Custo_Estoque_S2 || 0);
+        
         const imobilizadoLiquido = (estado.Imobilizado_Bruto || 0) - (estado.Depreciacao_Acumulada || 0);
-        const ativoTotal = (estado.Caixa || 0) + (estado.Custo_Estoque_Final || 0) + imobilizadoLiquido;
+        const ativoTotal = (estado.Caixa || 0) + custoEstoqueTotal + imobilizadoLiquido;
         
         const saldoLP = estado.Divida_LP_Saldo || 0;
         const rodadasLP = estado.Divida_LP_Rodadas_Restantes || 0;
-        // Parcela de LP que vencerá na *próxima* rodada (baseado no saldo ATUAL)
         const parcelaPrincipalLPProxima = (rodadasLP > 0) ? saldoLP / rodadasLP : 0; 
         
-        const dividaCPVencendoBalanco = estado.Divida_CP || 0; // Dívida CP (vence R+1)
-        const dividaEmergVencendoBalanco = estado.Divida_Emergencia || 0; // Dívida Emerg (vence R+1)
+        const dividaCPVencendoBalanco = estado.Divida_CP || 0;
+        const dividaEmergVencendoBalanco = estado.Divida_Emergencia || 0;
         
         const passivoCirculante = dividaCPVencendoBalanco + dividaEmergVencendoBalanco + parcelaPrincipalLPProxima;
         const passivoNaoCirculante = saldoLP > 0 ? Math.max(0, saldoLP - parcelaPrincipalLPProxima) : 0;
         const passivoTotal = passivoCirculante + passivoNaoCirculante;
         
-        // PL = Ativo - Passivo
         const patrimonioLiquidoTotal = ativoTotal - passivoTotal; 
         const lucroAcumulado = estado.Lucro_Acumulado || 0;
-        // Capital Social = PL Total - Lucros Acumulados (o que "sobrou")
         const capitalSocialEOutros = patrimonioLiquidoTotal - lucroAcumulado;
 
 
         const dadosBalanco = [
-            ['--- ATIVOS ---', null], // Separador
+            ['--- ATIVOS ---', null],
             ['(+) Caixa', estado.Caixa],
-            ['(+) Estoque (Custo)', estado.Custo_Estoque_Final],
+            // MUDANÇA: Usa Custo Total
+            ['(+) Estoque Total (S1+S2)', custoEstoqueTotal],
             ['(+) Imobilizado (Líquido)', imobilizadoLiquido],
             ['(=) Total Ativos', ativoTotal],
-            ['--- PASSIVOS E PL ---', null], // Separador
+            ['--- PASSIVOS E PL ---', null],
             ['(+) Dívida Curto Prazo (Venc. R'+(estado.Rodada+1)+')', dividaCPVencendoBalanco],
             ['(+) Dívida Emergência (Venc. R'+(estado.Rodada+1)+')', dividaEmergVencendoBalanco],
             ['(+) Parcela LP (Venc. R'+(estado.Rodada+1)+')', parcelaPrincipalLPProxima],
@@ -359,7 +358,7 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
             ['(+) Saldo Dívida LP (Restante)', passivoNaoCirculante],
             ['(=) Subtotal Passivo Não Circulante', passivoNaoCirculante],
             ['(=) Total Passivos', passivoTotal],
-            ['--- PATRIMÔNIO LÍQUIDO ---', null], // Separador
+            ['--- PATRIMÔNIO LÍQUIDO ---', null],
             ['(+) Capital Social e Outros', capitalSocialEOutros],
             ['(+) Lucros Acumulados', lucroAcumulado],
             ['(=) Total Patrimônio Líquido', patrimonioLiquidoTotal],
@@ -370,17 +369,12 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
 
     }, [dadosVisao.estado]);
 
-    // Opções para o seletor de rodada
-    const opcoesRodada = Array.from({ length: rodadaRelatorio + 1 }, (_, i) => i); // Cria array [0, 1, ..., rodadaRelatorio]
-    
-    // Notícia (só mostra a da rodada de decisão)
+    const opcoesRodada = Array.from({ length: rodadaRelatorio + 1 }, (_, i) => i);
     const noticiaDaRodada = simulacao[`Noticia_Rodada_${rodadaDecisao}`] || "Nenhuma notícia específica para esta rodada.";
-
 
     return (
         <div className="space-y-6 animate-fade-in"> 
             
-            {/* 1. Acordeon de Notícia (Sempre mostra a notícia da PRÓXIMA rodada) */}
             <details className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-900 p-4 md:p-6 rounded-lg shadow group" open> 
                 <summary className="text-lg md:text-xl font-semibold text-yellow-800 cursor-pointer list-none flex justify-between items-center"> 
                     <span> <span role="img" aria-label="Newspaper" className="mr-2">📰</span> Notícia (Para Rodada {rodadaDecisao}) </span>
@@ -391,7 +385,6 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
                 </div>
             </details> 
 
-            {/* 2. Seletor de Rodada Histórica */}
             <div className="bg-gray-800 p-4 rounded-lg shadow flex items-center gap-4">
                 <label htmlFor="rodadaSelect" className="text-lg font-semibold text-gray-300">
                     Visualizar Resultados da Rodada:
@@ -410,38 +403,30 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
                 </select>
             </div>
 
-            {/* 3. Conteúdo dos Resultados (DRE, Balanço, Operações) */}
             {dadosVisao.loading ? (
                 <p className="text-center text-gray-400 py-10">Carregando dados da Rodada {rodadaSelecionada}...</p>
             ) : dadosVisao.estado ? (
                 <>
-                    {/* --- NOVO CARD IDG (RF 4.6) --- */}
-                    {/* Mostra apenas se a rodada não for a inicial (R0) */}
                     {rodadaSelecionada > 0 && (
                         <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow mb-6">
                             <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">
                                 <span role="img" aria-label="Trophy" className="mr-2">🏆</span> IDG (Índice de Desempenho Global) - R{rodadaSelecionada}
                             </h3>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                                {/* Bloco do Score Total */}
                                 <div className="md:col-span-1 flex flex-col items-center justify-center bg-gray-700 p-6 rounded-lg h-full">
                                     <span className="text-sm font-medium text-gray-400">Pontuação Total (IDG)</span>
                                     <span className="text-6xl font-bold text-cyan-300 my-2">
-                                        {/* Usar o FormatNumero para o score total */}
                                         <FormatNumero valor={dadosVisao.estado.IDG_Score} tipo="decimal" />
                                     </span>
                                     <span className="text-xs text-gray-500">(Máx 100)</span>
                                 </div>
-                                {/* Bloco do Gráfico */}
                                 <div className="md:col-span-2">
                                     <GraficoIDG metricas={dadosVisao.estado.IDG_Metricas} />
                                 </div>
                             </div>
                         </div>
                     )}
-                    {/* --- FIM DO NOVO CARD IDG --- */}
 
-                    {/* Resultados Financeiros e Operacionais */}
                     <div className="bg-gray-800 p-4 md:p-6 rounded-lg shadow"> 
                         <h3 className="text-xl md:text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2"> 
                             <span role="img" aria-label="Chart" className="mr-2">📈</span> Resultados (Rodada {rodadaSelecionada}) 
@@ -449,25 +434,39 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6"> 
                             <RelatorioFinanceiro titulo="DRE (Demonstrativo)" dados={dadosDRE} /> 
                             <RelatorioFinanceiro titulo="Balanço Patrimonial" dados={dadosBalanco} isBalanco={true} /> 
+                            
+                            {/* ================================================================= */}
+                            {/* MUDANÇA: Card de Operações e P&D */}
+                            {/* ================================================================= */}
                             <div className="bg-gray-700 p-4 rounded-lg shadow"> 
                                 <h4 className="font-semibold text-lg text-cyan-400 mb-3 border-b border-gray-600 pb-2">Operações e P&D</h4> 
                                 <ul className="space-y-2 text-sm"> 
-                                    <li className="flex justify-between items-center"><span className="text-gray-300">Capacidade:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Capacidade_Fabrica} tipo="unidade" /> Unid.</span></li> 
-                                    <li className="flex justify-between items-center"><span className="text-gray-300">Produção:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Producao_Efetiva} tipo="unidade" /> Unid.</span></li> 
-                                    <li className="flex justify-between items-center"><span className="text-gray-300">Estoque:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Estoque_Final_Unidades} tipo="unidade" /> Unid.</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Capacidade Total:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Capacidade_Fabrica} tipo="unidade" /> Unid.</span></li>
+                                    
+                                    <li className="pt-2 mt-2 border-t border-gray-600 flex justify-between items-center"><span className="text-gray-300">Produção {simulacao.Segmento1_Nome}:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Producao_Efetiva_S1} tipo="unidade" /> Unid.</span></li>
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Produção {simulacao.Segmento2_Nome}:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Producao_Efetiva_S2} tipo="unidade" /> Unid.</span></li>
+                                    
+                                    <li className="pt-2 mt-2 border-t border-gray-600 flex justify-between items-center"><span className="text-gray-300">Estoque {simulacao.Segmento1_Nome}:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Estoque_S1_Unidades} tipo="unidade" /> Unid.</span></li>
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Estoque {simulacao.Segmento2_Nome}:</span> <span className="font-medium text-white"><FormatNumero valor={dadosVisao.estado.Estoque_S2_Unidades} tipo="unidade" /> Unid.</span></li>
                                     
                                     <li className="pt-2 mt-2 border-t border-gray-600 flex justify-between items-center"><span className="text-gray-300">Nível Câmera:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Camera || 1}</span></li> 
                                     <li className="flex justify-between items-center"><span className="text-gray-300">Nível Bateria:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Bateria || 1}</span></li> 
                                     <li className="flex justify-between items-center"><span className="text-gray-300">Nível SO/IA:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Sist_Operacional_e_IA || 1}</span></li> 
-                                    <li className="flex justify-between items-center"><span className="text-gray-300">Nível Atual. Geral:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Atualizacao_Geral || 1}</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Nível Atual. Geral:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_PD_Atualizacao_Geral || 1}</span></li>
+                                    
+                                    <li className="pt-2 mt-2 border-t border-gray-600 flex justify-between items-center"><span className="text-gray-300">Nível Capacitação:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_Capacitacao || 1}</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Nível Qualidade:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_Qualidade || 1}</span></li> 
+                                    <li className="flex justify-between items-center"><span className="text-gray-300">Nível ESG:</span> <span className="font-semibold text-cyan-300">Nível {dadosVisao.estado.Nivel_ESG || 1}</span></li> 
                                 </ul> 
                                 
-                                {(dadosVisao.estado.Noticia_Producao_Risco || dadosVisao.estado.Noticia_Ruptura_Estoque || dadosVisao.estado.Divida_Emergencia > 0) && ( 
+                                {(dadosVisao.estado.Noticia_Producao_Risco_S1 || dadosVisao.estado.Noticia_Producao_Risco_S2 || dadosVisao.estado.Noticia_Ruptura_Estoque_S1 || dadosVisao.estado.Noticia_Ruptura_Estoque_S2 || dadosVisao.estado.Divida_Emergencia > 0) && ( 
                                     <div className="mt-4 pt-3 border-t border-gray-600"> 
                                         <h5 className="text-md font-semibold text-yellow-400 mb-2">Alertas da Rodada {rodadaSelecionada}:</h5> 
                                         <ul className="space-y-1 text-xs text-yellow-200 list-disc list-inside"> 
-                                            {dadosVisao.estado.Noticia_Producao_Risco && <li>{dadosVisao.estado.Noticia_Producao_Risco}</li>} 
-                                            {dadosVisao.estado.Noticia_Ruptura_Estoque && <li>{dadosVisao.estado.Noticia_Ruptura_Estoque}</li>} 
+                                            {dadosVisao.estado.Noticia_Producao_Risco_S1 && <li>{dadosVisao.estado.Noticia_Producao_Risco_S1}</li>}
+                                            {dadosVisao.estado.Noticia_Producao_Risco_S2 && <li>{dadosVisao.estado.Noticia_Producao_Risco_S2}</li>}
+                                            {dadosVisao.estado.Noticia_Ruptura_Estoque_S1 && <li>{dadosVisao.estado.Noticia_Ruptura_Estoque_S1}</li>}
+                                            {dadosVisao.estado.Noticia_Ruptura_Estoque_S2 && <li>{dadosVisao.estado.Noticia_Ruptura_Estoque_S2}</li>}
                                             {dadosVisao.estado.Divida_Emergencia > 0 && <li className="text-red-400 font-semibold">Empréstimo de Emergência contraído!</li>} 
                                         </ul> 
                                     </div> 
@@ -476,9 +475,13 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
                         </div> 
                     </div> 
 
-                    {/* 4. Resumo das Decisões (só mostra se não for R0) */}
-                    {rodadaSelecionada > 0 && <ResumoDecisoesRodada decisoes={dadosVisao.decisoes} />}
+                    {/* MUDANÇA: Passa 'simulacao' para o ResumoDecisoesRodada */}
+                    {rodadaSelecionada > 0 && <ResumoDecisoesRodada decisoes={dadosVisao.decisoes} simulacao={simulacao} />}
 
+                    <details className="bg-gray-800 p-4 md:p-6 rounded-lg shadow group"> 
+                        <summary className="text-lg font-semibold text-cyan-400 cursor-pointer list-none flex justify-between items-center"> <span>Briefing Original</span> <span className="text-cyan-500 group-open:rotate-180 transition-transform duration-200">▼</span> </summary> 
+                        <div className="mt-3 pt-3 border-t border-gray-700"> <p className="text-gray-300 text-sm whitespace-pre-wrap">{simulacao.Cenario_Inicial_Descricao || "-"}</p> </div> 
+                    </details> 
                 </>
             ) : (
                 <p className="text-center text-yellow-400 py-10">Dados não encontrados para a Rodada {rodadaSelecionada}.</p>
