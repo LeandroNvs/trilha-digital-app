@@ -1,60 +1,64 @@
-// MUDANÇA: db e appId não são mais importados daqui, serão recebidos como parâmetros.
-import { collection, collectionGroup, doc, getDocs, getDoc, writeBatch, query, where, updateDoc } from 'firebase/firestore';
+// src/simulador/motor.js
+import { collection, doc, getDocs, getDoc, writeBatch } from 'firebase/firestore';
 
 // --- Funções Auxiliares para Cálculo de Atratividade (RF 3.4) ---
 
 function normalizarValor(valor, todosValores, inverter = false) {
-    // ... (código inalterado)
     const min = Math.min(...todosValores);
     const max = Math.max(...todosValores);
     if (min === max) { return 1.0; }
+    // Previne divisão por zero
     const divisor = (max - min) === 0 ? 1 : (max - min);
     const nota = (valor - min) / divisor;
     return inverter ? (1 - nota) : nota;
 }
 
 function aplicarRetornosDecrescentes(notaNormalizada) {
-    // ... (código inalterado)
+    // Garante que a entrada não seja negativa
     return Math.sqrt(Math.max(0, notaNormalizada));
 }
 
+// Higienização de Outliers para evitar distorções na normalização de preços
 function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
-    // ... (código inalterado)
     const precosValidos = precos.filter(p => p > 0 && isFinite(p));
+
     if (precosValidos.length === 0) {
         return precos.map(() => 1); 
     }
+    
     precosValidos.sort((a, b) => a - b);
+    
+    // Calcula a mediana
     const mid = Math.floor(precosValidos.length / 2);
     const mediana = precosValidos.length % 2 !== 0 
         ? precosValidos[mid] 
         : (precosValidos[mid - 1] + precosValidos[mid]) / 2;
+
+    // Define o "teto de sanidade"
     const tetoSanidadeBase = mediana * multiplicadorCap;
     const tetoSanidade = Math.max(tetoSanidadeBase, precosValidos[precosValidos.length - 1]);
+
     return precos.map(p => {
-        if (!isFinite(p) || p === 0) return Infinity;
-        if (p > tetoSanidade) return tetoSanidade;
-        return p;
+        if (!isFinite(p) || p === 0) return Infinity; 
+        if (p > tetoSanidade) return tetoSanidade; // "Capa" o outlier
+        return p; 
     });
 }
-// --- FIM Funções Auxiliares ---
 
 
 /**
  * Função principal que processa uma rodada da simulação.
- * MUDANÇA: Recebe 'db' e 'appId' como parâmetros para injeção de dependência.
  * @param {string} simulacaoId - O ID da simulação a ser processada.
  * @param {object} simulacao - O objeto de dados da simulação (parâmetros).
- * @param {object} db - A instância do Firestore (vinda do client ou admin-sdk).
- * @param {string} appId - O ID do app.
+ * @param {object} db - Instância do Firestore.
+ * @param {string} appId - ID do App Firebase.
  */
 export async function processarRodada(simulacaoId, simulacao, db, appId) {
     console.log(`--- [M3] INICIANDO PROCESSAMENTO DA RODADA ${simulacao.Rodada_Atual} PARA: ${simulacao.Nome_Simulacao} ---`);
 
-    const rodadaAtual = simulacao.Rodada_Atual;
-    const proximaRodada = rodadaAtual + 1;
+    const rodadaAtual = simulacao.Rodada_Atual; 
+    const proximaRodada = rodadaAtual + 1; 
     const simulacoesCollectionPath = `/artifacts/${appId}/public/data/simulacoes`;
-    // MUDANÇA: Passa 'db'
     const empresasRef = collection(db, simulacoesCollectionPath, simulacaoId, 'empresas');
     const empresasSnapshot = await getDocs(empresasRef);
     const empresasIds = empresasSnapshot.docs.map(d => d.id);
@@ -64,627 +68,595 @@ export async function processarRodada(simulacaoId, simulacao, db, appId) {
     // --- PRÉ-FASE: Carregar todos os dados ---
     console.log(`[M3][PRE] Carregando dados de ${empresasIds.length} empresas para processar R${proximaRodada}...`);
     for (const empresaId of empresasIds) {
-        // MUDANÇA: Passa 'db'
+        // 1. Carrega Doc da Empresa (PARA PEGAR A ESTRATÉGIA)
+        const empresaDocRef = doc(db, simulacoesCollectionPath, simulacaoId, 'empresas', empresaId);
+        const empresaDocSnap = await getDoc(empresaDocRef);
+        const dadosEmpresa = empresaDocSnap.exists() ? empresaDocSnap.data() : {};
+
+        // 2. Estado da rodada anterior
         const estadoAtualRef = doc(db, simulacoesCollectionPath, simulacaoId, 'empresas', empresaId, 'estados', rodadaAtual.toString());
         const estadoAtualSnap = await getDoc(estadoAtualRef);
-        
-        // MUDANÇA: Passa 'db'
+
+        // 3. Decisões para esta rodada
         const decisaoRef = doc(db, simulacoesCollectionPath, simulacaoId, 'empresas', empresaId, 'decisoes', proximaRodada.toString());
         const decisaoSnap = await getDoc(decisaoRef);
 
         if (!estadoAtualSnap.exists()) {
             throw new Error(`[ERRO] Empresa ${empresaId}: Estado da Rodada ${rodadaAtual} não encontrado.`);
         }
+        // Se não submeteu, o admin pode forçar ou o sistema assume default (aqui forçamos erro ou pulamos, depende da regra. O código original lançava erro)
         if (!decisaoSnap.exists() || decisaoSnap.data().Status_Decisao !== 'Submetido') {
-            throw new Error(`[ERRO] Empresa ${empresaId}: Decisões da Rodada ${proximaRodada} não encontradas ou não submetidas.`);
+             console.warn(`[AVISO] Empresa ${empresaId}: Decisões não submetidas. Usando defaults/valores zerados.`);
+             // Em produção, idealmente trataria "NÃO SUBMETIDO" como inatividade ou repetição de valores anteriores
         }
+        
+        const decisoesData = decisaoSnap.exists() ? decisaoSnap.data() : {};
 
         dadosProcessamento.push({
             id: empresaId,
-            estadoAtual: estadoAtualSnap.data(),
-            decisoes: decisaoSnap.data(),
+            dadosEmpresa: dadosEmpresa, // Contém a Estratégia
+            estadoAtual: estadoAtualSnap.data(), 
+            decisoes: decisoesData, 
+            // Objeto para construir o NOVO estado
             estadoNovo: {
                 Rodada: proximaRodada,
-                Despesas_Juros_CP: 0, Despesas_Juros_Emergencia: 0, Despesas_Juros_LP: 0,
-                // MUDANÇA: Adicionado Despesas Organizacionais
-                Despesas_Operacionais_Outras: 0, // Custo Fixo, P&D, Mkt Produto
-                Despesas_Organiz_Capacitacao: 0, Despesas_Organiz_Mkt_Institucional: 0, Despesas_Organiz_ESG: 0,
-                Vendas_Receita: 0, Custo_Produtos_Vendidos: 0,
-                Lucro_Bruto: 0, Lucro_Operacional_EBIT: 0, Lucro_Liquido: 0,
-                Caixa: estadoAtualSnap.data().Caixa || 0,
-                Divida_CP: 0, Divida_Emergencia: 0,
+                // Inicializa acumuladores
+                Despesas_Juros_CP: 0,
+                Despesas_Juros_Emergencia: 0,
+                Despesas_Juros_LP: 0,
+                Despesas_Operacionais_Outras: 0, // P&D, Mkt Produto, Custo Fixo
+                Despesas_Organiz_Capacitacao: 0,
+                Despesas_Organiz_Mkt_Institucional: 0,
+                Despesas_Organiz_ESG: 0,
+                Vendas_Receita: 0,
+                Custo_Produtos_Vendidos: 0,
+                Lucro_Bruto: 0,
+                Lucro_Operacional_EBIT: 0,
+                Lucro_Liquido: 0,
+                // Saldos de Balanço
+                Caixa: estadoAtualSnap.data().Caixa || 0, 
+                Divida_CP: 0, 
+                Divida_Emergencia: 0, 
                 Divida_LP_Saldo: estadoAtualSnap.data().Divida_LP_Saldo || 0,
                 Divida_LP_Rodadas_Restantes: estadoAtualSnap.data().Divida_LP_Rodadas_Restantes || 0,
-                // MUDANÇA: Estoque segmentado
+                // Estoque Segmentado
                 Estoque_S1_Unidades: estadoAtualSnap.data().Estoque_S1_Unidades || 0,
                 Custo_Estoque_S1: estadoAtualSnap.data().Custo_Estoque_S1 || 0,
                 Estoque_S2_Unidades: estadoAtualSnap.data().Estoque_S2_Unidades || 0,
                 Custo_Estoque_S2: estadoAtualSnap.data().Custo_Estoque_S2 || 0,
-                Custo_Unitario_S1: 0, // Custo de produção da rodada
-                Custo_Unitario_S2: 0, // Custo de produção da rodada
+                // Auxiliares
+                Custo_Unitario_S1: 0, 
+                Custo_Unitario_S2: 0
             }
         });
     }
     console.log("[M3][PRE] Dados carregados.");
 
+    // Taxas
     const taxaJurosCP = (simulacao.Taxa_Juros_Curto_Prazo || 0) / 100;
     const taxaJurosEmergencia = (simulacao.Taxa_Juros_Emergencia || 0) / 100;
     const taxaJurosLP = (simulacao.Taxa_Juros_Longo_Prazo || 0) / 100;
     const prazoFixoLP = simulacao.Prazo_Fixo_Longo_Prazo || 4;
-    console.log(`[M3] Taxas p/ Rodada: CP=${(taxaJurosCP*100).toFixed(1)}%, Emerg=${(taxaJurosEmergencia*100).toFixed(1)}%, LP=${(taxaJurosLP*100).toFixed(1)}%. Prazo LP=${prazoFixoLP} rodadas.`);
 
 
-    // --- RF 3.2: Fase 1 - Atualizações Financeiras (Dívidas, Juros) e Investimentos (CAPEX, P&D, Org) ---
-    console.log("[M3][F1] Iniciando Fase 1: Finanças (Dívidas, Juros) e Investimentos (CAPEX, P&D, Org)");
+    // --- RF 3.2: Fase 1 - Atualizações Financeiras e Investimentos ---
+    console.log("[M3][F1] Fase 1: Finanças e Investimentos");
 
     dadosProcessamento.forEach(empresa => {
         const { estadoAtual, decisoes, estadoNovo } = empresa;
         let caixa = estadoNovo.Caixa;
-        let logFinanceiro = [`[${empresa.id}] R${proximaRodada}`];
+        let logFinanceiro = [`[${empresa.id}]`];
 
-        // --- 1. PAGAMENTOS OBRIGATÓRIOS (Dívidas R-1) ---
-        // ... (lógica de pagamento de dívidas CP, LP, Emergência inalterada) ...
-        logFinanceiro.push(`Caixa Inicial: ${caixa.toLocaleString('pt-BR')}`);
+        // --- 1. PAGAMENTOS OBRIGATÓRIOS ---
+        // a) Emergência Anterior
         const dividaEmergAnterior = estadoAtual.Divida_Emergencia || 0;
         if (dividaEmergAnterior > 0) {
             const jurosEmerg = dividaEmergAnterior * taxaJurosEmergencia;
-            const pagamentoEmergTotal = dividaEmergAnterior + jurosEmerg;
-            caixa -= pagamentoEmergTotal;
+            const pgtoTotal = dividaEmergAnterior + jurosEmerg;
+            caixa -= pgtoTotal;
             estadoNovo.Despesas_Juros_Emergencia += jurosEmerg;
-            logFinanceiro.push(`Pagou Emerg R${rodadaAtual}: ${pagamentoEmergTotal.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
         }
+
+        // b) Curto Prazo Anterior
         const dividaCPAnterior = estadoAtual.Divida_CP || 0;
         if (dividaCPAnterior > 0) {
             const jurosCP = dividaCPAnterior * taxaJurosCP;
-            const pagamentoCPTotal = dividaCPAnterior + jurosCP;
-            if (caixa < pagamentoCPTotal) {
-                const shortfall = pagamentoCPTotal - caixa;
+            const pgtoTotal = dividaCPAnterior + jurosCP;
+
+            if (caixa < pgtoTotal) {
+                // Empréstimo de Emergência Automático
+                const shortfall = pgtoTotal - caixa;
                 estadoNovo.Divida_Emergencia = shortfall;
+                // Cobra juros da emergência imediatamente sobre o shortfall (simplificação)
+                estadoNovo.Despesas_Juros_Emergencia += (shortfall * taxaJurosEmergencia); 
                 caixa = 0;
                 estadoNovo.Despesas_Juros_CP += jurosCP;
-                estadoNovo.Despesas_Juros_Emergencia += (shortfall * taxaJurosEmergencia);
-                logFinanceiro.push(`!!! EMERGÊNCIA !!! Não pagou CP R${rodadaAtual} (${pagamentoCPTotal.toLocaleString('pt-BR')}). Nova Emerg R${proximaRodada}: ${shortfall.toLocaleString('pt-BR')}.`);
+                logFinanceiro.push(`EMERGÊNCIA: Shortfall ${shortfall.toFixed(0)}`);
             } else {
-                caixa -= pagamentoCPTotal;
+                caixa -= pgtoTotal;
                 estadoNovo.Despesas_Juros_CP += jurosCP;
-                logFinanceiro.push(`Pagou CP R${rodadaAtual}: ${pagamentoCPTotal.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
             }
-        }
-        let saldoLPAtual = estadoAtual.Divida_LP_Saldo || 0;
-        let rodadasLPRestantes = estadoAtual.Divida_LP_Rodadas_Restantes || 0;
-        if (saldoLPAtual > 0 && rodadasLPRestantes > 0) {
-            const amortizacaoLPObrigatoria = saldoLPAtual / rodadasLPRestantes;
-            const jurosLP = saldoLPAtual * taxaJurosLP;
-            const parcelaLP = amortizacaoLPObrigatoria + jurosLP;
-            if (caixa < parcelaLP) {
-                 console.warn(`[${empresa.id}] R${proximaRodada}: Caixa ${caixa} insuficiente para Parcela LP ${parcelaLP}. Caixa ficará negativo.`);
-                 logFinanceiro.push(`!!! ATENÇÃO !!! Caixa insuficiente para Parcela LP (${parcelaLP.toLocaleString('pt-BR')}).`);
-            }
-            caixa -= parcelaLP;
-            estadoNovo.Despesas_Juros_LP += jurosLP;
-            saldoLPAtual -= amortizacaoLPObrigatoria;
-            rodadasLPRestantes -= 1;
-            logFinanceiro.push(`Pagou Parcela LP: ${parcelaLP.toLocaleString('pt-BR')}. Saldo LP: ${saldoLPAtual.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
-        } else {
-             saldoLPAtual = 0;
-             rodadasLPRestantes = 0;
         }
 
-        // --- 2. ENTRADAS E SAÍDAS DECIDIDAS NA RODADA (R) ---
-        // ... (lógica de amortização adicional e novos empréstimos inalterada) ...
-        const amortizarLPAdicional = Math.max(0, Math.min(decisoes.Amortizar_Divida_LP || 0, saldoLPAtual));
-        if (amortizarLPAdicional > 0) {
-              if (caixa < amortizarLPAdicional) {
-                   logFinanceiro.push(`!!! CANCELADO !!! Amortização LP Adicional (${amortizarLPAdicional.toLocaleString('pt-BR')}) por falta de caixa.`);
-              } else {
-                   caixa -= amortizarLPAdicional;
-                   saldoLPAtual -= amortizarLPAdicional;
-                   logFinanceiro.push(`Amortizou LP Adicional: ${amortizarLPAdicional.toLocaleString('pt-BR')}. Saldo LP: ${saldoLPAtual.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
-                   if (saldoLPAtual <= 0) { saldoLPAtual = 0; rodadasLPRestantes = 0; logFinanceiro.push(`Dívida LP Quitada.`); }
-              }
+        // c) Longo Prazo (Parcela)
+        let saldoLP = estadoAtual.Divida_LP_Saldo || 0;
+        let rodadasLP = estadoAtual.Divida_LP_Rodadas_Restantes || 0;
+        if (saldoLP > 0 && rodadasLP > 0) {
+            const amortizacao = saldoLP / rodadasLP;
+            const juros = saldoLP * taxaJurosLP;
+            const parcela = amortizacao + juros;
+            
+            if (caixa < parcela) {
+                 console.warn(`[${empresa.id}] Caixa insuficiente p/ LP. Ficará negativo (bug visual, mas registrado).`);
+            }
+            caixa -= parcela;
+            estadoNovo.Despesas_Juros_LP += juros;
+            saldoLP -= amortizacao;
+            rodadasLP -= 1;
+        } else {
+             saldoLP = 0; rodadasLP = 0;
         }
+
+        // --- 2. NOVAS DECISÕES FINANCEIRAS ---
+        // Amortização Extra LP
+        const amortExtra = Math.max(0, Math.min(decisoes.Amortizar_Divida_LP || 0, saldoLP));
+        if (amortExtra > 0 && caixa >= amortExtra) {
+            caixa -= amortExtra;
+            saldoLP -= amortExtra;
+            if (saldoLP <= 0) { saldoLP = 0; rodadasLP = 0; }
+        }
+
+        // Novos Empréstimos
         const novoCP = decisoes.Tomar_Emprestimo_CP || 0;
         if (novoCP > 0) {
             caixa += novoCP;
             estadoNovo.Divida_CP += novoCP;
-            logFinanceiro.push(`Tomou CP: ${novoCP.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
         }
         const novoLP = decisoes.Tomar_Financiamento_LP || 0;
         if (novoLP > 0) {
             caixa += novoLP;
-            saldoLPAtual += novoLP;
-            rodadasLPRestantes = prazoFixoLP;
-            logFinanceiro.push(`Tomou LP: ${novoLP.toLocaleString('pt-BR')}. Novo Saldo LP: ${saldoLPAtual.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
+            saldoLP += novoLP;
+            rodadasLP = prazoFixoLP; // Reseta prazo
         }
 
-        // c) Investimentos (P&D, Expansão, Marketing)
-        // MUDANÇA: Coleta todos os 4 P&Ds
-        let investCamera = decisoes.Invest_PD_Camera || 0;
-        let investBateria = decisoes.Invest_PD_Bateria || 0;
-        let investSOeIA = decisoes.Invest_PD_Sist_Operacional_e_IA || 0;
-        let investAtualGeral = decisoes.Invest_PD_Atualizacao_Geral || 0;
-        const totalInvestPD = investCamera + investBateria + investSOeIA + investAtualGeral;
-        caixa -= totalInvestPD;
-        estadoNovo.Despesas_Operacionais_Outras += totalInvestPD;
-        logFinanceiro.push(`Investiu P&D: ${totalInvestPD.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
-
-        const investExpansao = decisoes.Invest_Expansao_Fabrica || 0;
-        caixa -= investExpansao;
-        estadoNovo.Imobilizado_Bruto = (estadoAtual.Imobilizado_Bruto || 0) + investExpansao;
-        logFinanceiro.push(`Investiu Expansão: ${investExpansao.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
-        estadoNovo.Capacidade_Fabrica = (estadoAtual.Capacidade_Fabrica || 0) +
-            Math.floor(investExpansao / (simulacao.Custo_Expansao_Lote || 1)) * (simulacao.Incremento_Capacidade_Lote || 0);
-
-        const totalInvestMkt = (decisoes.Marketing_Segmento_1 || 0) + (decisoes.Marketing_Segmento_2 || 0);
-        caixa -= totalInvestMkt;
-        estadoNovo.Despesas_Operacionais_Outras += totalInvestMkt;
-        logFinanceiro.push(`Investiu Mkt Produto: ${totalInvestMkt.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
+        // --- 3. INVESTIMENTOS (SAÍDAS DE CAIXA) ---
         
-        // MUDANÇA: Investimentos Organizacionais
-        const investCapacitacao = decisoes.Invest_Organiz_Capacitacao || 0;
-        const investMktInstitucional = decisoes.Invest_Organiz_Mkt_Institucional || 0;
-        const investESG = decisoes.Invest_Organiz_ESG || 0;
-        const totalInvestOrg = investCapacitacao + investMktInstitucional + investESG;
-        caixa -= totalInvestOrg;
-        // Adiciona aos campos de despesa corretos
-        estadoNovo.Despesas_Organiz_Capacitacao += investCapacitacao;
-        estadoNovo.Despesas_Organiz_Mkt_Institucional += investMktInstitucional;
-        estadoNovo.Despesas_Organiz_ESG += investESG;
-        // Acumula valor da marca (agora baseado no Mkt Institucional)
-        estadoNovo.Valor_Marca_Acumulado = (estadoAtual.Valor_Marca_Acumulado || 0) + investMktInstitucional;
-        logFinanceiro.push(`Investiu Org: ${totalInvestOrg.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
+        // P&D Produto (Soma dos 4 tipos)
+        const invCam = decisoes.Invest_PD_Camera || 0;
+        const invBat = decisoes.Invest_PD_Bateria || 0;
+        const invSO = decisoes.Invest_PD_Sist_Operacional_e_IA || 0;
+        const invAG = decisoes.Invest_PD_Atualizacao_Geral || 0;
+        const totalPD = invCam + invBat + invSO + invAG;
+        caixa -= totalPD;
+        estadoNovo.Despesas_Operacionais_Outras += totalPD;
 
-        // d) Custo Fixo Operacional
-        const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
+        // Expansão (CAPEX)
+        const invExp = decisoes.Invest_Expansao_Fabrica || 0;
+        caixa -= invExp;
+        estadoNovo.Imobilizado_Bruto = (estadoAtual.Imobilizado_Bruto || 0) + invExp;
+        const incrementoCap = Math.floor(invExp / (simulacao.Custo_Expansao_Lote || 1)) * (simulacao.Incremento_Capacidade_Lote || 0);
+        estadoNovo.Capacidade_Fabrica = (estadoAtual.Capacidade_Fabrica || 0) + incrementoCap;
+
+        // Marketing Produto
+        const totalMkt = (decisoes.Marketing_Segmento_1 || 0) + (decisoes.Marketing_Segmento_2 || 0);
+        caixa -= totalMkt;
+        estadoNovo.Despesas_Operacionais_Outras += totalMkt;
+
+        // Investimentos Organizacionais (Novos Campos)
+        const invCap = decisoes.Invest_Organiz_Capacitacao || 0;
+        const invMktInst = decisoes.Invest_Organiz_Mkt_Institucional || 0;
+        const invESG = decisoes.Invest_Organiz_ESG || 0;
+        const totalOrg = invCap + invMktInst + invESG;
+        
+        caixa -= totalOrg;
+        estadoNovo.Despesas_Organiz_Capacitacao += invCap;
+        estadoNovo.Despesas_Organiz_Mkt_Institucional += invMktInst;
+        estadoNovo.Despesas_Organiz_ESG += invESG;
+        
+        // Valor de Marca (Acumulado pelo Mkt Institucional)
+        estadoNovo.Valor_Marca_Acumulado = (estadoAtual.Valor_Marca_Acumulado || 0) + invMktInst;
+
+        // Custo Fixo Operacional (com Inflação)
+        const inflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
         const custoFixoBase = (simulacao.Custo_Fixo_Operacional || 0);
-        const custoFixoCorrigido = custoFixoBase * Math.pow(1 + taxaInflacaoRodada, proximaRodada -1);
-        caixa -= custoFixoCorrigido;
-        estadoNovo.Despesas_Operacionais_Outras += custoFixoCorrigido;
-        logFinanceiro.push(`Custo Fixo: ${custoFixoCorrigido.toLocaleString('pt-BR')}. Caixa: ${caixa.toLocaleString('pt-BR')}`);
+        const custoFixo = custoFixoBase * Math.pow(1 + inflacaoRodada, proximaRodada - 1);
+        caixa -= custoFixo;
+        estadoNovo.Despesas_Operacionais_Outras += custoFixo;
 
-        // --- 3. ATUALIZA ESTADO FINANCEIRO FINAL (Antes da Produção/Vendas) ---
+        // --- FECHAMENTO FASE 1 ---
         estadoNovo.Caixa = caixa;
-        estadoNovo.Divida_LP_Saldo = saldoLPAtual;
-        estadoNovo.Divida_LP_Rodadas_Restantes = rodadasLPRestantes;
+        estadoNovo.Divida_LP_Saldo = saldoLP;
+        estadoNovo.Divida_LP_Rodadas_Restantes = rodadasLP;
         estadoNovo.Depreciacao_Acumulada = (estadoAtual.Depreciacao_Acumulada || 0) + ((estadoNovo.Imobilizado_Bruto || 0) * 0.05);
 
-
-        // --- 4. ATUALIZA PROGRESSO P&D (PRODUTO E ORG) ---
-        // Bônus do Fornecedor D (para S1 e S2, se escolhidos)
-        let fatorBonusPDS1 = 1.0;
-        if (decisoes.Escolha_Fornecedor_S1_Chip === 'D') {
-            fatorBonusPDS1 = 1 + (simulacao.Fornecedor_S1_Chip_D_Bonus_PD_Percent || 0) / 100;
-        }
-        let fatorBonusPDS2 = 1.0;
-        if (decisoes.Escolha_Fornecedor_S2_Chip === 'D') {
-            fatorBonusPDS2 = 1 + (simulacao.Fornecedor_S2_Chip_D_Bonus_PD_Percent || 0) / 100;
-        }
+        // --- PROCESSAMENTO DE NÍVEIS (P&D e Org) ---
         
-        // MUDANÇA: Bônus se aplica em P&D de Bateria e IA (afetados por S1 e S2)
-        // Usamos a *média* dos bônus se as escolhas forem diferentes (simplificação)
-        const fatorBonusMedio = (fatorBonusPDS1 + fatorBonusPDS2) / 2;
-        if(fatorBonusMedio > 1.0) {
-             logFinanceiro.push(`Bônus P&D (Bateria/IA): ${(fatorBonusMedio*100-100).toFixed(0)}%`);
-        }
+        // Bônus de Rede (Fornecedor D)
+        let bonusS1 = (decisoes.Escolha_Fornecedor_S1_Chip === 'D') ? (1 + (simulacao.Fornecedor_S1_Chip_D_Bonus_PD_Percent||0)/100) : 1;
+        let bonusS2 = (decisoes.Escolha_Fornecedor_S2_Chip === 'D') ? (1 + (simulacao.Fornecedor_S2_Chip_D_Bonus_PD_Percent||0)/100) : 1;
+        const bonusMedio = (bonusS1 + bonusS2) / 2;
 
-        const investCameraEfetivo = investCamera; // Câmera não tem bônus
-        const investBateriaEfetivo = investBateria * fatorBonusMedio;
-        const investSOeIAEfetivo = investSOeIA * fatorBonusMedio;
-        const investAtualGeralEfetivo = investAtualGeral; // Básico não tem bônus
+        // Aplica bônus em Bateria e IA
+        const invBatEf = invBat * bonusMedio;
+        const invSOEf = invSO * bonusMedio;
 
-        const calcularNivel = (area, progressoAtual, investimentoEfetivo, nivelAtualKey, progressoKey) => {
-            const progressoTotal = (progressoAtual || 0) + investimentoEfetivo;
-            let nivelAtual = estadoAtual[nivelAtualKey] || 1;
-            let novoNivel = nivelAtual;
-            const custosNivel = [0, 0];
-            for(let n=2; n<=5; n++) {
-                custosNivel[n] = simulacao[`Custo_PD_${area}_Nivel_${n}`] || simulacao[`Custo_Nivel_${area}_Nivel_${n}`] || Infinity;
+        // Função genérica de nível
+        const calcNivel = (area, progAtual, invest, keyNivel) => {
+            const total = (progAtual || 0) + invest;
+            let nivel = estadoAtual[keyNivel] || 1;
+            let novoNivel = nivel;
+            // Custo para subir
+            for(let n=nivel+1; n<=5; n++) {
+                const custoNec = simulacao[`Custo_PD_${area}_Nivel_${n}`] || simulacao[`Custo_Nivel_${area}_Nivel_${n}`] || Infinity;
+                if (total >= custoNec) novoNivel = n;
+                else break;
             }
-            for (let proximo = nivelAtual + 1; proximo <= 5; proximo++) {
-                if (progressoTotal >= custosNivel[proximo]) {
-                    novoNivel = proximo;
-                } else {
-                    break;
-                }
-            }
-            if (novoNivel > nivelAtual) {
-                 logFinanceiro.push(`P&D ${area}: Nível ${nivelAtual} -> ${novoNivel}!`);
-            }
-            return { nivel: novoNivel, progresso: progressoTotal };
+            return { nivel: novoNivel, progresso: total };
         };
 
-        // P&D Produto
-        const { nivel: nCam, progresso: pCam } = calcularNivel('Camera', estadoAtual.Progresso_PD_Camera, investCameraEfetivo, 'Nivel_PD_Camera');
-        const { nivel: nBat, progresso: pBat } = calcularNivel('Bateria', estadoAtual.Progresso_PD_Bateria, investBateriaEfetivo, 'Nivel_PD_Bateria');
-        const { nivel: nIA, progresso: pIA } = calcularNivel('Sist_Operacional_e_IA', estadoAtual.Progresso_PD_Sist_Operacional_e_IA, investSOeIAEfetivo, 'Nivel_PD_Sist_Operacional_e_IA');
-        const { nivel: nAG, progresso: pAG } = calcularNivel('Atualizacao_Geral', estadoAtual.Progresso_PD_Atualizacao_Geral, investAtualGeralEfetivo, 'Nivel_PD_Atualizacao_Geral');
-        estadoNovo.Nivel_PD_Camera = nCam; estadoNovo.Progresso_PD_Camera = pCam;
-        estadoNovo.Nivel_PD_Bateria = nBat; estadoNovo.Progresso_PD_Bateria = pBat;
-        estadoNovo.Nivel_PD_Sist_Operacional_e_IA = nIA; estadoNovo.Progresso_PD_Sist_Operacional_e_IA = pIA;
-        estadoNovo.Nivel_PD_Atualizacao_Geral = nAG; estadoNovo.Progresso_PD_Atualizacao_Geral = pAG;
+        // Produto
+        const rCam = calcNivel('Camera', estadoAtual.Progresso_PD_Camera, invCam, 'Nivel_PD_Camera');
+        const rBat = calcNivel('Bateria', estadoAtual.Progresso_PD_Bateria, invBatEf, 'Nivel_PD_Bateria');
+        const rSO = calcNivel('Sist_Operacional_e_IA', estadoAtual.Progresso_PD_Sist_Operacional_e_IA, invSOEf, 'Nivel_PD_Sist_Operacional_e_IA');
+        const rAG = calcNivel('Atualizacao_Geral', estadoAtual.Progresso_PD_Atualizacao_Geral, invAG, 'Nivel_PD_Atualizacao_Geral');
+        
+        estadoNovo.Nivel_PD_Camera = rCam.nivel; estadoNovo.Progresso_PD_Camera = rCam.progresso;
+        estadoNovo.Nivel_PD_Bateria = rBat.nivel; estadoNovo.Progresso_PD_Bateria = rBat.progresso;
+        estadoNovo.Nivel_PD_Sist_Operacional_e_IA = rSO.nivel; estadoNovo.Progresso_PD_Sist_Operacional_e_IA = rSO.progresso;
+        estadoNovo.Nivel_PD_Atualizacao_Geral = rAG.nivel; estadoNovo.Progresso_PD_Atualizacao_Geral = rAG.progresso;
 
-        // P&D Organizacional
-        const { nivel: nCap, progresso: pCap } = calcularNivel('Capacitacao', estadoAtual.Progresso_Capacitacao, investCapacitacao, 'Nivel_Capacitacao');
-        const { nivel: nQual, progresso: pQual } = calcularNivel('Qualidade', estadoAtual.Progresso_Qualidade, investMktInstitucional, 'Nivel_Qualidade'); // Mkt Inst. vira Nivel Qualidade
-        const { nivel: nESG, progresso: pESG } = calcularNivel('ESG', estadoAtual.Progresso_ESG, investESG, 'Nivel_ESG');
-        estadoNovo.Nivel_Capacitacao = nCap; estadoNovo.Progresso_Capacitacao = pCap;
-        estadoNovo.Nivel_Qualidade = nQual; estadoNovo.Progresso_Qualidade = pQual;
-        estadoNovo.Nivel_ESG = nESG; estadoNovo.Progresso_ESG = pESG;
+        // Organizacional
+        const rCap = calcNivel('Capacitacao', estadoAtual.Progresso_Capacitacao, invCap, 'Nivel_Capacitacao');
+        const rQual = calcNivel('Qualidade', estadoAtual.Progresso_Qualidade, invMktInst, 'Nivel_Qualidade'); // Mkt Inst conta como Qualidade/Marca
+        const rESG = calcNivel('ESG', estadoAtual.Progresso_ESG, invESG, 'Nivel_ESG');
 
-        console.log(logFinanceiro.join(' | '));
+        estadoNovo.Nivel_Capacitacao = rCap.nivel; estadoNovo.Progresso_Capacitacao = rCap.progresso;
+        estadoNovo.Nivel_Qualidade = rQual.nivel; estadoNovo.Progresso_Qualidade = rQual.progresso;
+        estadoNovo.Nivel_ESG = rESG.nivel; estadoNovo.Progresso_ESG = rESG.progresso;
 
-    }); // Fim do loop forEach empresa para Fase 1
-
-    // --- MUDANÇA: Fator de Redução de Custo por Capacitação ---
-    // (Calculado uma vez, pois é o mesmo para todos)
-    const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
-    const custoVariavelMontagemBase = (simulacao.Custo_Variavel_Montagem_Base || 0);
-    // Aplica inflação ao custo de montagem
-    const custoVariavelMontagemInflacionado = custoVariavelMontagemBase * Math.pow(1 + taxaInflacaoRodada, proximaRodada - 1);
+        logFinanceiro.push(`Caixa Fim Fase 1: ${estadoNovo.Caixa.toFixed(2)}`);
+    });
 
 
-    // --- RF 3.3: Fase 2 - Produção e Risco de Rede (Operações) ---
-    console.log("[M3][F2] Iniciando Fase 2: Produção, Risco de Rede e CPV");
+    // --- RF 3.3: Fase 2 - Produção e Operações ---
+    console.log("[M3][F2] Fase 2: Produção e CPV");
+    
+    // Fator global de inflação custo montagem
+    const inflacaoGlobal = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
+    const custoMontagemBase = (simulacao.Custo_Variavel_Montagem_Base || 0) * Math.pow(1 + inflacaoGlobal, proximaRodada - 1);
+
     dadosProcessamento.forEach(empresa => {
         const { estadoAtual, decisoes, estadoNovo } = empresa;
         
-        // MUDANÇA: Produção segmentada
-        let pNumS1 = decisoes.Producao_Planejada_S1 || 0;
-        let pNumS2 = decisoes.Producao_Planejada_S2 || 0;
-        let pNumTotal = pNumS1 + pNumS2;
-        let noticiaRiscoS1 = null; let noticiaRiscoS2 = null;
-        
-        const capacidadeAtualNaRodada = estadoAtual.Capacidade_Fabrica || 0;
+        // 1. Produção Planejada
+        let prodS1 = decisoes.Producao_Planejada_S1 || 0;
+        let prodS2 = decisoes.Producao_Planejada_S2 || 0;
+        let prodTotal = prodS1 + prodS2;
+        const capacidade = estadoAtual.Capacidade_Fabrica || 0;
 
-        // MUDANÇA: Valida produção total vs capacidade
-        if (pNumTotal > capacidadeAtualNaRodada) {
-            const fatorExcesso = capacidadeAtualNaRodada / pNumTotal;
-            pNumS1 = Math.floor(pNumS1 * fatorExcesso);
-            pNumS2 = Math.floor(pNumS2 * fatorExcesso);
-            pNumTotal = pNumS1 + pNumS2; // Recalcula total
-            const noticiaRupturaCapacidade = `Produção planejada total (${(decisoes.Producao_Planejada_S1 + decisoes.Producao_Planejada_S2).toLocaleString('pt-BR')}) excedeu a capacidade atual (${capacidadeAtualNaRodada.toLocaleString('pt-BR')}). Produção limitada para ${pNumTotal.toLocaleString('pt-BR')} unid.`;
-            console.warn(`[${empresa.id}] R${proximaRodada}: ${noticiaRupturaCapacidade}`);
-            // (Poderia salvar esta notícia no estadoNovo se quisesse)
+        // Validação Capacidade
+        if (prodTotal > capacidade) {
+            const ratio = capacidade / prodTotal;
+            prodS1 = Math.floor(prodS1 * ratio);
+            prodS2 = Math.floor(prodS2 * ratio);
+            prodTotal = prodS1 + prodS2;
+            console.warn(`[${empresa.id}] Produção limitada pela capacidade.`);
         }
 
-        // MUDANÇA: Simulação de Risco (S1)
-        const riscoFornecedorS1 = simulacao.Fornecedor_S1_Tela_A_Risco_Prob / 100 || 0.20;
-        const perdaFornecedorS1 = simulacao.Fornecedor_S1_Tela_A_Risco_Perda / 100 || 0.15;
-        if (decisoes.Escolha_Fornecedor_S1_Tela === 'A' && Math.random() < riscoFornecedorS1) {
-            const perda = Math.floor(pNumS1 * perdaFornecedorS1);
-            pNumS1 -= perda;
-            noticiaRiscoS1 = `Fornecedor de Telas S1 (A) falhou, perda de ${perda.toLocaleString('pt-BR')} unid. S1.`;
-            console.log(`[${empresa.id}] R${proximaRodada}: ${noticiaRiscoS1}`);
+        // 2. Risco de Fornecedor (A)
+        // S1
+        if (decisoes.Escolha_Fornecedor_S1_Tela === 'A') {
+            const prob = simulacao.Fornecedor_S1_Tela_A_Risco_Prob / 100 || 0.2;
+            if (Math.random() < prob) {
+                const perda = Math.floor(prodS1 * (simulacao.Fornecedor_S1_Tela_A_Risco_Perda / 100 || 0.15));
+                prodS1 -= perda;
+                estadoNovo.Noticia_Producao_Risco_S1 = `Falha Fornecedor S1: Perda de ${perda} unid.`;
+            }
         }
-        
-        // MUDANÇA: Simulação de Risco (S2)
-        const riscoFornecedorS2 = simulacao.Fornecedor_S2_Tela_A_Risco_Prob / 100 || 0.20;
-        const perdaFornecedorS2 = simulacao.Fornecedor_S2_Tela_A_Risco_Perda / 100 || 0.15;
-        if (decisoes.Escolha_Fornecedor_S2_Tela === 'A' && Math.random() < riscoFornecedorS2) {
-            const perda = Math.floor(pNumS2 * perdaFornecedorS2);
-            pNumS2 -= perda;
-            noticiaRiscoS2 = `Fornecedor de Telas S2 (A) falhou, perda de ${perda.toLocaleString('pt-BR')} unid. S2.`;
-            console.log(`[${empresa.id}] R${proximaRodada}: ${noticiaRiscoS2}`);
+        // S2
+        if (decisoes.Escolha_Fornecedor_S2_Tela === 'A') {
+            const prob = simulacao.Fornecedor_S2_Tela_A_Risco_Prob / 100 || 0.2;
+            if (Math.random() < prob) {
+                const perda = Math.floor(prodS2 * (simulacao.Fornecedor_S2_Tela_A_Risco_Perda / 100 || 0.15));
+                prodS2 -= perda;
+                estadoNovo.Noticia_Producao_Risco_S2 = `Falha Fornecedor S2: Perda de ${perda} unid.`;
+            }
         }
 
-        estadoNovo.Noticia_Producao_Risco_S1 = noticiaRiscoS1;
-        estadoNovo.Noticia_Producao_Risco_S2 = noticiaRiscoS2;
-        estadoNovo.Producao_Efetiva_S1 = pNumS1;
-        estadoNovo.Producao_Efetiva_S2 = pNumS2;
+        estadoNovo.Producao_Efetiva_S1 = prodS1;
+        estadoNovo.Producao_Efetiva_S2 = prodS2;
 
-        // MUDANÇA: Cálculo de Custo de Produção (CPV)
+        // 3. Cálculo do CPV Unitário (CVU)
+        // Redução por Capacitação
+        const nivelCap = estadoNovo.Nivel_Capacitacao || 1;
+        const redPerc = (simulacao.Reducao_Custo_Montagem_Por_Nivel_Capacitacao_Percent || 0) / 100;
+        const fatorRed = 1 - (redPerc * (nivelCap - 1));
+        const custoMontagemReal = custoMontagemBase * fatorRed;
+
+        // Componentes S1
+        const custoTelaS1 = (decisoes.Escolha_Fornecedor_S1_Tela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo||0) : (simulacao.Fornecedor_S1_Tela_B_Custo||0);
+        const custoChipS1 = (decisoes.Escolha_Fornecedor_S1_Chip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo||0) : (simulacao.Fornecedor_S1_Chip_D_Custo||0);
+        const cvuS1 = custoMontagemReal + custoTelaS1 + custoChipS1;
+
+        // Componentes S2
+        const custoTelaS2 = (decisoes.Escolha_Fornecedor_S2_Tela === 'A') ? (simulacao.Fornecedor_S2_Tela_A_Custo||0) : (simulacao.Fornecedor_S2_Tela_B_Custo||0);
+        const custoChipS2 = (decisoes.Escolha_Fornecedor_S2_Chip === 'C') ? (simulacao.Fornecedor_S2_Chip_C_Custo||0) : (simulacao.Fornecedor_S2_Chip_D_Custo||0);
+        const cvuS2 = custoMontagemReal + custoTelaS2 + custoChipS2;
+
+        // Custo Total da Produção
+        const cpvTotal = (prodS1 * cvuS1) + (prodS2 * cvuS2);
+        estadoNovo.Caixa -= cpvTotal;
+
+        // Atualiza Estoques (Adiciona produção)
+        estadoNovo.Estoque_S1_Unidades = (estadoAtual.Estoque_S1_Unidades || 0) + prodS1;
+        estadoNovo.Estoque_S2_Unidades = (estadoAtual.Estoque_S2_Unidades || 0) + prodS2;
         
-        // Custo Montagem Corrigido (Inflação + Nível Capacitação)
-        const nivelCapacitacao = estadoNovo.Nivel_Capacitacao || 1; // Nível atingido na Fase 1
-        const reducaoPercent = (simulacao.Reducao_Custo_Montagem_Por_Nivel_Capacitacao_Percent || 0) / 100;
-        const fatorReducaoCapacitacao = 1 - (reducaoPercent * (nivelCapacitacao - 1)); // Ex: Nível 3, 2% -> 1 - (0.02 * 2) = 0.96
-        const custoVariavelMontagemCorrigido = custoVariavelMontagemInflacionado * fatorReducaoCapacitacao;
-
-        // Custo S1
-        const custoTelaS1 = (decisoes.Escolha_Fornecedor_S1_Tela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : (simulacao.Fornecedor_S1_Tela_B_Custo || 0);
-        const custoChipS1 = (decisoes.Escolha_Fornecedor_S1_Chip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : (simulacao.Fornecedor_S1_Chip_D_Custo || 0);
-        const cvuS1 = custoVariavelMontagemCorrigido + custoTelaS1 + custoChipS1;
-        const cpvTotalS1 = pNumS1 * cvuS1;
-
-        // Custo S2
-        const custoTelaS2 = (decisoes.Escolha_Fornecedor_S2_Tela === 'A') ? (simulacao.Fornecedor_S2_Tela_A_Custo || 0) : (simulacao.Fornecedor_S2_Tela_B_Custo || 0);
-        const custoChipS2 = (decisoes.Escolha_Fornecedor_S2_Chip === 'C') ? (simulacao.Fornecedor_S2_Chip_C_Custo || 0) : (simulacao.Fornecedor_S2_Chip_D_Custo || 0);
-        const cvuS2 = custoVariavelMontagemCorrigido + custoTelaS2 + custoChipS2;
-        const cpvTotalS2 = pNumS2 * cvuS2;
-        
-        const cpvTotalProducao = cpvTotalS1 + cpvTotalS2;
-
-        // Subtrai CPV do Caixa
-        estadoNovo.Caixa -= cpvTotalProducao;
-        console.log(`[${empresa.id}] R${proximaRodada}: Produziu S1: ${pNumS1} (CVU: ${cvuS1.toFixed(2)}), S2: ${pNumS2} (CVU: ${cvuS2.toFixed(2)}). CPV Total: ${cpvTotalProducao.toLocaleString('pt-BR')}. Caixa: ${estadoNovo.Caixa.toLocaleString('pt-BR')}`);
-
-        // Atualiza Estoque (separadamente)
-        estadoNovo.Estoque_S1_Unidades = (estadoAtual.Estoque_S1_Unidades || 0) + pNumS1;
-        estadoNovo.Estoque_S2_Unidades = (estadoAtual.Estoque_S2_Unidades || 0) + pNumS2;
-        estadoNovo.Custo_Unitario_S1 = cvuS1; // Salva o custo de produção desta rodada
+        // Salva CVU da rodada para fins contábeis (simplificado: assume que todo estoque novo e velho vale isso, ou FIFO aproximado)
+        estadoNovo.Custo_Unitario_S1 = cvuS1;
         estadoNovo.Custo_Unitario_S2 = cvuS2;
     });
 
-    // --- RF 3.4: Fase 3 - Simulação de Mercado ---
-    console.log("[M3][F3] Iniciando Fase 3: Simulação de Mercado");
-    
-    // MUDANÇA: Pega todos os pesos (P&D, Mkt, Preço, Qualidade, ESG)
-    const demandaPremium = simulacao[`Segmento1_Demanda_Rodada_${proximaRodada}`] || 0;
-    const demandaMassa = simulacao[`Segmento2_Demanda_Rodada_${proximaRodada}`] || 0;
-    // Pesos S1 (Premium)
-    const pesoPDPremium = simulacao[`Peso_PD_Premium_Rodada_${proximaRodada}`] || 0;
-    const pesoMktPremium = simulacao[`Peso_Mkt_Premium_Rodada_${proximaRodada}`] || 0;
-    const pesoPrecoPremium = simulacao[`Peso_Preco_Premium_Rodada_${proximaRodada}`] || 0;
-    const pesoQualidadePremium = simulacao[`Peso_Qualidade_Premium_Rodada_${proximaRodada}`] || 0;
-    const pesoESGPremium = simulacao[`Peso_ESG_Premium_Rodada_${proximaRodada}`] || 0;
-    // Pesos P&D (Dentro do Premium)
-    const pesoPDCameraPremium = simulacao[`Peso_PD_Camera_Premium_Rodada_${proximaRodada}`] || 0;
-    const pesoPDBateriaPremium = simulacao[`Peso_PD_Bateria_Premium_Rodada_${proximaRodada}`] || 0;
-    const pesoPDSOeIAPremium = simulacao[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${proximaRodada}`] || 0;
-    // Pesos S2 (Básico/Massa)
-    const pesoPDBasico = simulacao[`Peso_PD_Massa_Rodada_${proximaRodada}`] || 0;
-    const pesoMktMassa = simulacao[`Peso_Mkt_Massa_Rodada_${proximaRodada}`] || 0;
-    const pesoPrecoMassa = simulacao[`Peso_Preco_Massa_Rodada_${proximaRodada}`] || 0;
-    const pesoQualidadeMassa = simulacao[`Peso_Qualidade_Massa_Rodada_${proximaRodada}`] || 0;
-    const pesoESGMassa = simulacao[`Peso_ESG_Massa_Rodada_${proximaRodada}`] || 0;
 
-    const precosBrutosPremium = dadosProcessamento.map(e => e.decisoes.Preco_Segmento_1 || 0);
-    const precosBrutosMassa = dadosProcessamento.map(e => e.decisoes.Preco_Segmento_2 || 0);
-    const multiplicadorCap = 5.0; 
-    const precosHigienizadosPremium = higienizarPrecosOutliers(precosBrutosPremium, multiplicadorCap);
-    const precosHigienizadosMassa = higienizarPrecosOutliers(precosBrutosMassa, multiplicadorCap);
-    const mktPremium = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_1 || 0);
-    const mktMassa = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_2 || 0);
-    
-    let somaAtratividadePremium = 0; let somaAtratividadeMassa = 0;
+    // --- RF 3.4: Fase 3 - Mercado ---
+    console.log("[M3][F3] Fase 3: Mercado");
+
+    // Dados Gerais de Demanda e Pesos
+    const demandaS1 = simulacao[`Segmento1_Demanda_Rodada_${proximaRodada}`] || 0;
+    const demandaS2 = simulacao[`Segmento2_Demanda_Rodada_${proximaRodada}`] || 0;
+
+    // Listas para normalização
+    const precosS1 = higienizarPrecosOutliers(dadosProcessamento.map(e => e.decisoes.Preco_Segmento_1 || 0));
+    const precosS2 = higienizarPrecosOutliers(dadosProcessamento.map(e => e.decisoes.Preco_Segmento_2 || 0));
+    const mktS1 = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_1 || 0);
+    const mktS2 = dadosProcessamento.map(e => e.decisoes.Marketing_Segmento_2 || 0);
+
+    let somaAtrS1 = 0;
+    let somaAtrS2 = 0;
 
     dadosProcessamento.forEach(empresa => {
         const { estadoNovo, decisoes } = empresa;
         
-        // --- Cálculo Atratividade Premium (S1) ---
-        // P&D (Premium)
-        const nPD_Cam = (estadoNovo.Nivel_PD_Camera || 1) * pesoPDCameraPremium;
-        const nPD_Bat = (estadoNovo.Nivel_PD_Bateria || 1) * pesoPDBateriaPremium;
-        const nPD_IA = (estadoNovo.Nivel_PD_Sist_Operacional_e_IA || 1) * pesoPDSOeIAPremium;
-        const nPDTotalPremium = nPD_Cam + nPD_Bat + nPD_IA;
-        // Org
-        const nQualidade = (estadoNovo.Nivel_Qualidade || 1);
-        const nESG = (estadoNovo.Nivel_ESG || 1);
-        // Mkt e Preço
-        const nMktPrem = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_1 || 0, mktPremium));
-        const nPrecoPrem = normalizarValor(decisoes.Preco_Segmento_1 || Infinity, precosHigienizadosPremium, true); 
-        // Fórmula Total S1
-        const atrPrem = (nPDTotalPremium * pesoPDPremium) + 
-                        (nMktPrem * pesoMktPremium) + 
-                        (nPrecoPrem * pesoPrecoPremium) +
-                        (nQualidade * pesoQualidadePremium) + // NOVO
-                        (nESG * pesoESGPremium); // NOVO
-        empresa.estadoNovo.Atratividade_Premium = atrPrem > 0 ? atrPrem : 0;
-        somaAtratividadePremium += empresa.estadoNovo.Atratividade_Premium;
+        // Cálculo S1
+        const wPDS1 = simulacao[`Peso_PD_Premium_Rodada_${proximaRodada}`] || 0;
+        const wMktS1 = simulacao[`Peso_Mkt_Premium_Rodada_${proximaRodada}`] || 0;
+        const wPrecoS1 = simulacao[`Peso_Preco_Premium_Rodada_${proximaRodada}`] || 0;
+        const wQualS1 = simulacao[`Peso_Qualidade_Premium_Rodada_${proximaRodada}`] || 0;
+        const wESGS1 = simulacao[`Peso_ESG_Premium_Rodada_${proximaRodada}`] || 0;
 
-        // --- Cálculo Atratividade Massa (S2) ---
-        // P&D (Básico)
-        const nPDBasico = (estadoNovo.Nivel_PD_Atualizacao_Geral || 1);
-        // Mkt e Preço
-        const nMktMassa = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_2 || 0, mktMassa));
-        const nPrecoMassa = normalizarValor(decisoes.Preco_Segmento_2 || Infinity, precosHigienizadosMassa, true);
-        // Fórmula Total S2
-        const atrMassa = (nPDBasico * pesoPDBasico) + // NOVO
-                         (nMktMassa * pesoMktMassa) + 
-                         (nPrecoMassa * pesoPrecoMassa) +
-                         (nQualidade * pesoQualidadeMassa) + // NOVO
-                         (nESG * pesoESGMassa); // NOVO
-        empresa.estadoNovo.Atratividade_Massa = atrMassa > 0 ? atrMassa : 0;
-        somaAtratividadeMassa += empresa.estadoNovo.Atratividade_Massa;
+        // Sub-pesos P&D S1
+        const wCam = simulacao[`Peso_PD_Camera_Premium_Rodada_${proximaRodada}`] || 0;
+        const wBat = simulacao[`Peso_PD_Bateria_Premium_Rodada_${proximaRodada}`] || 0;
+        const wSO = simulacao[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${proximaRodada}`] || 0;
+
+        const scorePDS1 = (estadoNovo.Nivel_PD_Camera * wCam) + (estadoNovo.Nivel_PD_Bateria * wBat) + (estadoNovo.Nivel_PD_Sist_Operacional_e_IA * wSO);
+        const scoreMktS1 = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_1, mktS1));
+        const scorePrecoS1 = normalizarValor(decisoes.Preco_Segmento_1, precosS1, true); // Invertido (preço menor é melhor)
+        
+        const atratividadeS1 = (scorePDS1 * wPDS1) + (scoreMktS1 * wMktS1) + (scorePrecoS1 * wPrecoS1) + 
+                               (estadoNovo.Nivel_Qualidade * wQualS1) + (estadoNovo.Nivel_ESG * wESGS1);
+        
+        empresa.atratividadeS1 = Math.max(0, atratividadeS1);
+        somaAtrS1 += empresa.atratividadeS1;
+
+        // Cálculo S2
+        const wPDS2 = simulacao[`Peso_PD_Massa_Rodada_${proximaRodada}`] || 0; // Atualização Geral
+        const wMktS2 = simulacao[`Peso_Mkt_Massa_Rodada_${proximaRodada}`] || 0;
+        const wPrecoS2 = simulacao[`Peso_Preco_Massa_Rodada_${proximaRodada}`] || 0;
+        const wQualS2 = simulacao[`Peso_Qualidade_Massa_Rodada_${proximaRodada}`] || 0;
+        const wESGS2 = simulacao[`Peso_ESG_Massa_Rodada_${proximaRodada}`] || 0;
+
+        const scorePDS2 = estadoNovo.Nivel_PD_Atualizacao_Geral; // Apenas 1 tipo
+        const scoreMktS2 = aplicarRetornosDecrescentes(normalizarValor(decisoes.Marketing_Segmento_2, mktS2));
+        const scorePrecoS2 = normalizarValor(decisoes.Preco_Segmento_2, precosS2, true);
+
+        const atratividadeS2 = (scorePDS2 * wPDS2) + (scoreMktS2 * wMktS2) + (scorePrecoS2 * wPrecoS2) +
+                               (estadoNovo.Nivel_Qualidade * wQualS2) + (estadoNovo.Nivel_ESG * wESGS2);
+        
+        empresa.atratividadeS2 = Math.max(0, atratividadeS2);
+        somaAtrS2 += empresa.atratividadeS2;
     });
 
-    // --- Cálculo de Market Share e Vendas Desejadas (inalterado) ---
-    dadosProcessamento.forEach(empresa => {
-        const { estadoNovo } = empresa;
-        const sharePremium = (somaAtratividadePremium > 0) ? (estadoNovo.Atratividade_Premium / somaAtratividadePremium) : (1 / dadosProcessamento.length);
-        estadoNovo.Market_Share_Premium = sharePremium;
-        estadoNovo.Vendas_Desejadas_Premium = Math.floor(demandaPremium * sharePremium);
-        
-        const shareMassa = (somaAtratividadeMassa > 0) ? (estadoNovo.Atratividade_Massa / somaAtratividadeMassa) : (1 / dadosProcessamento.length);
-        estadoNovo.Market_Share_Massa = shareMassa;
-        estadoNovo.Vendas_Desejadas_Massa = Math.floor(demandaMassa * shareMassa);
-        
-        console.log(`[${empresa.id}] Atr P:${estadoNovo.Atratividade_Premium.toFixed(2)} M:${estadoNovo.Atratividade_Massa.toFixed(2)} | Share P:${(sharePremium*100).toFixed(1)}% M:${(shareMassa*100).toFixed(1)}% | Vendas Desej P:${estadoNovo.Vendas_Desejadas_Premium} M:${estadoNovo.Vendas_Desejadas_Massa}`);
-    });
-
-    // --- RF 3.5: Fase 4 - Alocação de Vendas e Fechamento Financeiro ---
-    console.log("[M3][F4] Iniciando Fase 4: Alocação de Vendas e Receita");
-    let vendasTotaisSetor = 0;
+    // Market Share e Vendas
+    let totalVendasSetor = 0;
     dadosProcessamento.forEach(empresa => {
         const { estadoNovo, decisoes } = empresa;
         
-        // MUDANÇA: Lógica de Vendas e Estoque Segmentada
-        const estoqueDisponivelS1 = estadoNovo.Estoque_S1_Unidades || 0;
-        const estoqueDisponivelS2 = estadoNovo.Estoque_S2_Unidades || 0;
-        let noticiaRupturaS1 = null;
-        let noticiaRupturaS2 = null;
-
-        // Vendas S1
-        const vendasEfetivasPremium = Math.min(estadoNovo.Vendas_Desejadas_Premium, estoqueDisponivelS1);
-        if (estadoNovo.Vendas_Desejadas_Premium > estoqueDisponivelS1) {
-            noticiaRupturaS1 = `Ruptura de estoque S1! Demanda ${estadoNovo.Vendas_Desejadas_Premium.toLocaleString('pt-BR')}, estoque ${estoqueDisponivelS1.toLocaleString('pt-BR')}.`;
-            console.warn(`[${empresa.id}] R${proximaRodada}: ${noticiaRupturaS1}`);
+        // S1
+        const shareS1 = somaAtrS1 > 0 ? (empresa.atratividadeS1 / somaAtrS1) : (1 / dadosProcessamento.length);
+        const demandaDesejadaS1 = Math.floor(demandaS1 * shareS1);
+        // Limita pelo estoque
+        const vendasS1 = Math.min(demandaDesejadaS1, estadoNovo.Estoque_S1_Unidades);
+        if (demandaDesejadaS1 > estadoNovo.Estoque_S1_Unidades) {
+            estadoNovo.Noticia_Ruptura_Estoque_S1 = `Ruptura S1: Demandou ${demandaDesejadaS1}, vendeu ${vendasS1}.`;
         }
-        
-        // Vendas S2
-        const vendasEfetivasMassa = Math.min(estadoNovo.Vendas_Desejadas_Massa, estoqueDisponivelS2);
-         if (estadoNovo.Vendas_Desejadas_Massa > estoqueDisponivelS2) {
-            noticiaRupturaS2 = `Ruptura de estoque S2! Demanda ${estadoNovo.Vendas_Desejadas_Massa.toLocaleString('pt-BR')}, estoque ${estoqueDisponivelS2.toLocaleString('pt-BR')}.`;
-            console.warn(`[${empresa.id}] R${proximaRodada}: ${noticiaRupturaS2}`);
+        estadoNovo.Vendas_Efetivas_Premium = vendasS1;
+        estadoNovo.Market_Share_Premium = shareS1; // Guarda o share TEÓRICO
+
+        // S2
+        const shareS2 = somaAtrS2 > 0 ? (empresa.atratividadeS2 / somaAtrS2) : (1 / dadosProcessamento.length);
+        const demandaDesejadaS2 = Math.floor(demandaS2 * shareS2);
+        const vendasS2 = Math.min(demandaDesejadaS2, estadoNovo.Estoque_S2_Unidades);
+        if (demandaDesejadaS2 > estadoNovo.Estoque_S2_Unidades) {
+            estadoNovo.Noticia_Ruptura_Estoque_S2 = `Ruptura S2: Demandou ${demandaDesejadaS2}, vendeu ${vendasS2}.`;
         }
+        estadoNovo.Vendas_Efetivas_Massa = vendasS2;
+        estadoNovo.Market_Share_Massa = shareS2;
 
-        estadoNovo.Noticia_Ruptura_Estoque_S1 = noticiaRupturaS1;
-        estadoNovo.Noticia_Ruptura_Estoque_S2 = noticiaRupturaS2;
-        estadoNovo.Vendas_Efetivas_Premium = vendasEfetivasPremium;
-        estadoNovo.Vendas_Efetivas_Massa = vendasEfetivasMassa;
-        const vendasEfetivasTotal = vendasEfetivasPremium + vendasEfetivasMassa;
-        vendasTotaisSetor += vendasEfetivasTotal;
+        totalVendasSetor += (vendasS1 + vendasS2);
 
-        // Cálculo da Receita (inalterado)
-        const receitaPremium = vendasEfetivasPremium * (decisoes.Preco_Segmento_1 || 0);
-        const receitaMassa = vendasEfetivasMassa * (decisoes.Preco_Segmento_2 || 0);
-        const receitaTotal = receitaPremium + receitaMassa;
-        estadoNovo.Caixa += receitaTotal;
-        estadoNovo.Vendas_Receita = receitaTotal;
+        // Receita e Estoque Final
+        const receita = (vendasS1 * (decisoes.Preco_Segmento_1 || 0)) + (vendasS2 * (decisoes.Preco_Segmento_2 || 0));
+        estadoNovo.Vendas_Receita = receita;
+        estadoNovo.Caixa += receita;
 
-        // MUDANÇA: Atualiza Estoque Final (Segmentado)
-        const cvuS1_Estoque = estadoNovo.Custo_Unitario_S1; // Custo da produção desta rodada
-        const cvuS2_Estoque = estadoNovo.Custo_Unitario_S2;
+        estadoNovo.Estoque_S1_Unidades -= vendasS1;
+        estadoNovo.Custo_Estoque_S1 = estadoNovo.Estoque_S1_Unidades * estadoNovo.Custo_Unitario_S1;
         
-        const estoqueFinalS1_Unid = estoqueDisponivelS1 - vendasEfetivasPremium;
-        const estoqueFinalS2_Unid = estoqueDisponivelS2 - vendasEfetivasMassa;
-        
-        estadoNovo.Estoque_S1_Unidades = estoqueFinalS1_Unid;
-        estadoNovo.Custo_Estoque_S1 = estoqueFinalS1_Unid * cvuS1_Estoque;
-        estadoNovo.Estoque_S2_Unidades = estoqueFinalS2_Unid;
-        estadoNovo.Custo_Estoque_S2 = estoqueFinalS2_Unid * cvuS2_Estoque;
+        estadoNovo.Estoque_S2_Unidades -= vendasS2;
+        estadoNovo.Custo_Estoque_S2 = estadoNovo.Estoque_S2_Unidades * estadoNovo.Custo_Unitario_S2;
 
-        // MUDANÇA: Calcula CPV Efetivo (Segmentado)
-        const cpvEfetivo = (vendasEfetivasPremium * cvuS1_Estoque) + (vendasEfetivasMassa * cvuS2_Estoque);
-        estadoNovo.Custo_Produtos_Vendidos = cpvEfetivo;
+        // CPV das Vendas (DRE)
+        const cpvVendas = (vendasS1 * estadoNovo.Custo_Unitario_S1) + (vendasS2 * estadoNovo.Custo_Unitario_S2);
+        estadoNovo.Custo_Produtos_Vendidos = cpvVendas;
+    });
 
-        console.log(`[${empresa.id}] Vendeu P:${vendasEfetivasPremium} M:${vendasEfetivasMassa}. Receita: ${receitaTotal.toLocaleString('pt-BR')}. CPV: ${cpvEfetivo.toLocaleString('pt-BR')}. Estoque S1: ${estoqueFinalS1_Unid}, S2: ${estoqueFinalS2_Unid}. Caixa Final: ${estadoNovo.Caixa.toLocaleString('pt-BR')}`);
 
-        // --- RF 3.6: Geração de Relatórios (DRE/Balanço) ---
-        estadoNovo.Lucro_Bruto = estadoNovo.Vendas_Receita - estadoNovo.Custo_Produtos_Vendidos;
+    // --- RF 3.6: Relatórios DRE ---
+    dadosProcessamento.forEach(empresa => {
+        const en = empresa.estadoNovo;
+        en.Lucro_Bruto = en.Vendas_Receita - en.Custo_Produtos_Vendidos;
         
-        // MUDANÇA: Despesas Operacionais Totais (agora inclui Org)
-        const despesasOperacionaisTotais = estadoNovo.Despesas_Operacionais_Outras + 
-                                            estadoNovo.Despesas_Organiz_Capacitacao + 
-                                            estadoNovo.Despesas_Organiz_Mkt_Institucional + 
-                                            estadoNovo.Despesas_Organiz_ESG;
+        const totalDespOp = en.Despesas_Operacionais_Outras + en.Despesas_Organiz_Capacitacao + 
+                            en.Despesas_Organiz_Mkt_Institucional + en.Despesas_Organiz_ESG;
         
-        estadoNovo.Lucro_Operacional_EBIT = estadoNovo.Lucro_Bruto - despesasOperacionaisTotais;
-        const despesasFinanceiras = estadoNovo.Despesas_Juros_CP + estadoNovo.Despesas_Juros_Emergencia + estadoNovo.Despesas_Juros_LP;
-        estadoNovo.Lucro_Liquido = estadoNovo.Lucro_Operacional_EBIT - despesasFinanceiras;
-        estadoNovo.Lucro_Acumulado = (empresa.estadoAtual.Lucro_Acumulado || 0) + estadoNovo.Lucro_Liquido;
-        estadoNovo.Lucro_Antes_Taxas = estadoNovo.Lucro_Liquido; // Mantém para consistência
+        en.Lucro_Operacional_EBIT = en.Lucro_Bruto - totalDespOp;
+        
+        const totalJuros = en.Despesas_Juros_CP + en.Despesas_Juros_Emergencia + en.Despesas_Juros_LP;
+        en.Lucro_Liquido = en.Lucro_Operacional_EBIT - totalJuros;
+        
+        en.Lucro_Acumulado = (empresa.estadoAtual.Lucro_Acumulado || 0) + en.Lucro_Liquido;
+    });
 
-    }); // Fim do loop forEach empresa para Fase 4
 
-    // --- RF 3.6 / RF 4.4: Cálculo do Ranking (IDG) ---
-    console.log("[M3][F5] Calculando Ranking (IDG)");
-    
-    const metricas = dadosProcessamento.map(emp => {
-        const { estadoNovo } = emp;
-        const vendasTotais = (estadoNovo.Vendas_Efetivas_Premium || 0) + (estadoNovo.Vendas_Efetivas_Massa || 0);
+    // --- RF 4.4: Ranking IDG com ESTRATÉGIA ---
+    console.log("[M3][F5] Ranking IDG (Estratégico)");
+
+    // Preparação dos dados para normalização
+    const metricasBrutas = dadosProcessamento.map(e => {
+        const en = e.estadoNovo;
+        const vendasTotais = en.Vendas_Efetivas_Premium + en.Vendas_Efetivas_Massa;
         
-        // MUDANÇA: Cálculo Saúde Financeira (Liquidez)
-        const ativoCirculante = (estadoNovo.Caixa || 0) + (estadoNovo.Custo_Estoque_S1 || 0) + (estadoNovo.Custo_Estoque_S2 || 0);
-        const parcelaLP = (estadoNovo.Divida_LP_Saldo > 0 && estadoNovo.Divida_LP_Rodadas_Restantes > 0) 
-            ? estadoNovo.Divida_LP_Saldo / estadoNovo.Divida_LP_Rodadas_Restantes : 0;
-        const passivoCirculante = (estadoNovo.Divida_CP || 0) + (estadoNovo.Divida_Emergencia || 0) + parcelaLP;
-        // Se passivo é 0, liquidez é altíssima (seta 5), se ativo tbm for 0, é 1.
-        const liquidez = (passivoCirculante > 0) ? (ativoCirculante / passivoCirculante) : (ativoCirculante > 0 ? 5 : 1);
-        
+        // Cálculo Liquidez Corrente (Ativo Circulante / Passivo Circulante)
+        const ativoCirc = en.Caixa + en.Custo_Estoque_S1 + en.Custo_Estoque_S2;
+        const parcelaLP = (en.Divida_LP_Saldo > 0 && en.Divida_LP_Rodadas_Restantes > 0) ? en.Divida_LP_Saldo / en.Divida_LP_Rodadas_Restantes : 0;
+        const passivoCirc = en.Divida_CP + en.Divida_Emergencia + parcelaLP;
+        const liquidez = passivoCirc === 0 ? (ativoCirc > 0 ? 5 : 1) : (ativoCirc / passivoCirc);
+
         return {
-            id: emp.id,
-            lucroAcumulado: estadoNovo.Lucro_Acumulado || 0,
-            marketShare: vendasTotaisSetor > 0 ? (vendasTotais / vendasTotaisSetor) : 0,
-            nivelTotalPD: (estadoNovo.Nivel_PD_Camera || 1) + (estadoNovo.Nivel_PD_Bateria || 1) + (estadoNovo.Nivel_PD_Sist_Operacional_e_IA || 1) + (estadoNovo.Nivel_PD_Atualizacao_Geral || 1),
-            saudeFinanceira: liquidez,
-            // MUDANÇA: Bônus IDG Organizacional (Níveis)
-            bonusIDG_Org: (estadoNovo.Nivel_Capacitacao || 1) + (estadoNovo.Nivel_Qualidade || 1) + (estadoNovo.Nivel_ESG || 1),
+            id: e.id,
+            lucro: en.Lucro_Acumulado,
+            share: totalVendasSetor > 0 ? (vendasTotais / totalVendasSetor) : 0,
+            pd: en.Nivel_PD_Camera + en.Nivel_PD_Bateria + en.Nivel_PD_Sist_Operacional_e_IA + en.Nivel_PD_Atualizacao_Geral,
+            saude: liquidez,
+            org: en.Nivel_Capacitacao + en.Nivel_Qualidade + en.Nivel_ESG
         };
     });
-    
-    // Função de normalização (0-100) (inalterada)
-    const normalizarMetrica = (valor, todosValores) => { 
-        const min = Math.min(...todosValores); 
-        const max = Math.max(...todosValores); 
-        if (min === max) return (valor >= min ? 100 : 0);
-        if (max === 0) return 0;
-        const minAjustado = Math.min(min, 0);
-        const divisor = (max - minAjustado) === 0 ? 1 : (max - minAjustado);
-        return Math.max(0, ((valor - minAjustado) / divisor) * 100);
+
+    // Arrays para normalização
+    const listLucro = metricasBrutas.map(m => m.lucro);
+    const listShare = metricasBrutas.map(m => m.share);
+    const listPD = metricasBrutas.map(m => m.pd);
+    const listSaude = metricasBrutas.map(m => m.saude);
+    const listOrg = metricasBrutas.map(m => m.org);
+
+    // Pesos Base (do SimuladorForm)
+    const pesoBaseLucro = simulacao.Peso_IDG_Lucro || 0.30;
+    const pesoBaseShare = simulacao.Peso_IDG_Share || 0.30;
+    const pesoBasePD = simulacao.Peso_IDG_PD || 0.20;
+    const pesoBaseSaude = simulacao.Peso_IDG_Saude_Financeira || 0.20;
+
+    // Lógica de Pesos Ajustados por Estratégia
+    const getPesosEstrategicos = (estrategia) => {
+        let mL = 1, mS = 1, mP = 1, mH = 1;
+        
+        switch(estrategia) {
+            case 'rentabilidade': 
+                mL = 1.5; mH = 1.2; mS = 0.7; mP = 0.8; 
+                break;
+            case 'mercado':
+                mS = 1.5; mL = 0.8; mP = 0.8; mH = 0.9;
+                break;
+            case 'inovacao':
+                mP = 1.5; mL = 0.8; mS = 0.8; mH = 1.0;
+                break;
+            default: break; // Padrão
+        }
+        
+        const pL = pesoBaseLucro * mL;
+        const pS = pesoBaseShare * mS;
+        const pP = pesoBasePD * mP;
+        const pH = pesoBaseSaude * mH;
+        
+        // Normaliza para soma = 1.0
+        const total = pL + pS + pP + pH;
+        return { 
+            l: pL/total, 
+            s: pS/total, 
+            p: pP/total, 
+            h: pH/total,
+            est: estrategia 
+        };
     };
 
-    const lucros = metricas.map(m => m.lucroAcumulado);
-    const shares = metricas.map(m => m.marketShare);
-    const pds = metricas.map(m => m.nivelTotalPD);
-    const saudes = metricas.map(m => m.saudeFinanceira);
-    const orgs = metricas.map(m => m.bonusIDG_Org);
-    
-    // MUDANÇA: Pega novos pesos IDG
-    const pesoLucro = simulacao.Peso_IDG_Lucro || 0.40;
-    const pesoShare = simulacao.Peso_IDG_Share || 0.30;
-    const pesoPD = simulacao.Peso_IDG_PD || 0.15;
-    const pesoSaudeFin = simulacao.Peso_IDG_Saude_Financeira || 0.15;
-    const pesoOrg = 0; // Bônus Org é ADITIVO, não parte do 100%
-
     dadosProcessamento.forEach(empresa => {
-        const metrica = metricas.find(m => m.id === empresa.id);
-        const notaLucro = normalizarMetrica(metrica.lucroAcumulado, lucros) * pesoLucro;
-        const notaShare = normalizarMetrica(metrica.marketShare, shares) * pesoShare;
-        const notaPD = normalizarMetrica(metrica.nivelTotalPD, pds) * pesoPD;
-        const notaSaude = normalizarMetrica(metrica.saudeFinanceira, saudes) * pesoSaudeFin;
-        // Bônus Org (ex: 0.5 pontos por nível acima de 1)
-        const notaBonusOrg = Math.max(0, (normalizarMetrica(metrica.bonusIDG_Org, orgs) * (pesoOrg || 0))); // Ajustar pesoOrg
+        const metrica = metricasBrutas.find(m => m.id === empresa.id);
         
-        empresa.estadoNovo.IDG_Score = notaLucro + notaShare + notaPD + notaSaude + notaBonusOrg;
-        empresa.estadoNovo.IDG_Metricas = { 
-            lucro: { valor: metrica.lucroAcumulado, nota: notaLucro },
-            share: { valor: metrica.marketShare, nota: notaShare },
-            pd: { valor: metrica.nivelTotalPD, nota: notaPD },
-            saude: { valor: metrica.saudeFinanceira, nota: notaSaude },
-            org: { valor: metrica.bonusIDG_Org, nota: notaBonusOrg }
+        // Pega estratégia do documento da empresa
+        const estrategia = empresa.dadosEmpresa.Estrategia || 'padrao';
+        const pesos = getPesosEstrategicos(estrategia);
+
+        // Notas normalizadas (0-100)
+        const notaLucro = normalizarMetrica(metrica.lucro, listLucro);
+        const notaShare = normalizarMetrica(metrica.share, listShare);
+        const notaPD = normalizarMetrica(metrica.pd, listPD);
+        const notaSaude = normalizarMetrica(metrica.saude, listSaude);
+        
+        // Bônus Org (Aditivo) - Estratégia Inovação ganha mais bônus aqui
+        const fatorBonus = (estrategia === 'inovacao') ? 1.5 : 1.0;
+        const notaOrg = normalizarMetrica(metrica.org, listOrg) * 0.10 * fatorBonus; // Max 10-15 pts extras
+
+        const scoreFinal = (notaLucro * pesos.l) + 
+                           (notaShare * pesos.s) + 
+                           (notaPD * pesos.p) + 
+                           (notaSaude * pesos.h) + 
+                           notaOrg;
+
+        empresa.estadoNovo.IDG_Score = scoreFinal;
+        empresa.estadoNovo.IDG_Metricas = {
+            lucro: { valor: metrica.lucro, nota: notaLucro * pesos.l },
+            share: { valor: metrica.share, nota: notaShare * pesos.s },
+            pd: { valor: metrica.pd, nota: notaPD * pesos.p },
+            saude: { valor: metrica.saude, nota: notaSaude * pesos.h },
+            org: { valor: metrica.org, nota: notaOrg },
+            estrategia: estrategia // Salva para referência
         };
-         console.log(`[${empresa.id}] IDG: L=${notaLucro.toFixed(1)} S=${notaShare.toFixed(1)} P=${notaPD.toFixed(1)} H=${notaSaude.toFixed(1)} O=${notaBonusOrg.toFixed(1)} | TOTAL: ${empresa.estadoNovo.IDG_Score.toFixed(1)}`);
     });
 
-    // --- RF 3.6: Fase 5 - Persistência de Dados ---
-    console.log("[M3][F5] Salvando resultados no Firestore...");
-    // MUDANÇA: Passa 'db'
-    const batch = writeBatch(db);
-    for (const empresa of dadosProcessamento) {
-        // MUDANÇA: Passa 'db'
-        const estadoNovoRef = doc(db, simulacoesCollectionPath, simulacaoId, 'empresas', empresa.id, proximaRodada.toString());
-        
-        // MUDANÇA: Limpeza dos campos antigos de estoque
-        delete empresa.estadoNovo.Unidades_Em_Estoque;
-        delete empresa.estadoNovo.Custo_Estoque_Final;
-        delete empresa.estadoNovo.Custo_Variavel_Unitario_Medio;
-        // Limpeza de campos temporários
-        delete empresa.estadoNovo.Atratividade_Premium;
-        delete empresa.estadoNovo.Atratividade_Massa;
-        
-        batch.set(estadoNovoRef, empresa.estadoNovo);
 
-        // Cria o placeholder para as decisões da PRÓXIMA rodada
-        if(proximaRodada < (simulacao.Total_Rodadas || 0) ) {
-            // MUDANÇA: Passa 'db'
-            const decisaoFuturaRef = doc(db, simulacoesCollectionPath, simulacaoId, 'empresas', empresa.id, (proximaRodada + 1).toString());
-            // MUDANÇA: Placeholder agora precisa dos novos campos de decisão
+    // --- FASE 5: Persistência ---
+    console.log("[M3][F6] Salvando...");
+    const batch = writeBatch(db);
+
+    for (const empresa of dadosProcessamento) {
+        // Salva Estado
+        const estadoRef = doc(db, simulacoesCollectionPath, simulacaoId, 'empresas', empresa.id, 'estados', proximaRodada.toString());
+        batch.set(estadoRef, empresa.estadoNovo);
+
+        // Cria Placeholder Decisão Futura (se não acabou)
+        if (proximaRodada < (simulacao.Total_Rodadas || 0)) {
+            const decisaoFuturaRef = doc(db, simulacoesCollectionPath, simulacaoId, 'empresas', empresa.id, 'decisoes', (proximaRodada + 1).toString());
             batch.set(decisaoFuturaRef, { 
                 Rodada: (proximaRodada + 1), 
                 Status_Decisao: 'Pendente',
-                Producao_Planejada_S1: '', // Adiciona placeholders
-                Producao_Planejada_S2: '',
-                Escolha_Fornecedor_S1_Tela: '',
-                Escolha_Fornecedor_S1_Chip: '',
-                Escolha_Fornecedor_S2_Tela: '',
-                Escolha_Fornecedor_S2_Chip: '',
+                // Placeholders para campos novos
+                Producao_Planejada_S1: 0, Producao_Planejada_S2: 0,
+                Escolha_Fornecedor_S1_Tela: '', Escolha_Fornecedor_S2_Tela: ''
             });
         }
     }
-    // MUDANÇA: Passa 'db'
+
+    // Atualiza Simulação
     const simRef = doc(db, simulacoesCollectionPath, simulacaoId);
-    let novoStatusSimulacao = `Aguardando Decisões da Rodada ${proximaRodada + 1}`;
-    if(proximaRodada >= (simulacao.Total_Rodadas || 0) ) {
-        novoStatusSimulacao = `Finalizada - Rodada ${proximaRodada}`;
+    let novoStatus = `Aguardando Decisões da Rodada ${proximaRodada + 1}`;
+    if (proximaRodada >= (simulacao.Total_Rodadas || 0)) {
+        novoStatus = `Finalizada - Rodada ${proximaRodada}`;
     }
     batch.update(simRef, {
-        Status: novoStatusSimulacao,
+        Status: novoStatus,
         Rodada_Atual: proximaRodada
     });
 
     await batch.commit();
-    console.log(`--- [M3] PROCESSAMENTO DA RODADA ${proximaRodada} CONCLUÍDO ---`);
-
+    console.log(`[M3] Rodada ${proximaRodada} concluída.`);
     return { sucesso: true, rodadaProcessada: proximaRodada };
 }
