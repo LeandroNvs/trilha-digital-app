@@ -6,8 +6,11 @@ import { appId } from '../firebase/config.js'; // Importa o appId para construir
 // Componente para o Gráfico de Cursos por Instituição
 function GraficoCursosPorInstituicao() {
     // Busca as coleções usando o caminho completo e correto do Firestore
-    const instituicoes = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
-    const cursos = useCollection(`/artifacts/${appId}/public/data/cursos`);
+    const { documents: instituicoesData, isLoading: isInstLoading } = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+    const { documents: cursosData, isLoading: isCursosLoading } = useCollection(`/artifacts/${appId}/public/data/cursos`);
+
+    const instituicoes = instituicoesData || [];
+    const cursos = cursosData || [];
 
     // Processa os dados para o formato que o gráfico precisa
     const dadosGrafico = useMemo(() => {
@@ -38,6 +41,10 @@ function GraficoCursosPorInstituicao() {
         }));
 
     }, [instituicoes, cursos]); // Recalcula apenas se os dados mudarem
+
+    if (isInstLoading || isCursosLoading) {
+        return <p className="text-gray-400">Carregando dados para o gráfico...</p>;
+    }
 
     if (instituicoes.length === 0) {
         return <p className="text-gray-400">Aguardando dados de instituições para gerar o gráfico...</p>;

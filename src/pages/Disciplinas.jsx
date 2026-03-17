@@ -8,8 +8,10 @@ import ModalConfirmacao from '../components/ModalConfirmacao.jsx';
 
 // Hook para buscar e combinar dados de cursos e instituições
 const useCursosCombinados = () => {
-    const cursos = useCollection(`/artifacts/${appId}/public/data/cursos`);
-    const instituicoes = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+    const { documents: cursosData } = useCollection(`/artifacts/${appId}/public/data/cursos`);
+    const { documents: instituicoesData } = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+    const cursos = cursosData || [];
+    const instituicoes = instituicoesData || [];
 
     return useMemo(() => {
         if (!cursos.length || !instituicoes.length) return { lista: [], mapa: {} };
@@ -35,7 +37,8 @@ function PaginaDisciplinas() {
     const [itemParaExcluir, setItemParaExcluir] = useState(null);
 
     const collectionPath = `/artifacts/${appId}/public/data/disciplinas`;
-    const disciplinas = useCollection(collectionPath);
+    const { documents: disciplinasData, isLoading: isDisciplinasLoading } = useCollection(collectionPath);
+    const disciplinas = disciplinasData || [];
     const { lista: cursosCombinados, mapa: cursosMapa } = useCursosCombinados();
 
     const limparForm = () => {
@@ -89,6 +92,7 @@ function PaginaDisciplinas() {
                 </div>
             </form>
             <div className="space-y-4">
+                {isDisciplinasLoading && <p className="text-white">Carregando disciplinas...</p>}
                 {disciplinas.map(d => (
                     <div key={d.id} className="flex items-center justify-between bg-gray-700 p-4 rounded-lg">
                         <div>

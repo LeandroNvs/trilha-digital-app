@@ -16,8 +16,11 @@ function PaginaCursos() {
     const instCollectionPath = `/artifacts/${appId}/public/data/instituicoes`;
     const cursoCollectionPath = `/artifacts/${appId}/public/data/cursos`;
 
-    const instituicoes = useCollection(instCollectionPath);
-    const cursos = useCollection(cursoCollectionPath);
+    const { documents: instituicoesData } = useCollection(instCollectionPath);
+    const { documents: cursosData, isLoading: isCursosLoading } = useCollection(cursoCollectionPath);
+
+    const instituicoes = instituicoesData || [];
+    const cursos = cursosData || [];
 
     const limparForm = () => {
         setNome(''); setSigla(''); setAno(''); setSemestre('');
@@ -80,6 +83,7 @@ function PaginaCursos() {
                 </div>
             </form>
             <div className="space-y-4">
+                {isCursosLoading && <p className="text-white">Carregando cursos...</p>}
                 {cursos.map(c => (
                     <div key={c.id} className="flex items-center justify-between bg-gray-700 p-4 rounded-lg">
                         <div>

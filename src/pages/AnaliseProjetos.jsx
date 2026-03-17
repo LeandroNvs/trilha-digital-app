@@ -6,7 +6,8 @@ import { auth, db, appId } from '../firebase/config';
 
 function AnaliseProjetos() {
     const [perfilUsuario, setPerfilUsuario] = useState(null);
-    const todosGrupos = useCollection(`/artifacts/${appId}/public/data/grupos`);
+    const { documents: todosGruposData, isLoading: isGruposLoading } = useCollection(`/artifacts/${appId}/public/data/grupos`);
+    const todosGrupos = todosGruposData || [];
     const usuarioId = auth.currentUser?.uid;
 
     // Busca o perfil do usuário logado para verificar o papel
@@ -46,6 +47,7 @@ function AnaliseProjetos() {
             <p className="text-gray-400 mb-8">Selecione um grupo para iniciar ou continuar a análise estratégica.</p>
             
             <div className="space-y-4">
+                {isGruposLoading && <p className="text-white">Carregando grupos...</p>}
                 {meusGrupos.length > 0 ? (
                     meusGrupos.map(grupo => (
                         <div key={grupo.id} className="bg-gray-700 p-4 rounded-lg flex items-center justify-between">

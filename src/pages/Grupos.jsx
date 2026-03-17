@@ -7,8 +7,10 @@ import ModalAdicionarIntegrantes from '../components/ModalAdicionarIntegrantes.j
 
 // Hooks de dados combinados
 const useCursosCombinados = () => {
-    const cursos = useCollection(`/artifacts/${appId}/public/data/cursos`);
-    const instituicoes = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+    const { documents: cursosData } = useCollection(`/artifacts/${appId}/public/data/cursos`);
+    const { documents: instituicoesData } = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+    const cursos = cursosData || [];
+    const instituicoes = instituicoesData || [];
     return useMemo(() => {
         if (!cursos.length || !instituicoes.length) return { lista: [], mapa: {} };
         const mapa = {};
@@ -21,7 +23,8 @@ const useCursosCombinados = () => {
 };
 
 const useDisciplinasCombinadas = () => {
-    const disciplinas = useCollection(`/artifacts/${appId}/public/data/disciplinas`);
+    const { documents: disciplinasData } = useCollection(`/artifacts/${appId}/public/data/disciplinas`);
+    const disciplinas = disciplinasData || [];
     const { mapa: cursosMapa } = useCursosCombinados();
     return useMemo(() => {
         if (!disciplinas.length || Object.keys(cursosMapa).length === 0) return { lista: [], mapa: {} };
@@ -50,11 +53,18 @@ function PaginaGrupos() {
 
     // Busca de dados
     const collectionPath = `/artifacts/${appId}/public/data/grupos`;
-    const grupos = useCollection(collectionPath);
-    const instituicoes = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
-    const todosCursos = useCollection(`/artifacts/${appId}/public/data/cursos`);
-    const todasDisciplinas = useCollection(`/artifacts/${appId}/public/data/disciplinas`);
-    const todosAlunos = useCollection('usuarios'); // Busca todos os usuários para passar para o modal
+    const { documents: gruposData, isLoading: isGruposLoading } = useCollection(collectionPath);
+    const { documents: instituicoesData } = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+    const { documents: todosCursosData } = useCollection(`/artifacts/${appId}/public/data/cursos`);
+    const { documents: todasDisciplinasData } = useCollection(`/artifacts/${appId}/public/data/disciplinas`);
+    const { documents: todosAlunosData } = useCollection('usuarios'); // Busca todos os usuários para passar para o modal
+    
+    const grupos = gruposData || [];
+    const instituicoes = instituicoesData || [];
+    const todosCursos = todosCursosData || [];
+    const todasDisciplinas = todasDisciplinasData || [];
+    const todosAlunos = todosAlunosData || [];
+    
     const { mapa: disciplinasMapa } = useDisciplinasCombinadas();
 
     // Lógica de filtragem
@@ -160,6 +170,7 @@ function PaginaGrupos() {
             </form>
 
             <div className="space-y-4">
+                {isGruposLoading && <p className="text-white">Carregando grupos...</p>}
                 {grupos.map(g => (
                     <div key={g.id} className="bg-gray-700 p-4 rounded-lg">
                         <div className="flex items-start justify-between">

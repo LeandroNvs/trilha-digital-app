@@ -11,7 +11,8 @@ function PaginaInstituicoes() {
     const [itemParaExcluir, setItemParaExcluir] = useState(null);
 
     const collectionPath = `/artifacts/${appId}/public/data/instituicoes`;
-    const instituicoes = useCollection(collectionPath);
+    const { documents: instituicoesData, isLoading } = useCollection(collectionPath);
+    const instituicoes = instituicoesData || [];
 
     const limparForm = () => {
         setNome('');
@@ -63,6 +64,7 @@ function PaginaInstituicoes() {
                 </div>
             </form>
             <div className="space-y-4">
+                {isLoading && <p className="text-white">Carregando instituições...</p>}
                 {instituicoes.map(inst => (
                     <div key={inst.id} className="flex items-center justify-between bg-gray-700 p-4 rounded-lg">
                         <div>

@@ -6,8 +6,11 @@ import ModalConfirmacao from '../components/ModalConfirmacao.jsx';
 
 // Hook para dados combinados (Cursos com sigla da Instituição)
 const useCursosCombinados = () => {
-    const cursos = useCollection(`/artifacts/${appId}/public/data/cursos`);
-    const instituicoes = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+    const { documents: cursosData, isLoading: isCursosLoading } = useCollection(`/artifacts/${appId}/public/data/cursos`);
+    const { documents: instituicoesData, isLoading: isInstLoading } = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
+
+    const cursos = cursosData || [];
+    const instituicoes = instituicoesData || [];
 
     return useMemo(() => {
         if (!cursos.length || !instituicoes.length) return { lista: [], mapa: {} };
@@ -32,7 +35,8 @@ function PaginaTurmas() {
     const [itemParaExcluir, setItemParaExcluir] = useState(null);
 
     const collectionPath = `/artifacts/${appId}/public/data/turmas`;
-    const turmas = useCollection(collectionPath);
+    const { documents: turmasData, isLoading: isTurmasLoading } = useCollection(collectionPath);
+    const turmas = turmasData || [];
     const { lista: cursosCombinados, mapa: cursosMapa } = useCursosCombinados();
 
     const limparForm = () => {
@@ -92,6 +96,7 @@ function PaginaTurmas() {
                 </div>
             </form>
             <div className="space-y-4">
+                {isTurmasLoading && <p className="text-white">Carregando turmas...</p>}
                 {turmas.map(t => (
                     <div key={t.id} className="flex items-center justify-between bg-gray-700 p-4 rounded-lg">
                         <div>
