@@ -1,0 +1,2421 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plataforma de Inteligência Competitiva</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Adicionando a biblioteca SheetJS para ler e escrever arquivos Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .swot-cell {
+      min-height: 200px;
+    }
+    /* Custom scrollbar for better aesthetics */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #2d3748;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #4a5568;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #718096;
+    }
+    details > summary {
+      cursor: pointer;
+      list-style: none; /* Remove default marker */
+    }
+    details > summary::-webkit-details-marker {
+      display: none; /* Remove default marker for Chrome */
+    }
+    details[open] > summary svg {
+      transform: rotate(180deg);
+    }
+  </style>
+</head>
+<body class="bg-gray-900 text-white antialiased">
+<!-- Login Screen -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+  <div class="w-full max-w-md bg-gray-800 p-8 rounded-lg shadow-lg">
+    <h1 class="text-3xl font-bold text-cyan-400 text-center mb-2">Acesso à Plataforma</h1>
+    <p class="text-gray-400 text-center mb-8">Selecione sua empresa e insira a senha.</p>
+    <form id="login-form" class="space-y-6">
+      <div>
+        <label for="username" class="block mb-2 font-medium text-gray-300">Empresa:</label>
+        <select id="username" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+          <option value="" disabled selected>Selecione sua empresa</option>
+          <option value="DesenrolaFinanceiro">DesenrolaFinanceiro</option>
+          <option value="Glamour Hair & Art">Glamour Hair & Art</option>
+          <option value="Oggi">Oggi</option>
+          <option value="Smart Eco Wash">Smart Eco Wash</option>
+          <option value="Cuida Delas">Cuida Delas</option>
+          <option value="Sigma">Sigma</option>
+        </select>
+      </div>
+      <div>
+        <label for="password" class="block mb-2 font-medium text-gray-300">Senha:</label>
+        <input type="password" id="password" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="••••••••">
+      </div>
+      <p id="login-error" class="text-red-400 text-center hidden">Usuário ou senha inválidos.</p>
+      <button type="submit" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg text-lg transition-colors">Entrar</button>
+    </form>
+  </div>
+</div>
+<!-- Main App Container -->
+<div id="app-container" class="container mx-auto p-4 md:p-8 hidden">
+  <header class="flex items-center justify-between mb-8 relative">
+    <div class="flex-1"></div> <!-- Spacer -->
+    <div class="flex-1 text-center">
+      <h1 class="text-4xl font-bold text-cyan-400">Plataforma de Inteligência Competitiva</h1>
+      <p class="text-gray-400 mt-2">Uma ferramenta para transformar análise em estratégia.</p>
+    </div>
+    <div class="flex-1 flex justify-end">
+      <div class="flex items-end flex-col gap-1">
+        <div class="flex items-center gap-4">
+          <button id="backup-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg text-sm" style="display: none;">Fazer Backup Geral (JSON)</button>
+          <span id="logged-in-company" class="text-gray-300"></span>
+          <button id="logout-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg text-sm">Sair</button>
+        </div>
+        <span id="project-id" class="text-xs text-gray-500"></span>
+      </div>
+    </div>
+  </header>
+  <!-- Navigation Tabs -->
+  <nav class="flex flex-wrap justify-center bg-gray-800 rounded-lg p-2 mb-8 gap-2">
+    <button data-tab="inicio" class="tab-button bg-cyan-500 text-white px-4 py-2 rounded-md font-semibold flex-grow">1. Início</button>
+    <button data-tab="recursos" class="tab-button bg-gray-700 hover:bg-cyan-600 px-4 py-2 rounded-md font-semibold flex-grow">2. Recursos</button>
+    <button data-tab="macroambiente" class="tab-button bg-gray-700 hover:bg-cyan-600 px-4 py-2 rounded-md font-semibold flex-grow">3. Macroambiente</button>
+    <button data-tab="competitivo" class="tab-button bg-gray-700 hover:bg-cyan-600 px-4 py-2 rounded-md font-semibold flex-grow">4. Ambiente Competitivo</button>
+    <button data-tab="riscos" class="tab-button bg-gray-700 hover:bg-cyan-600 px-4 py-2 rounded-md font-semibold flex-grow">5. Riscos</button>
+    <button data-tab="rede" class="tab-button bg-gray-700 hover:bg-cyan-600 px-4 py-2 rounded-md font-semibold flex-grow">6. Rede de Negócios</button>
+    <button data-tab="swot" class="tab-button bg-gray-700 hover:bg-cyan-600 px-4 py-2 rounded-md font-semibold flex-grow">7. Matriz SWOT</button>
+    <button data-tab="tows" class="tab-button bg-gray-700 hover:bg-cyan-600 px-4 py-2 rounded-md font-semibold flex-grow">8. Estratégia (TOWS)</button>
+  </nav>
+  <!-- Tab Content -->
+  <main>
+    <!-- Início Tab -->
+    <div id="inicio" class="tab-content active space-y-6">
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Identificação</h2>
+        <div class="space-y-4">
+          <div>
+            <label for="nome-empresa" class="block mb-2 font-medium text-gray-300">Nome da Empresa:</label>
+            <input type="text" id="nome-empresa" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="Digite o nome da sua empresa ou projeto">
+          </div>
+          <div>
+            <label for="missao" class="block mb-2 font-medium text-gray-300">Missão:</label>
+            <textarea id="missao" rows="3" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="Qual é a razão de existir da organização?"></textarea>
+          </div>
+          <div>
+            <label for="visao" class="block mb-2 font-medium text-gray-300">Visão:</label>
+            <textarea id="visao" rows="3" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="Onde a organização quer chegar no futuro?"></textarea>
+          </div>
+          <div>
+            <label for="valores" class="block mb-2 font-medium text-gray-300">Valores:</label>
+            <textarea id="valores" rows="3" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="Quais são os princípios que guiam as ações da organização?"></textarea>
+          </div>
+          <div class="mt-6 text-right">
+            <button id="save-inicio-btn" class="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg">
+              Salvar Identificação
+            </button>
+          </div>
+        </div>
+      </div>
+      <!-- Funcionalidade de Restauração de Backup (Apenas para Sigma) -->
+      <div id="restore-section" class="hidden bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-yellow-400 border-b-2 border-yellow-500 pb-2">Administração do Sistema</h2>
+        <p class="text-gray-400 mb-6">Esta funcionalidade permite restaurar todos os dados da plataforma a partir de um arquivo de backup JSON. Esta ação irá sobrescrever todos os dados existentes. Use com cuidado.</p>
+        <div class="flex items-center gap-4">
+          <input type="file" id="backup-file-input" accept=".json" class="block w-full text-sm text-gray-400
+                            file:mr-4 file:py-2 file:px-4
+                            file:rounded-lg file:border-0
+                            file:text-sm file:font-semibold
+                            file:bg-gray-700 file:text-cyan-400
+                            hover:file:bg-gray-600">
+          <button id="restore-btn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-6 rounded-lg">Restaurar Backup</button>
+        </div>
+      </div>
+      <!-- Inventário de Recursos e Capacidades -->
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Inventário de Recursos e Capacidades</h2>
+        <p class="text-gray-400 mb-6">Liste aqui os principais ativos que sua empresa utiliza para entregar a proposta de valor. Este será o ponto de partida para a análise VRIO.</p>
+        <form id="inventario-form" class="space-y-4 md:space-y-0 md:flex md:items-end md:gap-4">
+          <div class="flex-grow">
+            <label for="inventario-nome" class="block mb-2 font-medium text-gray-300">Nome do Recurso/Capacidade</label>
+            <input type="text" id="inventario-nome" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="Ex: Marca forte, Equipe de P&D, Patente XYZ">
+          </div>
+          <div class="w-full md:w-1/4">
+            <label for="inventario-tipo" class="block mb-2 font-medium text-gray-300">Tipo</label>
+            <select id="inventario-tipo" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+              <option value="" disabled selected>Selecione</option>
+              <option value="recurso">Recurso</option>
+              <option value="capacidade">Capacidade</option>
+            </select>
+          </div>
+          <div class="w-full md:w-1/4">
+            <label for="inventario-origem" class="block mb-2 font-medium text-gray-300">Origem</label>
+            <select id="inventario-origem" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+              <option value="" disabled selected>Selecione</option>
+              <option value="interno">Desenvolvimento Interno</option>
+              <option value="externo">Aquisição Externa</option>
+            </select>
+          </div>
+          <button type="submit" class="w-full md:w-auto bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg text-lg">Adicionar</button>
+        </form>
+        <div class="mt-8">
+          <h3 class="text-xl font-semibold mb-4">Itens no Inventário:</h3>
+          <ul id="inventario-list" class="space-y-2 bg-gray-900 p-4 rounded-lg min-h-[100px]"></ul>
+        </div>
+      </div>
+    </div>
+    <!-- Análise de Recursos Tab -->
+    <div id="recursos" class="tab-content space-y-6">
+      <!-- VRIO -->
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Recursos e Capacidades (VRIO)</h2>
+        <form id="vrio-form" class="space-y-8">
+
+          <!-- 1. Seleção do Recurso -->
+          <fieldset class="space-y-4 border-l-4 border-cyan-500 pl-4">
+            <legend class="text-xl font-semibold text-gray-200">1. Seleção para Análise</legend>
+            <div>
+              <label for="vrio-selecionar-recurso" class="block mb-2 font-medium text-gray-300">Selecione um item do seu inventário para analisar:</label>
+              <select id="vrio-selecionar-recurso" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                <option value="">-- Nenhum item no inventário --</option>
+              </select>
+            </div>
+          </fieldset>
+          <!-- 2. Análise de VALOR (V) -->
+          <fieldset class="space-y-4 border-l-4 border-cyan-500 pl-4">
+            <legend class="text-xl font-semibold text-gray-200">2. Valioso (V)</legend>
+            <p class="text-gray-400">Esse recurso é capaz de adicionar valor à empresa, melhorando a eficiência, qualidade, diferenciação de produto ou qualquer outro aspecto que contribua para o sucesso da empresa?</p>
+            <div class="flex gap-4 pt-2">
+              <label><input type="radio" name="vrio_v" value="sim" class="mr-1"> Sim</label>
+              <label><input type="radio" name="vrio_v" value="nao" class="mr-1"> Não</label>
+            </div>
+            <div style="display: none;">
+              <label for="vrio-v-obs" class="block my-2 font-medium text-gray-300">Observação:</label>
+              <textarea id="vrio-v-obs" rows="2" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></textarea>
+            </div>
+          </fieldset>
+
+          <!-- 3. Análise de RARIDADE (R) -->
+          <fieldset class="space-y-4 border-l-4 border-cyan-500 pl-4">
+            <legend class="text-xl font-semibold text-gray-200">3. Raro (R)</legend>
+            <p class="text-gray-400">O recurso ou capacidade é relativamente raro ou difícil de ser obtido por outras empresas concorrentes?</p>
+            <div class="flex gap-4 pt-2">
+              <label><input type="radio" name="vrio_r" value="sim" class="mr-1"> Sim</label>
+              <label><input type="radio" name="vrio_r" value="nao" class="mr-1"> Não</label>
+            </div>
+            <div style="display: none;">
+              <label for="vrio-r-obs" class="block my-2 font-medium text-gray-300">Observação:</label>
+              <textarea id="vrio-r-obs" rows="2" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></textarea>
+            </div>
+          </fieldset>
+          <!-- 4. Análise de IMITABILIDADE (I) -->
+          <fieldset class="space-y-4 border-l-4 border-cyan-500 pl-4">
+            <legend class="text-xl font-semibold text-gray-200">4. Inimitável (I)</legend>
+            <p class="text-gray-400">As empresas teriam dificuldades em imitar ou replicar este recurso ou capacidade?</p>
+            <div class="flex gap-4 pt-2">
+              <label><input type="radio" name="vrio_i" value="sim" class="mr-1"> Sim</label>
+              <label><input type="radio" name="vrio_i" value="nao" class="mr-1"> Não</label>
+            </div>
+            <div style="display: none;">
+              <label for="vrio-i-obs" class="block my-2 font-medium text-gray-300">Observação:</label>
+              <textarea id="vrio-i-obs" rows="2" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></textarea>
+            </div>
+          </fieldset>
+          <!-- 5. Análise de ORGANIZAÇÃO (O) -->
+          <fieldset class="space-y-4 border-l-4 border-cyan-500 pl-4">
+            <legend class="text-xl font-semibold text-gray-200">5. Organizado (O)</legend>
+            <p class="text-gray-400">O recurso ou capacidade é organizado e integrado à estrutura da empresa, permitindo que seja explorado da melhor forma possível?</p>
+            <div class="flex gap-4 pt-2">
+              <label><input type="radio" name="vrio_o" value="sim" class="mr-1"> Sim</label>
+              <label><input type="radio" name="vrio_o" value="nao" class="mr-1"> Não</label>
+            </div>
+            <div style="display: none;">
+              <label for="vrio-o-obs" class="block my-2 font-medium text-gray-300">Observação:</label>
+              <textarea id="vrio-o-obs" rows="2" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></textarea>
+            </div>
+          </fieldset>
+          <div id="vrio-buttons" class="flex gap-4">
+            <button type="submit" id="vrio-submit-btn" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg text-lg">Adicionar Análise</button>
+            <button type="button" id="vrio-cancel-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg text-lg hidden">Cancelar Edição</button>
+          </div>
+        </form>
+        <div class="mt-8">
+          <h3 class="text-xl font-semibold mb-4">Recursos Analisados:</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-gray-400">
+              <thead class="text-xs uppercase bg-gray-700 text-gray-400">
+              <tr>
+                <th scope="col" class="px-6 py-3">Nome</th>
+                <th scope="col" class="px-6 py-3">Tipo</th>
+                <th scope="col" class="px-6 py-3 text-center">V</th>
+                <th scope="col" class="px-6 py-3 text-center">R</th>
+                <th scope="col" class="px-6 py-3 text-center">I</th>
+                <th scope="col" class="px-6 py-3 text-center">O</th>
+                <th scope="col" class="px-6 py-3">Ações</th>
+              </tr>
+              </thead>
+              <tbody id="vrio-table-body">
+              <!-- Rows will be injected by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Análise de Macroambiente Tab -->
+    <div id="macroambiente" class="tab-content space-y-6">
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Macroambiente (PESTEL)</h2>
+        <p class="text-gray-400 mb-6">Analise os fatores pré-cadastrados e adicione outros que sejam relevantes para o seu negócio.</p>
+
+        <div id="pestel-accordion" class="space-y-2">
+          <!-- Político -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold">
+              <span>Político</span>
+              <svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div class="p-4 border-t border-gray-700 space-y-4">
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Regulamentação e Implementação da Reforma Tributária">
+                <p class="font-semibold text-gray-300">1. Regulamentação e Implementação da Reforma Tributária</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div>
+                  <div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div>
+                </div>
+                <textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Cenário de Polarização Política e Incerteza Pré-Eleitoral">
+                <p class="font-semibold text-gray-300">2. Cenário de Polarização Política e Incerteza Pré-Eleitoral</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div>
+                  <div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div>
+                </div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Políticas de Incentivo a Setores Específicos como negócios de impacto socioambiental, empreendedorismo feminino e startups de tecnologia (as chamadas 'neotecs').">
+                <p class="font-semibold text-gray-300">3. Políticas de Incentivo a Setores Específicos (negócios de impacto, startups, etc.)</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div>
+                  <div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div>
+                </div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+            </div>
+          </details>
+          <!-- Econômico -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>Econômico</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4">
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Persistência de Juros Altos e o Alto Nível de Endividamento das Famílias">
+                <p class="font-semibold text-gray-300">1. Persistência de Juros Altos e o Alto Nível de Endividamento das Famílias</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Inflação de Serviços (aluguel, mão de obra, custos de manutenção) e o Comportamento do Consumidor sensível a Preços">
+                <p class="font-semibold text-gray-300">2. Inflação de Serviços e Consumidor sensível a Preços</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Recomposição Gradual do Emprego e a Estagnação da Renda Média">
+                <p class="font-semibold text-gray-300">3. Recomposição Gradual do Emprego e a Estagnação da Renda Média</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+            </div>
+          </details>
+          <!-- Social -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>Social</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4">
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="A Consolidação do Bem-Estar Holístico (Mental, Físico e Financeiro)">
+                <p class="font-semibold text-gray-300">1. A Consolidação do Bem-Estar Holístico (Mental, Físico e Financeiro)</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="A Influência da Geração Z: Digital-First, Ceticismo e a Busca por Comunidades Autênticas">
+                <p class="font-semibold text-gray-300">2. A Influência da Geração Z: Digital-First, Ceticismo e a Busca por Comunidades Autênticas</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="A 'Condominização' da Vida Urbana e a Economia da Conveniência">
+                <p class="font-semibold text-gray-300">3. A "Condominização" da Vida Urbana e a Economia da Conveniência</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+            </div>
+          </details>
+          <!-- Tecnológico -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>Tecnológico</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4">
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Integração da Inteligência Artificial Generativa na Operação e no Marketing">
+                <p class="font-semibold text-gray-300">1. Integração da Inteligência Artificial Generativa na Operação e no Marketing</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="A Expectativa de Hiper-Personalização através da Análise de Dados">
+                <p class="font-semibold text-gray-300">2. A Expectativa de Hiper-Personalização através da Análise de Dados</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="A Onipresença dos Pagamentos Digitais (Pix) e a Integração de Serviços">
+                <p class="font-semibold text-gray-300">3. A Onipresença dos Pagamentos Digitais (Pix) e a Integração de Serviços</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+            </div>
+          </details>
+          <!-- Ambiental -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>Ambiental</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4">
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Intensificação da Crise Hídrica e da Gestão de Recursos Urbanos">
+                <p class="font-semibold text-gray-300">1. Intensificação da Crise Hídrica e da Gestão de Recursos Urbanos</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Pressão por Economia Circular e Redução de Resíduos (Especialmente Plásticos)">
+                <p class="font-semibold text-gray-300">2. Pressão por Economia Circular e Redução de Resíduos (Especialmente Plásticos)</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Valorização da 'Pegada de Carbono' e da Agenda ESG">
+                <p class="font-semibold text-gray-300">3. Valorização da "Pegada de Carbono" e da Agenda ESG</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+            </div>
+          </details>
+          <!-- Legal -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>Legal</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4">
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Amadurecimento e Fiscalização mais Rígida da LGPD (Lei Geral de Proteção de Dados)">
+                <p class="font-semibold text-gray-300">1. Amadurecimento e Fiscalização mais Rígida da LGPD</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Novas Regulamentações para E-commerce e Publicidade Digital">
+                <p class="font-semibold text-gray-300">2. Novas Regulamentações para E-commerce e Publicidade Digital</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+              <div class="pestel-factor bg-gray-800 p-4 rounded-lg transition-all" data-factor="Debates sobre a Modernização das Leis Trabalhistas (CLT) e Novos Modelos de Contratação">
+                <p class="font-semibold text-gray-300">3. Debates sobre a Modernização das Leis Trabalhistas (CLT)</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2"><div><label class="block text-sm font-medium text-gray-400 mb-1">Nível de Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Selecione</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select></div><div><label class="block text-sm font-medium text-gray-400 mb-1">Natureza do Impacto</label><select class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Selecione</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select></div></div><textarea class="w-full bg-gray-700 p-2 rounded mt-2 pestel-obs" rows="2" placeholder="Seus insights..."></textarea><button class="pestel-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+              </div>
+            </div>
+          </details>
+        </div>
+        <!-- Adicionar novo fator -->
+        <div class="mt-8">
+          <h3 class="text-xl font-semibold mb-4">Adicionar Outro Fator Relevante</h3>
+          <form id="pestel-custom-form" class="bg-gray-900 p-4 rounded-lg space-y-4 border border-gray-700">
+            <input type="text" name="custom_descricao" class="w-full bg-gray-700 p-2 rounded" placeholder="Descrição do novo fator...">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <select name="custom_categoria" class="w-full bg-gray-700 p-2 rounded">
+                <option value="" disabled selected>Selecione a Categoria</option>
+                <option value="politico">Político</option><option value="economico">Econômico</option><option value="social">Social</option><option value="tecnologico">Tecnológico</option><option value="ambiental">Ambiental</option><option value="legal">Legal</option>
+              </select>
+              <div>
+                <select name="custom_impacto" class="w-full bg-gray-700 p-2 rounded pestel-impacto"><option value="" disabled selected>Nível de Impacto</option><option value="nenhum">Não há impacto</option><option>Baixo</option><option>Médio</option><option>Alto</option></select>
+              </div>
+              <div>
+                <select name="custom_natureza" class="w-full bg-gray-700 p-2 rounded pestel-natureza"><option value="" disabled selected>Natureza do Impacto</option><option value="oportunidade">Oportunidade</option><option value="ameaca">Ameaça</option><option value="ambigua">Ambigua</option></select>
+              </div>
+            </div>
+            <button type="submit" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg">Adicionar Fator</button>
+          </form>
+        </div>
+        <div class="mt-8">
+          <h3 class="text-xl font-semibold mb-4">Fatores Personalizados Adicionados:</h3>
+          <ul id="custom-factors-list" class="space-y-2 bg-gray-900 p-4 rounded-lg min-h-[100px]"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Análise de Ambiente Competitivo Tab -->
+    <div id="competitivo" class="tab-content space-y-6">
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Ambiente Competitivo (5 Forças de Porter)</h2>
+        <p class="text-gray-400 mb-6">Avalie a intensidade de cada uma das cinco forças que moldam a competição no seu setor.</p>
+
+        <div id="porter-accordion" class="space-y-2">
+          <!-- 1. Rivalidade entre Concorrentes -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold">
+              <span>1. Rivalidade entre Concorrentes</span>
+              <svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div class="p-4 border-t border-gray-700 space-y-4 porter-force transition-all" data-force-name="Rivalidade entre Concorrentes">
+              <p class="text-gray-400">Avalie a intensidade da competição direta no seu mercado. Considere o número de concorrentes, o crescimento do setor, a diferenciação de produtos e as barreiras de saída.</p>
+              <fieldset><legend class="font-medium text-gray-300 mb-2">Intensidade da Força:</legend><div class="flex gap-4"><label><input type="radio" name="rival_intensity" value="baixa" class="mr-1"> Baixa</label><label><input type="radio" name="rival_intensity" value="media" class="mr-1"> Média</label><label><input type="radio" name="rival_intensity" value="alta" class="mr-1"> Alta</label></div></fieldset>
+              <textarea class="w-full bg-gray-700 p-2 rounded mt-2 porter-justificativa" rows="3" placeholder="Justificativa e principais fatores..."></textarea>
+              <button class="porter-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+            </div>
+          </details>
+          <!-- 2. Ameaça de Novos Entrantes -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>2. Ameaça de Novos Entrantes</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4 porter-force transition-all" data-force-name="Ameaça de Novos Entrantes">
+              <p class="text-gray-400">Avalie a intensidade da ameaça de novas empresas entrarem no seu mercado. Considere barreiras como investimento inicial, regulamentação, acesso a canais de distribuição e lealdade à marca.</p>
+              <fieldset><legend class="font-medium text-gray-300 mb-2">Intensidade da Força:</legend><div class="flex gap-4"><label><input type="radio" name="entrants_intensity" value="baixa" class="mr-1"> Baixa</label><label><input type="radio" name="entrants_intensity" value="media" class="mr-1"> Média</label><label><input type="radio" name="entrants_intensity" value="alta" class="mr-1"> Alta</label></div></fieldset>
+              <textarea class="w-full bg-gray-700 p-2 rounded mt-2 porter-justificativa" rows="3" placeholder="Justificativa e principais barreiras..."></textarea>
+              <button class="porter-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+            </div>
+          </details>
+          <!-- 3. Poder de Barganha dos Fornecedores -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>3. Poder de Barganha dos Fornecedores</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4 porter-force transition-all" data-force-name="Poder de Barganha dos Fornecedores">
+              <p class="text-gray-400">Avalie a intensidade do poder de negociação dos seus fornecedores. Pense no número de fornecedores disponíveis, na exclusividade dos insumos que eles oferecem e no custo de trocar de fornecedor.</p>
+              <fieldset><legend class="font-medium text-gray-300 mb-2">Intensidade da Força:</legend><div class="flex gap-4"><label><input type="radio" name="suppliers_intensity" value="baixa" class="mr-1"> Baixa</label><label><input type="radio" name="suppliers_intensity" value="media" class="mr-1"> Média</label><label><input type="radio" name="suppliers_intensity" value="alta" class="mr-1"> Alta</label></div></fieldset>
+              <textarea class="w-full bg-gray-700 p-2 rounded mt-2 porter-justificativa" rows="3" placeholder="Justificativa e principais fornecedores..."></textarea>
+              <button class="porter-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+            </div>
+          </details>
+          <!-- 4. Poder de Barganha dos Compradores -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>4. Poder de Barganha dos Compradores</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4 porter-force transition-all" data-force-name="Poder de Barganha dos Compradores">
+              <p class="text-gray-400">Avalie a intensidade do poder de negociação dos seus clientes. Analise a sensibilidade a preço, o volume de compra, a disponibilidade de alternativas e a importância do seu produto para eles.</p>
+              <fieldset><legend class="font-medium text-gray-300 mb-2">Intensidade da Força:</legend><div class="flex gap-4"><label><input type="radio" name="buyers_intensity" value="baixa" class="mr-1"> Baixa</label><label><input type="radio" name="buyers_intensity" value="media" class="mr-1"> Média</label><label><input type="radio" name="buyers_intensity" value="alta" class="mr-1"> Alta</label></div></fieldset>
+              <textarea class="w-full bg-gray-700 p-2 rounded mt-2 porter-justificativa" rows="3" placeholder="Justificativa e perfil dos clientes..."></textarea>
+              <button class="porter-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+            </div>
+          </details>
+          <!-- 5. Ameaça de Produtos ou Serviços Substitutos -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold"><span>5. Ameaça de Produtos ou Serviços Substitutos</span><svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg></summary>
+            <div class="p-4 border-t border-gray-700 space-y-4 porter-force transition-all" data-force-name="Ameaça de Produtos ou Serviços Substitutos">
+              <p class="text-gray-400">Avalie a intensidade da ameaça de alternativas de outras indústrias que satisfazem a mesma necessidade do cliente. Analise o custo-benefício e a propensão do cliente a mudar para essas alternativas.</p>
+              <fieldset><legend class="font-medium text-gray-300 mb-2">Intensidade da Força:</legend><div class="flex gap-4"><label><input type="radio" name="subs_intensity" value="baixa" class="mr-1"> Baixa</label><label><input type="radio" name="subs_intensity" value="media" class="mr-1"> Média</label><label><input type="radio" name="subs_intensity" value="alta" class="mr-1"> Alta</label></div></fieldset>
+              <textarea class="w-full bg-gray-700 p-2 rounded mt-2 porter-justificativa" rows="3" placeholder="Justificativa e principais substitutos..."></textarea>
+              <button class="porter-save-btn mt-2 w-full bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded-lg">Salvar Análise</button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+    <!-- Análise de Riscos Tab -->
+    <div id="riscos" class="tab-content space-y-6">
+      <!-- Premortem -->
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Riscos (Dinâmica de Premortem)</h2>
+        <p class="text-gray-400 mb-6">Imagine que o projeto/empresa fracassou espetacularmente. Analise a causa-raiz desse fracasso para identificar riscos latentes.</p>
+        <form id="premortem-form" class="space-y-8">
+
+          <!-- 1. Motivo da Falência -->
+          <fieldset class="space-y-4 border-l-4 border-cyan-500 pl-4">
+            <legend class="text-xl font-semibold text-gray-200">1. Motivo da Falência (A "Manchete")</legend>
+            <div>
+              <label for="premortem-fator" class="block mb-2 font-medium text-gray-300">Descrição do evento:</label>
+              <textarea id="premortem-fator" rows="3" class="w-full bg-gray-700 p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" placeholder="Ex: Um novo concorrente lançou um produto superior pela metade do preço."></textarea>
+            </div>
+          </fieldset>
+          <!-- 2. Origem do Fator -->
+          <fieldset class="space-y-4 border-l-4 border-cyan-500 pl-4">
+            <legend class="text-xl font-semibold text-gray-200">2. Origem do Fator (A Classificação Primária)</legend>
+            <div class="space-y-2">
+              <label class="flex items-center bg-gray-700 p-3 rounded-lg hover:bg-gray-600 cursor-pointer">
+                <input type="radio" name="origem" value="interna" class="h-5 w-5 text-cyan-500 bg-gray-800 border-gray-600 focus:ring-cyan-600">
+                <span class="ml-3 text-gray-300"><b>Interno:</b> O fator foi uma falha nossa (processo, capacidade, decisão, etc.).</span>
+              </label>
+              <label class="flex items-center bg-gray-700 p-3 rounded-lg hover:bg-gray-600 cursor-pointer">
+                <input type="radio" name="origem" value="externa" class="h-5 w-5 text-cyan-500 bg-gray-800 border-gray-600 focus:ring-cyan-600">
+                <span class="ml-3 text-gray-300"><b>Externo:</b> O fator originou-se fora da empresa (mercado, concorrente, tecnologia, etc.).</span>
+              </label>
+            </div>
+          </fieldset>
+          <button type="submit" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg text-lg">Adicionar Fator de Risco</button>
+        </form>
+        <div class="mt-8">
+          <h3 class="text-xl font-semibold mb-4">Fatores Adicionados:</h3>
+          <ul id="premortem-list" class="space-y-2 bg-gray-800 p-4 rounded-lg min-h-[100px]"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rede de Negócios Tab -->
+    <div id="rede" class="tab-content space-y-6">
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Cadastro da Rede de Atores (Stakeholders)</h2>
+        <form id="actor-form" class="space-y-6">
+          <input type="hidden" id="editing-actor-id">
+          <!-- Campos do Ator -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div>
+              <label for="actor-name" class="block text-sm font-medium text-gray-300 mb-1">Ator (Parte Interessada)</label>
+              <input type="text" id="actor-name" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none" required>
+            </div>
+            <div>
+              <label for="actor-category" class="block text-sm font-medium text-gray-300 mb-1">Categoria</label>
+              <select id="actor-category" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></select>
+            </div>
+            <div>
+              <label for="actor-type" class="block text-sm font-medium text-gray-300 mb-1">Tipo/Função na Rede</label>
+              <input type="text" id="actor-type" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+            </div>
+            <div class="md:col-span-2 lg:grid-cols-2 grid gap-6">
+              <div>
+                <label for="actor-influence" class="block text-sm font-medium text-gray-300 mb-1">Poder de Influência</label>
+                <select id="actor-influence" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></select>
+              </div>
+              <div>
+                <label for="actor-objective" class="block text-sm font-medium text-gray-300 mb-1">Objetivo e Interesse</label>
+                <input type="text" id="actor-objective" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+              </div>
+            </div>
+            <div class="md:col-span-3">
+              <label for="actor-resources" class="block text-sm font-medium text-gray-300 mb-1">Recursos Estratégicos que Controla</label>
+              <input type="text" id="actor-resources" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+            </div>
+          </div>
+          <!-- Campos da Conexão -->
+          <h3 class="text-xl font-semibold mt-8 mb-4 border-t border-gray-700 pt-6">Caracterização da Conexão (Link)</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div>
+              <label for="link-strength" class="block text-sm font-medium text-gray-300 mb-1">Força do Vínculo</label>
+              <select id="link-strength" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></select>
+            </div>
+            <div>
+              <label for="link-nature" class="block text-sm font-medium text-gray-300 mb-1">Natureza</label>
+              <select id="link-nature" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></select>
+            </div>
+            <div>
+              <label for="link-direction" class="block text-sm font-medium text-gray-300 mb-1">Direcionalidade</label>
+              <select id="link-direction" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none"></select>
+            </div>
+            <div class="md:col-span-2 lg:col-span-3">
+              <label for="link-flow" class="block text-sm font-medium text-gray-300 mb-1">O que Flui Principalmente?</label>
+              <input type="text" id="link-flow" class="w-full p-3 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+            </div>
+          </div>
+          <div class="mt-8 text-right flex items-center justify-end gap-4">
+            <button type="button" id="cancel-edit-btn" class="py-3 px-6 bg-gray-600 text-white rounded-lg hover:bg-gray-500 hidden">Cancelar Edição</button>
+            <button type="submit" id="actor-submit-btn" class="bg-cyan-500 text-white font-semibold py-3 px-6 rounded-lg hover:bg-cyan-600">Adicionar Ator</button>
+          </div>
+        </form>
+      </div>
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Configurações Gerais da Rede</h2>
+        <div class="space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label for="rede-categoria-config" class="block mb-2 font-medium text-gray-300">Categoria da Rede:</label>
+              <select id="rede-categoria-config" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                <option value="" disabled selected>Selecione</option>
+                <option value="Vertical">Vertical</option>
+                <option value="Horizontal">Horizontal</option>
+                <option value="Intersetorial">Intersetorial</option>
+              </select>
+            </div>
+            <div>
+              <label for="rede-modelo-config" class="block mb-2 font-medium text-gray-300">Modelo da Rede:</label>
+              <select id="rede-modelo-config" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                <option value="" disabled selected>Selecione</option>
+                <option value="Plataforma">Plataforma</option>
+                <option value="Ecossistema">Ecossistema</option>
+                <option value="Franquia">Franquia</option>
+              </select>
+            </div>
+            <div>
+              <label for="rede-formalizacao-config" class="block mb-2 font-medium text-gray-300">Formalização da Rede:</label>
+              <select id="rede-formalizacao-config" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                <option value="" disabled selected>Selecione</option>
+                <option value="Formal">Formal</option>
+                <option value="Informal">Informal</option>
+                <option value="Mista">Mista</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label for="rede-objetivo-config" class="block mb-2 font-medium text-gray-300">Objetivo Principal da Rede:</label>
+            <select id="rede-objetivo-config" class="w-full bg-gray-700 text-white p-3 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+              <option value="" disabled selected>Selecione</option>
+              <option value="Produção / Eficiência">Produção / Eficiência</option>
+              <option value="Comercialização / Acesso a Mercado">Comercialização / Acesso a Mercado</option>
+              <option value="Inovação / Aprendizado">Inovação / Aprendizado</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Atores da Rede Cadastrados</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm text-left text-gray-400">
+            <thead class="text-xs uppercase bg-gray-700 text-gray-400">
+            <tr>
+              <th scope="col" class="px-6 py-3">Ator</th>
+              <th scope="col" class="px-6 py-3">Categoria</th>
+              <th scope="col" class="px-6 py-3">Influência</th>
+              <th scope="col" class="px-6 py-3">Força do Vínculo</th>
+              <th scope="col" class="px-6 py-3">Ações</th>
+            </tr>
+            </thead>
+            <tbody id="actors-list-table-body">
+            <!-- Rows generated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- Matriz SWOT Tab -->
+    <div id="swot" class="tab-content space-y-6">
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Síntese Estratégica (SWOT)</h2>
+        <p class="text-gray-400 mb-6">Clique no botão abaixo para consolidar todas as análises das abas anteriores em uma Matriz SWOT. A ferramenta irá classificar automaticamente cada item como uma força, fraqueza, oportunidade ou ameaça com base nas suas respostas.</p>
+        <div class="text-center">
+          <button id="generate-swot" class="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform transform hover:scale-105">
+            Gerar Matriz SWOT
+          </button>
+          <button id="export-swot-btn" class="hidden ml-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-lg text-lg shadow-lg transition-transform transform hover:scale-105">
+            Exportar para Excel
+          </button>
+        </div>
+      </div>
+
+      <!-- SWOT Matrix Display -->
+      <div id="swot-container" class="hidden mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Strengths -->
+        <div class="bg-gray-800 rounded-lg p-4 swot-cell border-2 border-green-500">
+          <h3 class="text-xl font-bold text-green-400 mb-2">Forças (Strengths)</h3>
+          <ul id="swot-forcas" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+        </div>
+        <!-- Weaknesses -->
+        <div class="bg-gray-800 rounded-lg p-4 swot-cell border-2 border-red-500">
+          <h3 class="text-xl font-bold text-red-400 mb-2">Fraquezas (Weaknesses)</h3>
+          <ul id="swot-fraquezas" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+        </div>
+        <!-- Opportunities -->
+        <div class="bg-gray-800 rounded-lg p-4 swot-cell border-2 border-blue-500">
+          <h3 class="text-xl font-bold text-blue-400 mb-2">Oportunidades (Opportunities)</h3>
+          <ul id="swot-oportunidades" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+        </div>
+        <!-- Threats -->
+        <div class="bg-gray-800 rounded-lg p-4 swot-cell border-2 border-yellow-500">
+          <h3 class="text-xl font-bold text-yellow-400 mb-2">Ameaças (Threats)</h3>
+          <ul id="swot-ameacas" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Estratégia (TOWS) Tab -->
+    <div id="tows" class="tab-content space-y-6">
+      <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h2 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Estratégia (TOWS)</h2>
+        <p class="text-gray-400 mb-6">Após gerar a Matriz SWOT, utilize os fatores identificados para criar estratégias acionáveis. Cruce os fatores internos (Forças e Fraquezas) com os externos (Oportunidades e Ameaças).</p>
+
+        <!-- Formulários para Criação de Estratégias -->
+        <div id="tows-creation-accordion" class="space-y-2">
+          <!-- Estratégias Ofensivas (Forças x Oportunidades) -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold text-green-400">
+              <span>Estratégias Ofensivas (Forças + Oportunidades)</span>
+              <svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div class="p-4 border-t border-gray-700">
+              <form id="tows-ofensivas-form" class="space-y-4">
+                <input type="hidden" name="editingId">
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 1: Selecione a Oportunidade</label>
+                  <select name="oportunidade" class="w-full bg-gray-700 p-2 rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"></select>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 2: Selecione as Forças para alavancar</label>
+                  <div name="forcas" class="checkbox-container bg-gray-700 p-3 rounded-lg space-y-2 border border-gray-600"></div>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 3: Descreva a Ação Estratégica</label>
+                  <textarea name="acao" rows="3" class="w-full bg-gray-700 p-2 rounded-lg" placeholder="Descreva a ação para aproveitar a oportunidade usando a(s) força(s)..."></textarea>
+                </div>
+                <div class="flex gap-4">
+                  <button type="submit" class="w-full md:w-auto bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg">Adicionar Estratégia</button>
+                  <button type="button" class="cancel-edit-tows-btn hidden w-full md:w-auto bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">Cancelar Edição</button>
+                </div>
+              </form>
+            </div>
+          </details>
+          <!-- Estratégias de Confronto (Forças x Ameaças) -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold text-blue-400">
+              <span>Estratégias de Confronto (Forças + Ameaças)</span>
+              <svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div class="p-4 border-t border-gray-700">
+              <form id="tows-confrontos-form" class="space-y-4">
+                <input type="hidden" name="editingId">
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 1: Selecione a Ameaça</label>
+                  <select name="ameaca" class="w-full bg-gray-700 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"></select>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 2: Selecione as Forças para confrontar</label>
+                  <div name="forcas" class="checkbox-container bg-gray-700 p-3 rounded-lg space-y-2 border border-gray-600"></div>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 3: Descreva a Ação Estratégica</label>
+                  <textarea name="acao" rows="3" class="w-full bg-gray-700 p-2 rounded-lg" placeholder="Descreva a ação para usar a(s) força(s) para mitigar a ameaça..."></textarea>
+                </div>
+                <div class="flex gap-4">
+                  <button type="submit" class="w-full md:w-auto bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg">Adicionar Estratégia</button>
+                  <button type="button" class="cancel-edit-tows-btn hidden w-full md:w-auto bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">Cancelar Edição</button>
+                </div>
+              </form>
+            </div>
+          </details>
+          <!-- Estratégias de Reforço (Fraquezas x Oportunidades) -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold text-yellow-400">
+              <span>Estratégias de Reforço (Fraquezas + Oportunidades)</span>
+              <svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div class="p-4 border-t border-gray-700">
+              <form id="tows-reforcos-form" class="space-y-4">
+                <input type="hidden" name="editingId">
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 1: Selecione a Oportunidade</label>
+                  <select name="oportunidade" class="w-full bg-gray-700 p-2 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:outline-none"></select>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 2: Selecione as Fraquezas a serem superadas</label>
+                  <div name="fraquezas" class="checkbox-container bg-gray-700 p-3 rounded-lg space-y-2 border border-gray-600"></div>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 3: Descreva a Ação Estratégica</label>
+                  <textarea name="acao" rows="3" class="w-full bg-gray-700 p-2 rounded-lg" placeholder="Descreva a ação para usar a oportunidade para corrigir a(s) fraqueza(s)..."></textarea>
+                </div>
+                <div class="flex gap-4">
+                  <button type="submit" class="w-full md:w-auto bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-6 rounded-lg">Adicionar Estratégia</button>
+                  <button type="button" class="cancel-edit-tows-btn hidden w-full md:w-auto bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">Cancelar Edição</button>
+                </div>
+              </form>
+            </div>
+          </details>
+          <!-- Estratégias Defensivas (Fraquezas x Ameaças) -->
+          <details class="bg-gray-900 rounded-lg">
+            <summary class="flex items-center justify-between p-4 text-xl font-semibold text-red-400">
+              <span>Estratégias Defensivas (Fraquezas + Ameaças)</span>
+              <svg class="w-6 h-6 transition-transform duration-300 transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div class="p-4 border-t border-gray-700">
+              <form id="tows-defensivas-form" class="space-y-4">
+                <input type="hidden" name="editingId">
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 1: Selecione a Ameaça</label>
+                  <select name="ameaca" class="w-full bg-gray-700 p-2 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none"></select>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 2: Selecione as Fraquezas a serem protegidas</label>
+                  <div name="fraquezas" class="checkbox-container bg-gray-700 p-3 rounded-lg space-y-2 border border-gray-600"></div>
+                </div>
+                <div>
+                  <label class="block mb-2 text-sm font-medium text-gray-300">Passo 3: Descreva a Ação Estratégica</label>
+                  <textarea name="acao" rows="3" class="w-full bg-gray-700 p-2 rounded-lg" placeholder="Descreva a ação para minimizar o impacto da ameaça na(s) fraqueza(s)..."></textarea>
+                </div>
+                <div class="flex gap-4">
+                  <button type="submit" class="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg">Adicionar Estratégia</button>
+                  <button type="button" class="cancel-edit-tows-btn hidden w-full md:w-auto bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">Cancelar Edição</button>
+                </div>
+              </form>
+            </div>
+          </details>
+        </div>
+
+        <!-- Visualização das Estratégias Criadas -->
+        <div id="tows-estrategias-criadas" class="mt-8">
+          <h3 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Estratégias Criadas</h3>
+
+          <!-- Ofensivas -->
+          <div id="tows-ofensivas-view" class="mt-4">
+            <h4 class="text-xl font-semibold text-green-400 mb-2">Estratégias Ofensivas (Forças + Oportunidades)</h4>
+            <ul id="tows-ofensivas-list" class="space-y-3"></ul>
+          </div>
+
+          <!-- Confronto -->
+          <div id="tows-confrontos-view" class="mt-6">
+            <h4 class="text-xl font-semibold text-blue-400 mb-2">Estratégias de Confronto (Forças + Ameaças)</h4>
+            <ul id="tows-confrontos-list" class="space-y-3"></ul>
+          </div>
+
+          <!-- Reforço -->
+          <div id="tows-reforcos-view" class="mt-6">
+            <h4 class="text-xl font-semibold text-yellow-400 mb-2">Estratégias de Reforço (Fraquezas + Oportunidades)</h4>
+            <ul id="tows-reforcos-list" class="space-y-3"></ul>
+          </div>
+
+          <!-- Defensivas -->
+          <div id="tows-defensivas-view" class="mt-6">
+            <h4 class="text-xl font-semibold text-red-400 mb-2">Estratégias Defensivas (Fraquezas + Ameaças)</h4>
+            <ul id="tows-defensivas-list" class="space-y-3"></ul>
+          </div>
+        </div>
+
+        <!-- Fatores SWOT Não Utilizados -->
+        <div id="tows-fatores-nao-utilizados" class="mt-8 bg-gray-800 p-6 rounded-lg shadow-lg">
+          <h3 class="text-2xl font-semibold mb-4 text-cyan-400 border-b-2 border-cyan-500 pb-2">Fatores SWOT Não Utilizados</h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 mt-4">
+            <div>
+              <h4 class="text-xl font-semibold text-green-400 mb-2">Forças</h4>
+              <ul id="tows-forcas-nao-utilizadas" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+            </div>
+            <div>
+              <h4 class="text-xl font-semibold text-red-400 mb-2">Fraquezas</h4>
+              <ul id="tows-fraquezas-nao-utilizadas" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+            </div>
+            <div>
+              <h4 class="text-xl font-semibold text-blue-400 mb-2">Oportunidades</h4>
+              <ul id="tows-oportunidades-nao-utilizadas" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+            </div>
+            <div>
+              <h4 class="text-xl font-semibold text-yellow-400 mb-2">Ameaças</h4>
+              <ul id="tows-ameacas-nao-utilizadas" class="list-disc list-inside text-gray-300 space-y-1"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<!-- Generic Edit Modal -->
+<div id="edit-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50 p-4">
+  <div class="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-lg">
+    <h2 id="modal-title" class="text-2xl font-bold text-cyan-400 mb-6">Editar Item</h2>
+    <form id="edit-modal-form" class="space-y-4">
+      <!-- Content will be injected here by JS -->
+    </form>
+    <div class="flex gap-4 mt-6">
+      <button id="modal-save-btn" class="w-full bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-4 rounded-lg">Salvar Alterações</button>
+      <button id="modal-cancel-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50 p-4">
+  <div class="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-md">
+    <h2 id="confirm-modal-title" class="text-2xl font-bold text-yellow-400 mb-4">Confirmar Ação</h2>
+    <p id="confirm-modal-text" class="text-gray-300 mb-6">Você tem certeza?</p>
+    <div class="flex gap-4 mt-6">
+      <button id="confirm-modal-yes-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg">Sim, Excluir</button>
+      <button id="confirm-modal-no-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-4 rounded-lg">Cancelar</button>
+    </div>
+  </div>
+</div>
+<script type="module">
+    // Firebase SDKs
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // --- Global State & Firebase Setup ---
+    let app, auth, db, userId, unsubscribeFromFirestore;
+    let currentCompany = null;
+    let localCompanyData = null; // Cópia local dos dados para evitar lag na UI
+    let activeTabId = 'inicio';
+    let editingVrioId = null;
+    let editModalCallback = null; // Para armazenar a lógica de salvamento do modal genérico
+    let confirmModalCallback = null; // Para armazenar a lógica de confirmação
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+        apiKey: "AIzaSyAidhaOMJyEYxhAVCH4WtdyDOVO6fSQOFM",
+        authDomain: "icompetitiva-68f2e.firebaseapp.com",
+        projectId: "icompetitiva-68f2e",
+        storageBucket: "icompetitiva-68f2e.firebasestorage.app",
+        messagingSenderId: "696006738506",
+        appId: "1:696006738506:web:9f5f253ae6fb30fc0ddcb3",
+        measurementId: "G-2JKDF0BDBY"
+    };
+
+    // Esta função executa assim que o DOM está totalmente carregado.
+    document.addEventListener('DOMContentLoaded', () => {
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            onAuthStateChanged(auth, user => {
+                userId = user ? user.uid : null;
+            });
+        } catch (e) {
+            console.error("Erro na inicialização do Firebase:", e);
+            auth = null;
+            db = null;
+            const loginForm = document.getElementById('login-form');
+            if (loginForm) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'bg-red-900 border border-red-400 text-red-300 px-4 py-3 rounded-lg relative mb-4';
+                errorDiv.setAttribute('role', 'alert');
+                errorDiv.innerHTML = `<strong class="font-bold">Erro de Conexão!</strong><span class="block sm:inline"> Não foi possível conectar à base de dados.</span>`;
+                loginForm.prepend(errorDiv);
+            }
+        }
+        // Anexa todos os event listeners agora que o DOM está pronto.
+        setupEventListeners();
+    });
+
+    function setupEventListeners() {
+        document.getElementById('login-form')?.addEventListener('submit', handleLogin);
+        document.getElementById('logout-btn').addEventListener('click', handleLogout);
+
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.dataset.tab;
+                if(tabId) showTab(tabId);
+            });
+        });
+
+        // Salva dados automaticamente ao alterar campos de texto e selects
+        document.querySelectorAll('input[type="text"], textarea, select').forEach(el => {
+            el.addEventListener('change', () => {
+                updateLocalDataFromUI();
+                saveData();
+            });
+        });
+
+        document.getElementById('save-inicio-btn').addEventListener('click', async (e) => {
+            const button = e.target;
+            button.textContent = 'Salvando...';
+            button.disabled = true;
+            updateLocalDataFromUI();
+            await saveData();
+            button.textContent = 'Salvo!';
+            button.classList.replace('bg-cyan-500', 'bg-green-500');
+            button.classList.remove('hover:bg-cyan-600');
+            setTimeout(() => {
+                button.textContent = 'Salvar Identificação';
+                button.classList.replace('bg-green-500', 'bg-cyan-500');
+                button.classList.add('hover:bg-cyan-600');
+                button.disabled = false;
+            }, 2000);
+        });
+
+        // --- Event Listeners para cada funcionalidade ---
+        document.getElementById('inventario-form').addEventListener('submit', handleInventarioFormSubmit);
+        document.getElementById('inventario-list').addEventListener('click', handleInventarioListClick);
+        document.getElementById('vrio-form').addEventListener('submit', handleVrioFormSubmit);
+        document.getElementById('vrio-table-body').addEventListener('click', handleVrioTableClick);
+        document.getElementById('vrio-cancel-btn').addEventListener('click', resetVrioForm);
+        document.getElementById('pestel-accordion').addEventListener('click', handlePestelAccordionClick);
+        document.getElementById('pestel-accordion').addEventListener('input', handlePestelAccordionInput);
+        document.getElementById('pestel-accordion').addEventListener('change', handlePestelAccordionChange);
+        document.getElementById('pestel-custom-form').addEventListener('submit', handlePestelCustomFormSubmit);
+        document.getElementById('custom-factors-list').addEventListener('click', handleCustomFactorsListClick);
+        document.getElementById('porter-accordion').addEventListener('click', handlePorterAccordionClick);
+        document.getElementById('porter-accordion').addEventListener('input', handlePorterAccordionInput);
+        document.getElementById('porter-accordion').addEventListener('change', handlePorterAccordionChange);
+        document.getElementById('premortem-form').addEventListener('submit', handlePremortemFormSubmit);
+        document.getElementById('premortem-list').addEventListener('click', handlePremortemListClick);
+        document.getElementById('actor-form').addEventListener('submit', handleActorFormSubmit);
+        document.getElementById('cancel-edit-btn').addEventListener('click', resetActorForm);
+        document.getElementById('actors-list-table-body').addEventListener('click', handleActorsListTableClick);
+        document.getElementById('modal-cancel-btn').addEventListener('click', closeModal);
+        document.getElementById('modal-save-btn').addEventListener('click', () => { if(editModalCallback) editModalCallback(); });
+        document.getElementById('confirm-modal-yes-btn').addEventListener('click', () => { if (confirmModalCallback) { confirmModalCallback(); } closeConfirmModal(); });
+        document.getElementById('confirm-modal-no-btn').addEventListener('click', closeConfirmModal);
+        document.getElementById('generate-swot').addEventListener('click', generateSWOT);
+        document.getElementById('export-swot-btn').addEventListener('click', exportSWOTToExcel);
+        document.getElementById('backup-btn').addEventListener('click', backupAllData);
+        document.getElementById('restore-btn').addEventListener('click', handleRestoreBackup);
+
+        // --- Event Listeners para TOWS ---
+        document.getElementById('tows-ofensivas-form').addEventListener('submit', (e) => handleTowsFormSubmit(e, 'ofensivas'));
+        document.getElementById('tows-confrontos-form').addEventListener('submit', (e) => handleTowsFormSubmit(e, 'confrontos'));
+        document.getElementById('tows-reforcos-form').addEventListener('submit', (e) => handleTowsFormSubmit(e, 'reforcos'));
+        document.getElementById('tows-defensivas-form').addEventListener('submit', (e) => handleTowsFormSubmit(e, 'defensivas'));
+
+        document.querySelectorAll('.cancel-edit-tows-btn').forEach(btn => btn.addEventListener('click', (e) => {
+            resetTowsForm(e.target.closest('form'));
+        }));
+
+        document.getElementById('tows-ofensivas-list').addEventListener('click', (e) => handleTowsListClick(e, 'ofensivas'));
+        document.getElementById('tows-confrontos-list').addEventListener('click', (e) => handleTowsListClick(e, 'confrontos'));
+        document.getElementById('tows-reforcos-list').addEventListener('click', (e) => handleTowsListClick(e, 'reforcos'));
+        document.getElementById('tows-defensivas-list').addEventListener('click', (e) => handleTowsListClick(e, 'defensivas'));
+    }
+
+    async function ensureAuthenticated() {
+        if (!auth) return;
+        if (!auth.currentUser) {
+            try {
+                const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (token) {
+                    await signInWithCustomToken(auth, token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Authentication with custom token failed, falling back to anonymous sign-in:", error);
+                try {
+                    await signInAnonymously(auth);
+                } catch (anonError) {
+                    console.error("Anonymous sign-in also failed:", anonError);
+                }
+            }
+        }
+    }
+
+    // Estrutura de dados inicial para uma nova empresa
+    const initialAppData = {
+        identificacao: {},
+        rede: { atores: [] },
+        inventario: [],
+        interna: { vrio: [], premortem: [] },
+        externa: { pestel: {}, porter: {}, customFatores: [] },
+        estrategia: { tows: { ofensivas: [], confrontos: [], reforcos: [], defensivas: [] } }
+    };
+
+    // Simulação de usuários e senhas para login
+    const users = {
+        "DesenrolaFinanceiro": "alpha20",
+        "Glamour Hair & Art": "beta17",
+        "Oggi": "gamma15",
+        "Smart Eco Wash": "Delta9",
+        "Cuida Delas": "omega14",
+        "Sigma": "sigma13"
+    };
+
+    const loginScreen = document.getElementById('login-screen');
+    const appContainer = document.getElementById('app-container');
+    const loginError = document.getElementById('login-error');
+    const tabs = document.querySelectorAll('.tab-content');
+    const buttons = document.querySelectorAll('.tab-button');
+    const editModal = document.getElementById('edit-modal');
+    const editModalForm = document.getElementById('edit-modal-form');
+    const modalTitle = document.getElementById('modal-title');
+    const confirmModal = document.getElementById('confirm-modal');
+
+    function showTab(tabId) {
+        if (!document.getElementById(tabId)) return;
+        activeTabId = tabId;
+        tabs.forEach(tab => tab.classList.remove('active'));
+        document.getElementById(tabId)?.classList.add('active');
+        buttons.forEach(button => {
+            button.classList.replace('bg-cyan-500', 'bg-gray-700');
+            button.classList.add('hover:bg-cyan-600');
+        });
+        const activeButton = Array.from(buttons).find(btn => btn.dataset.tab === tabId);
+        if (activeButton) {
+            activeButton.classList.replace('bg-gray-700', 'bg-cyan-500');
+            activeButton.classList.remove('hover:bg-cyan-600');
+        }
+    }
+
+    // Atualiza a cópia local dos dados com base na UI
+    function updateLocalDataFromUI() {
+        if (!localCompanyData) return;
+        localCompanyData.identificacao.nomeEmpresa = document.getElementById('nome-empresa').value;
+        localCompanyData.identificacao.missao = document.getElementById('missao').value;
+        localCompanyData.identificacao.visao = document.getElementById('visao').value;
+        localCompanyData.identificacao.valores = document.getElementById('valores').value;
+
+        if (!localCompanyData.rede) localCompanyData.rede = {};
+        localCompanyData.rede.categoria = document.getElementById('rede-categoria-config').value;
+        localCompanyData.rede.modelo = document.getElementById('rede-modelo-config').value;
+        localCompanyData.rede.formalizacao = document.getElementById('rede-formalizacao-config').value;
+        localCompanyData.rede.objetivo = document.getElementById('rede-objetivo-config').value;
+    }
+
+    // Salva os dados locais no Firestore
+    async function saveData() {
+        if (currentCompany && localCompanyData && db) {
+            try {
+                const companyRef = doc(db, `artifacts/${appId}/public/data/companies`, currentCompany);
+                await setDoc(companyRef, localCompanyData, { merge: true });
+            } catch (error) {
+                console.error("Erro ao salvar dados no Firestore:", error);
+            }
+        }
+    }
+
+    // Inicia o listener em tempo real para os dados da empresa
+    function setupRealtimeListener(companyName) {
+        if (unsubscribeFromFirestore) unsubscribeFromFirestore();
+        if (!db) return;
+
+        const companyRef = doc(db, `artifacts/${appId}/public/data/companies`, companyName);
+        unsubscribeFromFirestore = onSnapshot(companyRef, (docSnap) => {
+            if (docSnap.exists()) {
+                localCompanyData = docSnap.data();
+                // Validação e migração da estrutura de dados para garantir consistência
+                if (!localCompanyData.rede) localCompanyData.rede = { atores: [] };
+                if (!localCompanyData.rede.atores) localCompanyData.rede.atores = [];
+                if (!localCompanyData.inventario) localCompanyData.inventario = [];
+                if (!localCompanyData.interna) localCompanyData.interna = { vrio: [], premortem: [] };
+                if (!localCompanyData.interna.premortem) localCompanyData.interna.premortem = [];
+                if (!localCompanyData.externa) localCompanyData.externa = { pestel: {}, porter: {}, customFatores: [] };
+                if (!localCompanyData.externa.porter) localCompanyData.externa.porter = {};
+                if (!localCompanyData.externa.customFatores) localCompanyData.externa.customFatores = [];
+                if (!localCompanyData.estrategia) localCompanyData.estrategia = { tows: { ofensivas: [], confrontos: [], reforcos: [], defensivas: [] } };
+                if (!localCompanyData.estrategia.tows) localCompanyData.estrategia.tows = { ofensivas: [], confrontos: [], reforcos: [], defensivas: [] };
+
+            } else {
+                localCompanyData = JSON.parse(JSON.stringify(initialAppData));
+                setDoc(companyRef, localCompanyData);
+            }
+            initUIWithData();
+        });
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+
+        if (!auth || !db) {
+            document.getElementById('login-error').textContent = 'Erro de conexão com a base de dados. Não é possível fazer login.';
+            document.getElementById('login-error').classList.remove('hidden');
+            return;
+        }
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const backupBtn = document.getElementById('backup-btn');
+        const restoreSection = document.getElementById('restore-section');
+
+        if (users[username] && users[username] === password) {
+            await ensureAuthenticated();
+            currentCompany = username;
+            activeTabId = 'inicio';
+
+            if (currentCompany === 'Sigma') {
+                backupBtn.style.display = 'block';
+                restoreSection.classList.remove('hidden');
+            } else {
+                backupBtn.style.display = 'none';
+                restoreSection.classList.add('hidden');
+            }
+
+            setupRealtimeListener(currentCompany);
+            loginScreen.style.display = 'none';
+            appContainer.style.display = 'block';
+            loginError.classList.add('hidden');
+            document.getElementById('logged-in-company').textContent = `Empresa: ${username}`;
+            document.getElementById('project-id').textContent = `ID do Projeto: ${app?.options?.projectId || 'Não disponível'}`;
+        } else {
+            loginError.classList.remove('hidden');
+        }
+    }
+
+    async function handleLogout() {
+        updateLocalDataFromUI();
+        await saveData();
+        if (unsubscribeFromFirestore) unsubscribeFromFirestore();
+        if (auth) await signOut(auth);
+        currentCompany = null;
+        localCompanyData = null;
+        appContainer.style.display = 'none';
+        loginScreen.style.display = 'flex';
+        document.getElementById('password').value = '';
+        document.getElementById('username').value = '';
+    }
+
+    function initUIWithData() {
+        if (!localCompanyData) return;
+
+        // --- Popular Formulários ---
+        document.getElementById('nome-empresa').value = localCompanyData.identificacao?.nomeEmpresa || '';
+        document.getElementById('missao').value = localCompanyData.identificacao?.missao || '';
+        document.getElementById('visao').value = localCompanyData.identificacao?.visao || '';
+        document.getElementById('valores').value = localCompanyData.identificacao?.valores || '';
+        document.getElementById('rede-categoria-config').value = localCompanyData.rede?.categoria || '';
+        document.getElementById('rede-modelo-config').value = localCompanyData.rede?.modelo || '';
+        document.getElementById('rede-formalizacao-config').value = localCompanyData.rede?.formalizacao || '';
+        document.getElementById('rede-objetivo-config').value = localCompanyData.rede?.objetivo || '';
+
+        // Popular PESTEL
+        document.querySelectorAll('#pestel-accordion .pestel-factor').forEach(factorDiv => {
+            const factorName = factorDiv.dataset.factor;
+            const savedData = localCompanyData.externa.pestel?.[factorName];
+            factorDiv.querySelector('.pestel-impacto').value = savedData?.impacto || '';
+            factorDiv.querySelector('.pestel-natureza').value = savedData?.natureza || '';
+            factorDiv.querySelector('.pestel-obs').value = savedData?.obs || '';
+
+            handlePestelImpactChange(factorDiv.querySelector('.pestel-impacto')); // Define o estado inicial para o select de natureza
+
+            const saveBtn = factorDiv.querySelector('.pestel-save-btn');
+            if(savedData?.impacto) {
+                saveBtn.textContent = 'Salvo!';
+                saveBtn.classList.replace('bg-cyan-600', 'bg-green-600');
+                saveBtn.classList.remove('hover:bg-cyan-700');
+            } else {
+                revertSaveButton(saveBtn);
+            }
+        });
+
+        // Popular Porter
+        document.querySelectorAll('#porter-accordion .porter-force').forEach(forceDiv => {
+            const forceName = forceDiv.dataset.forceName;
+            const savedData = localCompanyData.externa.porter?.[forceName];
+
+            forceDiv.querySelectorAll('input[type="radio"]').forEach(radio => radio.checked = false);
+            if(savedData?.intensity) {
+                const radioToSelect = forceDiv.querySelector(`input[name$="_intensity"][value="${savedData.intensity}"]`);
+                if (radioToSelect) radioToSelect.checked = true;
+            }
+            forceDiv.querySelector('.porter-justificativa').value = savedData?.justificativa || '';
+
+            const saveBtn = forceDiv.querySelector('.porter-save-btn');
+            if(savedData?.intensity) {
+                saveBtn.textContent = 'Salvo!';
+                saveBtn.classList.replace('bg-cyan-600', 'bg-green-600');
+                saveBtn.classList.remove('hover:bg-cyan-700');
+            } else {
+                revertSaveButton(saveBtn);
+            }
+        });
+
+        // --- Atualizar Listas ---
+        updateInventarioList();
+        updateVRIOSelector();
+        updateVrioTable();
+        updatePremortemList();
+        updateCustomFactorsList();
+        updateActorsList();
+        populateRedeSelects();
+        updateTOWSUI();
+
+        // --- Definir Aba Ativa ---
+        showTab(activeTabId);
+    }
+
+    // --- INVENTÁRIO (ABA INÍCIO) ---
+    function handleInventarioFormSubmit(e) {
+        e.preventDefault();
+        const nome = document.getElementById('inventario-nome').value.trim();
+        const tipo = document.getElementById('inventario-tipo').value;
+        const origem = document.getElementById('inventario-origem').value;
+        if (nome && tipo && origem) {
+            localCompanyData.inventario.push({ id: Date.now(), nome, tipo, origem });
+            updateInventarioList();
+            updateVRIOSelector();
+            saveData();
+            e.target.reset();
+        } else {
+            alert('Por favor, preencha todos os campos do inventário.');
+        }
+    }
+
+    function handleInventarioListClick(e) {
+        const deleteButton = e.target.closest('.delete-inventario-btn');
+        const editButton = e.target.closest('.edit-inventario-btn');
+        const itemId = parseInt(e.target.closest('button')?.dataset.id, 10);
+        if (!itemId) return;
+        if (deleteButton) {
+            const isAnalyzed = localCompanyData.interna.vrio.some(v => v.id === itemId);
+            if (isAnalyzed) {
+                alert('Não é possível excluir este recurso, pois ele já possui uma análise VRIO associada. Remova a análise VRIO primeiro.');
+                return;
+            }
+
+            localCompanyData.inventario = localCompanyData.inventario.filter(item => item.id !== itemId);
+            updateInventarioList();
+            updateVRIOSelector();
+            saveData();
+        }
+        if (editButton) {
+            const item = localCompanyData.inventario.find(i => i.id === itemId);
+            if (item) openInventarioModal(item);
+        }
+    }
+
+    function openInventarioModal(item) {
+        modalTitle.textContent = "Editar Recurso/Capacidade";
+        editModalForm.innerHTML = `
+                <div>
+                    <label for="modal-inventario-nome" class="block mb-2 font-medium text-gray-300">Nome:</label>
+                    <input type="text" id="modal-inventario-nome" class="w-full bg-gray-700 text-white p-3 rounded-lg" value="${item.nome}">
+                </div>
+                <div>
+                    <label for="modal-inventario-tipo" class="block mb-2 font-medium text-gray-300">Tipo:</label>
+                    <select id="modal-inventario-tipo" class="w-full bg-gray-700 text-white p-3 rounded-lg">
+                        <option value="recurso" ${item.tipo === 'recurso' ? 'selected' : ''}>Recurso</option>
+                        <option value="capacidade" ${item.tipo === 'capacidade' ? 'selected' : ''}>Capacidade</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="modal-inventario-origem" class="block mb-2 font-medium text-gray-300">Origem:</label>
+                     <select id="modal-inventario-origem" class="w-full bg-gray-700 text-white p-3 rounded-lg">
+                        <option value="interno" ${item.origem === 'interno' ? 'selected' : ''}>Desenvolvimento Interno</option>
+                        <option value="externo" ${item.origem === 'externo' ? 'selected' : ''}>Aquisição Externa</option>
+                    </select>
+                </div>
+            `;
+
+        editModalCallback = () => {
+            const newName = document.getElementById('modal-inventario-nome').value;
+            item.nome = newName;
+            item.tipo = document.getElementById('modal-inventario-tipo').value;
+            item.origem = document.getElementById('modal-inventario-origem').value;
+            const vrioAnalysis = localCompanyData.interna.vrio.find(v => v.id === item.id);
+            if (vrioAnalysis) {
+                vrioAnalysis.nome = newName;
+            }
+            updateInventarioList();
+            updateVRIOSelector();
+            updateVrioTable();
+            saveData();
+            closeModal();
+        };
+        editModal.classList.remove('hidden');
+    }
+
+    // --- VRIO (ABA RECURSOS) ---
+    function handleVrioFormSubmit(e) {
+        e.preventDefault();
+        const recursoId = parseInt(document.getElementById('vrio-selecionar-recurso').value, 10);
+        const inventarioItem = localCompanyData.inventario.find(item => item.id === recursoId);
+        if (!inventarioItem) {
+            alert('Por favor, selecione um recurso válido para analisar.');
+            return;
+        }
+        const vrioData = {
+            id: recursoId,
+            nome: inventarioItem.nome,
+            tipo: inventarioItem.tipo,
+            v: document.querySelector('input[name="vrio_v"]:checked')?.value,
+            v_obs: document.getElementById('vrio-v-obs').value,
+            r: document.querySelector('input[name="vrio_r"]:checked')?.value,
+            r_obs: document.getElementById('vrio-r-obs').value,
+            i: document.querySelector('input[name="vrio_i"]:checked')?.value,
+            i_obs: document.getElementById('vrio-i-obs').value,
+            o: document.querySelector('input[name="vrio_o"]:checked')?.value,
+            o_obs: document.getElementById('vrio-o-obs').value,
+        };
+        if (!vrioData.v || !vrioData.r || !vrioData.i || !vrioData.o) {
+            alert('Por favor, responda a todas as perguntas VRIO (Sim/Não).');
+            return;
+        }
+        if (editingVrioId) {
+            const index = localCompanyData.interna.vrio.findIndex(item => item.id === editingVrioId);
+            localCompanyData.interna.vrio[index] = vrioData;
+        } else {
+            localCompanyData.interna.vrio.push(vrioData);
+        }
+
+        resetVrioForm();
+        updateVrioTable();
+        updateVRIOSelector();
+        saveData();
+    }
+
+    function handleVrioTableClick(e) {
+        const editBtn = e.target.closest('.edit-vrio-btn');
+        const deleteBtn = e.target.closest('.delete-vrio-btn');
+        const itemId = parseInt(e.target.closest('button')?.dataset.id, 10);
+        if (!itemId) return;
+        if (editBtn) {
+            const item = localCompanyData.interna.vrio.find(i => i.id === itemId);
+            if (item) {
+                editingVrioId = itemId;
+
+                document.getElementById('vrio-selecionar-recurso').value = item.id;
+                document.getElementById('vrio-selecionar-recurso').disabled = true;
+                document.querySelector(`input[name="vrio_v"][value="${item.v}"]`).checked = true;
+                document.getElementById('vrio-v-obs').value = item.v_obs || '';
+                document.querySelector(`input[name="vrio_r"][value="${item.r}"]`).checked = true;
+                document.getElementById('vrio-r-obs').value = item.r_obs || '';
+                document.querySelector(`input[name="vrio_i"][value="${item.i}"]`).checked = true;
+                document.getElementById('vrio-i-obs').value = item.i_obs || '';
+                document.querySelector(`input[name="vrio_o"][value="${item.o}"]`).checked = true;
+                document.getElementById('vrio-o-obs').value = item.o_obs || '';
+
+                document.getElementById('vrio-submit-btn').textContent = 'Salvar Alterações';
+                document.getElementById('vrio-cancel-btn').classList.remove('hidden');
+                updateVRIOSelector();
+                window.scrollTo({ top: document.getElementById('vrio-form').offsetTop, behavior: 'smooth' });
+            }
+        }
+        if (deleteBtn) {
+            showConfirmModal('Tem certeza que deseja excluir esta análise VRIO? A exclusão permitirá que o recurso no inventário seja removido.', () => {
+                localCompanyData.interna.vrio = localCompanyData.interna.vrio.filter(item => item.id !== itemId);
+                updateVrioTable();
+                updateVRIOSelector();
+                saveData();
+            });
+        }
+    }
+
+    function resetVrioForm() {
+        editingVrioId = null;
+        document.getElementById('vrio-form').reset();
+        document.getElementById('vrio-selecionar-recurso').disabled = false;
+        document.getElementById('vrio-submit-btn').textContent = 'Adicionar Análise';
+        document.getElementById('vrio-cancel-btn').classList.add('hidden');
+        updateVRIOSelector();
+    }
+
+    // --- MACROAMBIENTE (PESTEL & CUSTOM) ---
+    function handlePestelAccordionClick(e) {
+        if (e.target.classList.contains('pestel-save-btn')) {
+            e.preventDefault();
+            handlePestelSave(e.target.closest('.pestel-factor'));
+        }
+    }
+
+    function handlePestelSave(factorBlock) {
+        const factorName = factorBlock.dataset.factor;
+        const impacto = factorBlock.querySelector('.pestel-impacto').value;
+        const natureza = factorBlock.querySelector('.pestel-natureza').value;
+        const obs = factorBlock.querySelector('.pestel-obs').value;
+
+        if (!impacto || (impacto !== 'nenhum' && !natureza)) {
+            alert('Por favor, selecione o nível e a natureza do impacto.');
+            return;
+        }
+        if (!localCompanyData.externa.pestel) {
+            localCompanyData.externa.pestel = {};
+        }
+        localCompanyData.externa.pestel[factorName] = { impacto, natureza, obs };
+        saveData();
+
+        const saveBtn = factorBlock.querySelector('.pestel-save-btn');
+        saveBtn.textContent = 'Salvo!';
+        saveBtn.classList.replace('bg-cyan-600', 'bg-green-600');
+        saveBtn.classList.remove('hover:bg-cyan-700');
+    }
+
+    function handlePestelAccordionInput(e) {
+        const factorBlock = e.target.closest('.pestel-factor');
+        if (factorBlock) {
+            revertSaveButton(factorBlock.querySelector('.pestel-save-btn'));
+        }
+    }
+
+    function handlePestelAccordionChange(e) {
+        const factorBlock = e.target.closest('.pestel-factor');
+        if (factorBlock) {
+            revertSaveButton(factorBlock.querySelector('.pestel-save-btn'));
+        }
+        if (e.target.classList.contains('pestel-impacto')) {
+            handlePestelImpactChange(e.target);
+        }
+    }
+
+    function handlePestelCustomFormSubmit(e) {
+        e.preventDefault();
+        const form = e.target;
+        const descricao = form.elements['custom_descricao'].value.trim();
+        const categoria = form.elements['custom_categoria'].value;
+        const impacto = form.elements['custom_impacto'].value;
+        const natureza = form.elements['custom_natureza'].value;
+        if (!descricao || !categoria || !impacto || !natureza) {
+            alert('Por favor, preencha todos os campos para o novo fator.');
+            return;
+        }
+        localCompanyData.externa.customFatores.push({
+            id: Date.now(),
+            texto: descricao,
+            categoria,
+            impacto,
+            tipo: natureza
+        });
+        updateCustomFactorsList();
+        saveData();
+        form.reset();
+    }
+
+    function handleCustomFactorsListClick(e) {
+        const deleteBtn = e.target.closest('.delete-custom-factor-btn');
+        const editBtn = e.target.closest('.edit-custom-factor-btn');
+        const itemId = parseInt(e.target.closest('button')?.dataset.id, 10);
+        if (!itemId) return;
+        if (deleteBtn) {
+            localCompanyData.externa.customFatores = localCompanyData.externa.customFatores.filter(item => item.id !== itemId);
+            updateCustomFactorsList();
+            saveData();
+        }
+        if (editBtn) {
+            const item = localCompanyData.externa.customFatores.find(i => i.id === itemId);
+            if(item) openCustomFactorModal(item);
+        }
+    }
+
+    function openCustomFactorModal(item) {
+        modalTitle.textContent = "Editar Fator do Macroambiente";
+        editModalForm.innerHTML = `
+                 <div>
+                    <label class="block mb-2 font-medium text-gray-300">Descrição:</label>
+                    <textarea id="modal-factor-texto" class="w-full bg-gray-700 text-white p-3 rounded-lg" rows="3">${item.texto}</textarea>
+                </div>
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <label class="block mb-2 font-medium text-gray-300">Categoria:</label>
+                        <select id="modal-factor-categoria" class="w-full bg-gray-700 text-white p-3 rounded-lg">
+                            <option value="politico" ${item.categoria === 'politico' ? 'selected' : ''}>Político</option>
+                            <option value="economico" ${item.categoria === 'economico' ? 'selected' : ''}>Econômico</option>
+                            <option value="social" ${item.categoria === 'social' ? 'selected' : ''}>Social</option>
+                            <option value="tecnologico" ${item.categoria === 'tecnologico' ? 'selected' : ''}>Tecnológico</option>
+                            <option value="ambiental" ${item.categoria === 'ambiental' ? 'selected' : ''}>Ambiental</option>
+                            <option value="legal" ${item.categoria === 'legal' ? 'selected' : ''}>Legal</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block mb-2 font-medium text-gray-300">Impacto:</label>
+                        <select id="modal-factor-impacto" class="w-full bg-gray-700 text-white p-3 rounded-lg">
+                            <option value="Baixo" ${item.impacto === 'Baixo' ? 'selected' : ''}>Baixo</option>
+                            <option value="Médio" ${item.impacto === 'Médio' ? 'selected' : ''}>Médio</option>
+                            <option value="Alto" ${item.impacto === 'Alto' ? 'selected' : ''}>Alto</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block mb-2 font-medium text-gray-300">Natureza:</label>
+                        <select id="modal-factor-natureza" class="w-full bg-gray-700 text-white p-3 rounded-lg">
+                            <option value="oportunidade" ${item.tipo === 'oportunidade' ? 'selected' : ''}>Oportunidade</option>
+                            <option value="ameaca" ${item.tipo === 'ameaca' ? 'selected' : ''}>Ameaça</option>
+                            <option value="ambigua" ${item.tipo === 'ambigua' ? 'selected' : ''}>Ambigua</option>
+                        </select>
+                    </div>
+                </div>
+            `;
+        editModalCallback = () => {
+            item.texto = document.getElementById('modal-factor-texto').value;
+            item.categoria = document.getElementById('modal-factor-categoria').value;
+            item.impacto = document.getElementById('modal-factor-impacto').value;
+            item.tipo = document.getElementById('modal-factor-natureza').value;
+            updateCustomFactorsList();
+            saveData();
+            closeModal();
+        };
+        editModal.classList.remove('hidden');
+    }
+
+    // --- AMBIENTE COMPETITIVO (PORTER) ---
+    function handlePorterAccordionClick(e) {
+        if (e.target.classList.contains('porter-save-btn')) {
+            e.preventDefault();
+            handlePorterSave(e.target.closest('.porter-force'));
+        }
+    }
+
+    function handlePorterAccordionInput(e) {
+        const forceBlock = e.target.closest('.porter-force');
+        if (forceBlock) {
+            revertSaveButton(forceBlock.querySelector('.porter-save-btn'));
+        }
+    }
+
+    function handlePorterAccordionChange(e) {
+        const forceBlock = e.target.closest('.porter-force');
+        if (forceBlock) {
+            revertSaveButton(forceBlock.querySelector('.porter-save-btn'));
+        }
+    }
+
+    function handlePorterSave(forceBlock) {
+        const forceName = forceBlock.dataset.forceName;
+        const justificativa = forceBlock.querySelector('.porter-justificativa').value.trim();
+        const intensityRadio = forceBlock.querySelector('input[type="radio"]:checked');
+        if (!intensityRadio || !justificativa) { alert('Preencha a intensidade e a justificativa.'); return; }
+        const intensity = intensityRadio.value;
+        localCompanyData.externa.porter[forceName] = { intensity, justificativa };
+        saveData();
+
+        const saveBtn = forceBlock.querySelector('.porter-save-btn');
+        saveBtn.textContent = 'Salvo!';
+        saveBtn.classList.replace('bg-cyan-600', 'bg-green-600');
+        saveBtn.classList.remove('hover:bg-cyan-700');
+    }
+
+    // --- RISCOS (PREMORTEM) ---
+    function handlePremortemFormSubmit(e) {
+        e.preventDefault();
+        const fator = document.getElementById('premortem-fator').value.trim();
+        const origemRadio = document.querySelector('input[name="origem"]:checked');
+        if (fator && origemRadio) {
+            const classificacao = origemRadio.value === 'interna' ? 'fraqueza' : 'ameaca';
+            localCompanyData.interna.premortem.push({ texto: fator, tipo: classificacao, id: Date.now() });
+            updatePremortemList();
+            saveData();
+            e.target.reset();
+        }
+    }
+
+    function handlePremortemListClick(e) {
+        const deleteButton = e.target.closest('.delete-premortem-btn');
+        const editButton = e.target.closest('.edit-premortem-btn');
+        const itemId = parseInt(e.target.closest('button')?.dataset.id, 10);
+        if (!itemId) return;
+        if (deleteButton) {
+            localCompanyData.interna.premortem = localCompanyData.interna.premortem.filter(item => item.id !== itemId);
+            updatePremortemList();
+            saveData();
+        }
+        if (editButton) {
+            const item = localCompanyData.interna.premortem.find(i => i.id === itemId);
+            if (item) openPremortemModal(item);
+        }
+    }
+
+    function openPremortemModal(item) {
+        modalTitle.textContent = "Editar Fator de Risco";
+        const isFraqueza = item.tipo === 'fraqueza';
+        editModalForm.innerHTML = `
+                <div>
+                    <label class="block mb-2 font-medium text-gray-300">Descrição:</label>
+                    <textarea id="modal-premortem-texto" class="w-full bg-gray-700 text-white p-3 rounded-lg" rows="3">${item.texto}</textarea>
+                </div>
+                 <div>
+                    <label class="block mb-2 font-medium text-gray-300">Origem:</label>
+                    <div class="space-y-2">
+                        <label class="flex items-center bg-gray-700 p-3 rounded-lg cursor-pointer">
+                            <input type="radio" name="modal_origem" value="fraqueza" class="h-5 w-5 text-cyan-500" ${isFraqueza ? 'checked' : ''}>
+                            <span class="ml-3">Interno (Fraqueza)</span>
+                        </label>
+                         <label class="flex items-center bg-gray-700 p-3 rounded-lg cursor-pointer">
+                            <input type="radio" name="modal_origem" value="ameaca" class="h-5 w-5 text-cyan-500" ${!isFraqueza ? 'checked' : ''}>
+                            <span class="ml-3">Externo (Ameaça)</span>
+                        </label>
+                    </div>
+                </div>
+            `;
+
+        editModalCallback = () => {
+            item.texto = document.getElementById('modal-premortem-texto').value;
+            item.tipo = document.querySelector('input[name="modal_origem"]:checked').value;
+            updatePremortemList();
+            saveData();
+            closeModal();
+        };
+        editModal.classList.remove('hidden');
+    }
+
+    // --- REDE DE NEGÓCIOS ---
+    function populateRedeSelects() {
+        const options = {
+            'actor-category': ['Cliente', 'Fornecedor', 'Concorrente', 'Complementador', 'Órgão Regulador', 'Comunidade', 'Investidor', 'Outro'],
+            'actor-influence': ['Muito Baixo', 'Baixo', 'Médio', 'Alto', 'Muito Alto'],
+            'link-strength': ['Fraco (Transacional)', 'Médio (Recorrente)', 'Forte (Parceria)'],
+            'link-nature': ['Formal (Contratual)', 'Informal (Relacional)'],
+            'link-direction': ['Unidirecional', 'Bidirecional']
+        };
+        for (const [id, values] of Object.entries(options)) {
+            const select = document.getElementById(id);
+            select.innerHTML = `<option value="" disabled selected>Selecione</option>`;
+            values.forEach(val => {
+                select.innerHTML += `<option value="${val}">${val}</option>`;
+            });
+        }
+    }
+
+    function handleActorFormSubmit(e) {
+        e.preventDefault();
+        const editingId = document.getElementById('editing-actor-id').value;
+        const actorData = {
+            id: editingId ? parseInt(editingId) : Date.now(),
+            name: document.getElementById('actor-name').value,
+            category: document.getElementById('actor-category').value,
+            type: document.getElementById('actor-type').value,
+            influence: document.getElementById('actor-influence').value,
+            objective: document.getElementById('actor-objective').value,
+            resources: document.getElementById('actor-resources').value,
+            linkStrength: document.getElementById('link-strength').value,
+            linkNature: document.getElementById('link-nature').value,
+            linkDirection: document.getElementById('link-direction').value,
+            linkFlow: document.getElementById('link-flow').value,
+        };
+        if(editingId) {
+            const index = localCompanyData.rede.atores.findIndex(a => a.id === actorData.id);
+            localCompanyData.rede.atores[index] = actorData;
+        } else {
+            localCompanyData.rede.atores.push(actorData);
+        }
+
+        updateActorsList();
+        saveData();
+        resetActorForm();
+    }
+
+    function resetActorForm() {
+        document.getElementById('actor-form').reset();
+        document.getElementById('editing-actor-id').value = '';
+        document.getElementById('actor-submit-btn').textContent = 'Adicionar Ator';
+        document.getElementById('cancel-edit-btn').classList.add('hidden');
+    }
+
+    function handleActorsListTableClick(e) {
+        const editBtn = e.target.closest('.edit-actor-btn');
+        const deleteBtn = e.target.closest('.delete-actor-btn');
+        const row = e.target.closest('tr');
+        if (!row) return;
+        const actorId = parseInt(row.dataset.id, 10);
+        if (!actorId) return;
+        if (editBtn) {
+            const actor = localCompanyData.rede.atores.find(a => a.id === actorId);
+            if (actor) {
+                document.getElementById('editing-actor-id').value = actor.id;
+                document.getElementById('actor-name').value = actor.name;
+                document.getElementById('actor-category').value = actor.category;
+                document.getElementById('actor-type').value = actor.type;
+                document.getElementById('actor-influence').value = actor.influence;
+                document.getElementById('actor-objective').value = actor.objective;
+                document.getElementById('actor-resources').value = actor.resources;
+                document.getElementById('link-strength').value = actor.linkStrength;
+                document.getElementById('link-nature').value = actor.linkNature;
+                document.getElementById('link-direction').value = actor.linkDirection;
+                document.getElementById('link-flow').value = actor.linkFlow;
+                document.getElementById('actor-submit-btn').textContent = 'Salvar Alterações';
+                document.getElementById('cancel-edit-btn').classList.remove('hidden');
+                document.getElementById('actor-form').scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+        if(deleteBtn) {
+            showConfirmModal(`Tem certeza que deseja excluir o ator "${deleteBtn.dataset.name}"?`, () => {
+                localCompanyData.rede.atores = localCompanyData.rede.atores.filter(a => a.id !== actorId);
+                updateActorsList();
+                saveData();
+            });
+        }
+    }
+
+    // --- FUNÇÕES DE ATUALIZAÇÃO DE LISTAS E UI ---
+    function updatePremortemList() {
+        const listElement = document.getElementById('premortem-list');
+        listElement.innerHTML = '';
+        const items = localCompanyData?.interna?.premortem || [];
+        if (items.length === 0) {
+            listElement.innerHTML = `<li class="text-gray-500">Nenhum item adicionado ainda.</li>`;
+        } else {
+            items.forEach((item) => {
+                const li = document.createElement('li');
+                let tagClass = item.tipo === 'fraqueza' ? 'text-red-400' : 'text-yellow-400';
+                let tagText = item.tipo === 'fraqueza' ? 'Fraqueza' : 'Ameaça';
+                li.innerHTML = `<div class="flex items-center justify-between p-2 rounded-lg bg-gray-700">
+                                            <span><span class="${tagClass} font-bold mr-2">[${tagText}]</span> ${item.texto}</span>
+                                            <div class="flex items-center">
+                                                <button data-id="${item.id}" class="edit-premortem-btn text-gray-400 hover:text-cyan-400 p-1 rounded-full hover:bg-gray-600 transition-colors mr-2">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
+                                                </button>
+                                                <button data-id="${item.id}" class="delete-premortem-btn text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-gray-600 transition-colors">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg>
+                                                </button>
+                                            </div>
+                                        </div>`;
+                listElement.appendChild(li);
+            });
+        }
+    }
+
+    function updateCustomFactorsList() {
+        const listElement = document.getElementById('custom-factors-list');
+        listElement.innerHTML = '';
+        const items = localCompanyData?.externa?.customFatores || [];
+        if (items.length === 0) {
+            listElement.innerHTML = `<li class="text-gray-500">Nenhum fator personalizado adicionado.</li>`;
+        } else {
+            items.forEach((item) => {
+                let tagClass, tagText;
+                if(item.tipo === 'oportunidade') {
+                    tagClass = 'text-blue-400'; tagText = 'Oportunidade';
+                } else if (item.tipo === 'ameaca') {
+                    tagClass = 'text-yellow-400'; tagText = 'Ameaça';
+                } else {
+                    tagClass = 'text-gray-400'; tagText = 'Ambigua';
+                }
+                const li = document.createElement('li');
+                li.innerHTML = `<div class="flex items-center justify-between p-2 rounded-lg bg-gray-700">
+                                            <span class="flex-1"><span class="${tagClass} font-bold mr-2">[${tagText}]</span> ${item.texto}</span>
+                                            <div class="flex items-center">
+                                                <button data-id="${item.id}" class="edit-custom-factor-btn text-gray-400 hover:text-cyan-400 p-1 rounded-full hover:bg-gray-600 transition-colors mr-2">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
+                                                </button>
+                                                <button data-id="${item.id}" class="delete-custom-factor-btn text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-gray-600 transition-colors">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg>
+                                                </button>
+                                            </div>
+                                        </div>`;
+                listElement.appendChild(li);
+            });
+        }
+    }
+
+    function updateActorsList() {
+        const tableBody = document.getElementById('actors-list-table-body');
+        tableBody.innerHTML = '';
+        const items = localCompanyData?.rede?.atores || [];
+        if (items.length === 0) {
+            tableBody.innerHTML = `<tr><td colspan="5" class="text-center text-gray-500 py-4">Nenhum ator cadastrado.</td></tr>`;
+        } else {
+            items.forEach(item => {
+                const row = tableBody.insertRow();
+                row.className = 'bg-gray-800 border-b border-gray-700';
+                row.dataset.id = item.id;
+                row.innerHTML = `
+                        <td class="px-6 py-4 font-medium whitespace-nowrap text-white">${item.name}</td>
+                        <td class="px-6 py-4">${item.category || 'N/A'}</td>
+                        <td class="px-6 py-4">${item.influence || 'N/A'}</td>
+                        <td class="px-6 py-4">${item.linkStrength || 'N/A'}</td>
+                        <td class="px-6 py-4">
+                            <div class="flex items-center">
+                                <button data-id="${item.id}" class="edit-actor-btn text-gray-400 hover:text-cyan-400 p-1 rounded-full hover:bg-gray-600 transition-colors mr-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
+                                </button>
+                                <button data-id="${item.id}" data-name="${item.name}" class="delete-actor-btn text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-gray-600 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+            });
+        }
+    }
+
+    function updateInventarioList() {
+        const listElement = document.getElementById('inventario-list');
+        listElement.innerHTML = '';
+        const items = localCompanyData?.inventario || [];
+        if (items.length === 0) {
+            listElement.innerHTML = `<li class="text-gray-500">Nenhum item adicionado ainda.</li>`;
+        } else {
+            items.forEach(item => {
+                const li = document.createElement('li');
+                const origemText = item.origem === 'interno' ? 'Dev. Interno' : 'Aquis. Externa';
+                li.innerHTML = `<div class="flex items-center justify-between p-2 rounded-lg bg-gray-700">
+                                            <span>${item.nome}</span>
+                                            <div class="flex items-center">
+                                                <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-cyan-600 bg-cyan-200">${item.tipo}</span>
+                                                <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-gray-600 bg-gray-200 ml-2">${origemText}</span>
+                                                <button data-id="${item.id}" class="edit-inventario-btn text-gray-400 hover:text-cyan-400 ml-4 p-1 rounded-full hover:bg-gray-600 transition-colors">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
+                                                </button>
+                                                <button data-id="${item.id}" class="delete-inventario-btn text-gray-400 hover:text-red-400 ml-2 p-1 rounded-full hover:bg-gray-600 transition-colors">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" style="pointer-events: none;">
+                                                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </div>`;
+                listElement.appendChild(li);
+            });
+        }
+    }
+
+    function updateVRIOSelector() {
+        const selectElement = document.getElementById('vrio-selecionar-recurso');
+        selectElement.innerHTML = '';
+        const inventario = localCompanyData?.inventario || [];
+        const vrioAnalisados = localCompanyData?.interna.vrio || [];
+        const recursosAnalisadosIds = vrioAnalisados.map(item => item.id);
+
+        selectElement.innerHTML = '<option value="" disabled>Selecione um item</option>';
+        inventario.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.id;
+            option.textContent = item.nome;
+            if(recursosAnalisadosIds.includes(item.id) && item.id !== editingVrioId) {
+                option.disabled = true;
+                option.textContent += " (Já analisado)";
+            }
+            selectElement.appendChild(option);
+        });
+        if (editingVrioId) {
+            selectElement.value = editingVrioId;
+        } else {
+            selectElement.selectedIndex = 0; // Define como "Selecione"
+        }
+
+        if (inventario.length > 0 && inventario.every(item => recursosAnalisadosIds.includes(item.id)) && !editingVrioId) {
+            selectElement.innerHTML = '<option value="">-- Todos os itens foram analisados --</option>';
+        } else if (inventario.length === 0) {
+            selectElement.innerHTML = '<option value="">-- Nenhum item no inventário --</option>';
+        }
+    }
+
+    function updateVrioTable() {
+        const tableBody = document.getElementById('vrio-table-body');
+        tableBody.innerHTML = '';
+        const items = localCompanyData?.interna.vrio || [];
+        const checkIcon = `<svg class="w-5 h-5 text-green-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+        const xIcon = `<svg class="w-5 h-5 text-red-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+        items.forEach(item => {
+            const row = tableBody.insertRow();
+            row.className = 'bg-gray-800 border-b border-gray-700';
+            row.innerHTML = `
+                    <td class="px-6 py-4 font-medium whitespace-nowrap text-white">${item.nome}</td>
+                    <td class="px-6 py-4">${item.tipo}</td>
+                    <td class="px-6 py-4 text-center">${item.v === 'sim' ? checkIcon : xIcon}</td>
+                    <td class="px-6 py-4 text-center">${item.r === 'sim' ? checkIcon : xIcon}</td>
+                    <td class="px-6 py-4 text-center">${item.i === 'sim' ? checkIcon : xIcon}</td>
+                    <td class="px-6 py-4 text-center">${item.o === 'sim' ? checkIcon : xIcon}</td>
+                    <td class="px-6 py-4">
+                        <button data-id="${item.id}" class="edit-vrio-btn font-medium text-cyan-500 hover:underline mr-3">Editar</button>
+                        <button data-id="${item.id}" class="delete-vrio-btn font-medium text-red-500 hover:underline">Excluir</button>
+                    </td>
+                `;
+        });
+    }
+
+    // --- MODAIS & FUNÇÕES AUXILIARES ---
+    function closeModal() {
+        editModal.classList.add('hidden');
+        editModalForm.innerHTML = '';
+        editModalCallback = null;
+    }
+
+    function showConfirmModal(text, onConfirm) {
+        document.getElementById('confirm-modal-text').textContent = text;
+        confirmModalCallback = onConfirm;
+        confirmModal.classList.remove('hidden');
+    }
+
+    function closeConfirmModal() {
+        confirmModal.classList.add('hidden');
+        confirmModalCallback = null;
+    }
+
+    function revertSaveButton(button) {
+        if(!button) return;
+        const originalText = button.closest('.porter-force') ? 'Salvar Análise' : 'Salvar Análise';
+        if (button.textContent === 'Salvo!') {
+            button.textContent = originalText;
+            button.classList.replace('bg-green-600', 'bg-cyan-600');
+            button.classList.add('hover:bg-cyan-700');
+        }
+    }
+
+    function handlePestelImpactChange(impactSelectElement) {
+        const parent = impactSelectElement.closest('.pestel-factor, form');
+        const naturezaSelect = parent.querySelector('.pestel-natureza');
+        if (impactSelectElement.value === 'nenhum') {
+            naturezaSelect.disabled = true;
+            naturezaSelect.value = "";
+        } else {
+            naturezaSelect.disabled = false;
+        }
+    }
+
+    // --- GERAÇÃO DE SWOT & EXPORTAÇÃO ---
+    function generateSWOT() {
+        const { vrio, premortem } = localCompanyData.interna;
+        const { pestel, porter, customFatores } = localCompanyData.externa;
+
+        const swot = { forcas: new Set(), fraquezas: new Set(), oportunidades: new Set(), ameacas: new Set() };
+
+        // 1. Análise Interna (VRIO e Premortem) -> Forças e Fraquezas
+        vrio.forEach(item => {
+            const v = item.v === 'sim';
+            const r = item.r === 'sim';
+            const i = item.i === 'sim';
+            const o = item.o === 'sim';
+
+            if (v && r && o) { // Se é Valioso, Raro e Organizado, é no mínimo uma Vantagem Competitiva Temporária
+                if (i) { // Se também for Inimitável
+                    swot.forcas.add(`Vantagem Competitiva Sustentável (VRIO): ${item.nome}.`);
+                } else {
+                    swot.forcas.add(`Vantagem Competitiva Temporária (VRIO): ${item.nome}.`);
+                }
+            } else if (v && o) { // Se é Valioso e Organizado, mas não raro -> PONTO DE PARIDADE (FRAQUEZA)
+                swot.fraquezas.add(`Ponto de Paridade (Fraqueza): O recurso '${item.nome}' apenas iguala a concorrência, exigindo uma estratégia de diferenciação.`);
+            } else if (!v) { // Se não é Valioso
+                swot.fraquezas.add(`Desvantagem Competitiva (VRIO): O recurso/capacidade '${item.nome}' não está a gerar valor.`);
+            } else if (v && !o) { // Se é Valioso mas não está Organizado para captura de valor
+                swot.fraquezas.add(`Potencial Inexplorado (VRIO): O recurso/capacidade '${item.nome}' é valioso, mas a empresa não está organizada para aproveitá-lo.`);
+            }
+        });
+
+        premortem.forEach(item => {
+            if (item.tipo === 'fraqueza') {
+                swot.fraquezas.add(`Risco Interno (Premortem): ${item.texto}`);
+            }
+        });
+
+        // 2. Análise Externa (PESTEL, Porter, Premortem, Custom) -> Oportunidades e Ameaças
+        Object.values(pestel).forEach(value => {
+            const factorName = Object.keys(pestel).find(key => pestel[key] === value);
+            if (value.natureza === 'oportunidade') {
+                swot.oportunidades.add(`Fator PESTEL (Oportunidade): ${factorName}`);
+            } else if (value.natureza === 'ameaca') {
+                swot.ameacas.add(`Fator PESTEL (Ameaça): ${factorName}`);
+            }
+        });
+
+        customFatores.forEach(item => {
+            if (item.tipo === 'oportunidade') {
+                swot.oportunidades.add(`Fator Externo Relevante: ${item.texto}`);
+            } else if (item.tipo === 'ameaca') {
+                swot.ameacas.add(`Fator Externo Relevante: ${item.texto}`);
+            }
+        });
+
+        Object.entries(porter).forEach(([key, value]) => {
+            if (value.intensity === 'alta' || value.intensity === 'media') {
+                swot.ameacas.add(`Força Competitiva (Porter): A intensidade de '${key}' é ${value.intensity}, representando uma ameaça.`);
+            } else if (value.intensity === 'baixa') {
+                swot.oportunidades.add(`Força Competitiva (Porter): A baixa intensidade de '${key}' representa uma oportunidade de mercado.`);
+            }
+        });
+
+        premortem.forEach(item => {
+            if (item.tipo === 'ameaca') {
+                swot.ameacas.add(`Risco Externo (Premortem): ${item.texto}`);
+            }
+        });
+
+
+        // 3. Renderizar na UI
+        const renderList = (elementId, itemsSet) => {
+            const listElement = document.getElementById(elementId);
+            const itemsArray = Array.from(itemsSet);
+            if (itemsArray.length > 0) {
+                listElement.innerHTML = itemsArray.map(item => `<li>${item}</li>`).join('');
+            } else {
+                const placeholder = {
+                    'swot-forcas': 'Nenhuma força identificada.',
+                    'swot-fraquezas': 'Nenhuma fraqueza identificada.',
+                    'swot-oportunidades': 'Nenhuma oportunidade identificada.',
+                    'swot-ameacas': 'Nenhuma ameaça identificada.'
+                }[elementId];
+                listElement.innerHTML = `<li class="text-gray-500">${placeholder}</li>`;
+            }
+        };
+
+        renderList('swot-forcas', swot.forcas);
+        renderList('swot-fraquezas', swot.fraquezas);
+        renderList('swot-oportunidades', swot.oportunidades);
+        renderList('swot-ameacas', swot.ameacas);
+
+        document.getElementById('swot-container').classList.remove('hidden');
+        document.getElementById('export-swot-btn').classList.remove('hidden');
+        updateTOWSUI();
+    }
+
+    function exportSWOTToExcel() {
+        const companyName = localCompanyData.identificacao?.nomeEmpresa || 'Analise';
+
+        const getDataFromList = (id) => Array.from(document.getElementById(id).children).map(li => li.innerText);
+
+        const forcas = getDataFromList('swot-forcas');
+        const fraquezas = getDataFromList('swot-fraquezas');
+        const oportunidades = getDataFromList('swot-oportunidades');
+        const ameacas = getDataFromList('swot-ameacas');
+
+        const maxLength = Math.max(forcas.length, fraquezas.length, oportunidades.length, ameacas.length);
+
+        const data = [['Forças', 'Fraquezas', 'Oportunidades', 'Ameaças']];
+        for (let i = 0; i < maxLength; i++) {
+            data.push([
+                forcas[i] || '',
+                fraquezas[i] || '',
+                oportunidades[i] || '',
+                ameacas[i] || '',
+            ]);
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'SWOT');
+        XLSX.writeFile(wb, `SWOT_${companyName.replace(/\s+/g, '_')}.xlsx`);
+    }
+
+    // --- ESTRATÉGIA (TOWS) ---
+    function updateTOWSUI() {
+        if (!localCompanyData) return;
+
+        const swotLists = {
+            forcas: Array.from(document.getElementById('swot-forcas').querySelectorAll('li')).map(li => li.textContent).filter(t => t !== 'Nenhuma força identificada.'),
+            fraquezas: Array.from(document.getElementById('swot-fraquezas').querySelectorAll('li')).map(li => li.textContent).filter(t => t !== 'Nenhuma fraqueza identificada.'),
+            oportunidades: Array.from(document.getElementById('swot-oportunidades').querySelectorAll('li')).map(li => li.textContent).filter(t => t !== 'Nenhuma oportunidade identificada.'),
+            ameacas: Array.from(document.getElementById('swot-ameacas').querySelectorAll('li')).map(li => li.textContent).filter(t => t !== 'Nenhuma ameaça identificada.')
+        };
+
+        const populateSelect = (select, items) => {
+            select.innerHTML = '<option value="" selected>-- Selecione --</option>';
+            items.forEach(item => select.innerHTML += `<option value="${item}">${item}</option>`);
+        };
+
+        const populateCheckboxes = (container, items) => {
+            container.innerHTML = items.length ? items.map(item => `
+                    <label class="flex items-center text-gray-300">
+                        <input type="checkbox" value="${item}" class="h-4 w-4 rounded bg-gray-600 border-gray-500 text-cyan-500 focus:ring-cyan-600">
+                        <span class="ml-2">${item}</span>
+                    </label>
+                `).join('') : '<p class="text-gray-500">Nenhum item disponível.</p>';
+        };
+
+        // Popular Formulários TOWS
+        populateSelect(document.querySelector('#tows-ofensivas-form [name="oportunidade"]'), swotLists.oportunidades);
+        populateCheckboxes(document.querySelector('#tows-ofensivas-form [name="forcas"]'), swotLists.forcas);
+
+        populateSelect(document.querySelector('#tows-confrontos-form [name="ameaca"]'), swotLists.ameacas);
+        populateCheckboxes(document.querySelector('#tows-confrontos-form [name="forcas"]'), swotLists.forcas);
+
+        populateSelect(document.querySelector('#tows-reforcos-form [name="oportunidade"]'), swotLists.oportunidades);
+        populateCheckboxes(document.querySelector('#tows-reforcos-form [name="fraquezas"]'), swotLists.fraquezas);
+
+        populateSelect(document.querySelector('#tows-defensivas-form [name="ameaca"]'), swotLists.ameacas);
+        populateCheckboxes(document.querySelector('#tows-defensivas-form [name="fraquezas"]'), swotLists.fraquezas);
+
+        // Renderizar listas de estratégias salvas
+        renderTowsList('ofensivas');
+        renderTowsList('confrontos');
+        renderTowsList('reforcos');
+        renderTowsList('defensivas');
+
+        updateUnusedSwotFactors();
+    }
+
+    function handleTowsFormSubmit(e, tipo) {
+        e.preventDefault();
+        const form = e.target;
+        const editingId = parseInt(form.elements.editingId.value, 10);
+
+        const getSelectedCheckboxes = (name) => Array.from(form.querySelectorAll(`[name="${name}"] input:checked`)).map(cb => cb.value);
+
+        let strategyData = {
+            id: editingId || Date.now(),
+            acao: form.elements.acao.value.trim()
+        };
+
+        if (tipo === 'ofensivas' || tipo === 'reforcos') {
+            strategyData.oportunidade = form.elements.oportunidade.value;
+        }
+        if (tipo === 'confrontos' || tipo === 'defensivas') {
+            strategyData.ameaca = form.elements.ameaca.value;
+        }
+        if (tipo === 'ofensivas' || tipo === 'confrontos') {
+            strategyData.forcas = getSelectedCheckboxes('forcas');
+        }
+        if (tipo === 'reforcos' || tipo === 'defensivas') {
+            strategyData.fraquezas = getSelectedCheckboxes('fraquezas');
+        }
+
+        if (!strategyData.acao || (!strategyData.oportunidade && !strategyData.ameaca) || (!strategyData.forcas?.length && !strategyData.fraquezas?.length)) {
+            alert('Por favor, preencha todos os passos para criar a estratégia.');
+            return;
+        }
+
+        if (editingId) {
+            const index = localCompanyData.estrategia.tows[tipo].findIndex(s => s.id === editingId);
+            localCompanyData.estrategia.tows[tipo][index] = strategyData;
+        } else {
+            localCompanyData.estrategia.tows[tipo].push(strategyData);
+        }
+
+        saveData();
+        renderTowsList(tipo);
+        updateUnusedSwotFactors();
+        resetTowsForm(form);
+    }
+
+    function handleTowsListClick(e, tipo) {
+        const editBtn = e.target.closest('.edit-tows-btn');
+        const deleteBtn = e.target.closest('.delete-tows-btn');
+
+        if (editBtn) {
+            const itemId = parseInt(editBtn.dataset.id, 10);
+            const strategy = localCompanyData.estrategia.tows[tipo].find(s => s.id === itemId);
+            const form = document.getElementById(`tows-${tipo}-form`);
+
+            resetTowsForm(form); // Clear form before populating
+            form.elements.editingId.value = strategy.id;
+            form.elements.acao.value = strategy.acao;
+
+            const externalFactorName = tipo === 'ofensivas' || tipo === 'reforcos' ? 'oportunidade' : 'ameaca';
+            form.elements[externalFactorName].value = strategy[externalFactorName];
+
+            const internalFactorName = tipo === 'ofensivas' || tipo === 'confrontos' ? 'forcas' : 'fraquezas';
+            strategy[internalFactorName].forEach(factor => {
+                const checkbox = form.querySelector(`[name="${internalFactorName}"] input[value="${factor}"]`);
+                if (checkbox) checkbox.checked = true;
+            });
+
+            form.querySelector('button[type="submit"]').textContent = 'Salvar Alterações';
+            form.querySelector('.cancel-edit-tows-btn').classList.remove('hidden');
+            form.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        if (deleteBtn) {
+            const itemId = parseInt(deleteBtn.dataset.id, 10);
+            showConfirmModal('Tem certeza que deseja excluir esta estratégia?', () => {
+                localCompanyData.estrategia.tows[tipo] = localCompanyData.estrategia.tows[tipo].filter(s => s.id !== itemId);
+                saveData();
+                renderTowsList(tipo);
+                updateUnusedSwotFactors();
+            });
+        }
+    }
+
+    function resetTowsForm(form) {
+        form.reset();
+        form.elements.editingId.value = '';
+        form.querySelector('button[type="submit"]').textContent = 'Adicionar Estratégia';
+        form.querySelector('.cancel-edit-tows-btn').classList.add('hidden');
+    }
+
+    function renderTowsList(tipo) {
+        const listElement = document.getElementById(`tows-${tipo}-list`);
+        const strategies = localCompanyData?.estrategia?.tows[tipo] || [];
+
+        if (strategies.length === 0) {
+            listElement.innerHTML = `<li class="text-gray-500">Nenhuma estratégia criada para esta categoria.</li>`;
+            return;
+        }
+
+        listElement.innerHTML = strategies.map(strategy => {
+            const externalFactor = strategy.oportunidade || strategy.ameaca;
+            const internalFactors = strategy.forcas || strategy.fraquezas;
+
+            return `
+                    <li class="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <p class="text-sm text-gray-400">Fator Externo:</p>
+                                <p class="font-semibold text-gray-200">${externalFactor}</p>
+                                <p class="text-sm text-gray-400 mt-3">Fatores Internos Utilizados:</p>
+                                <ul class="list-disc list-inside text-gray-300">
+                                    ${internalFactors.map(f => `<li>${f}</li>`).join('')}
+                                </ul>
+                                <p class="text-sm text-gray-400 mt-3">Ação Estratégica:</p>
+                                <p class="text-cyan-400">${strategy.acao}</p>
+                            </div>
+                            <div class="flex flex-col items-end gap-2 ml-4">
+                                <button data-id="${strategy.id}" class="edit-tows-btn text-gray-400 hover:text-cyan-400 p-1 rounded-full hover:bg-gray-700 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" /><path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" /></svg>
+                                </button>
+                                <button data-id="${strategy.id}" class="delete-tows-btn text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-gray-700 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 pointer-events-none" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" /></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </li>
+                `;
+        }).join('');
+    }
+
+    function updateUnusedSwotFactors() {
+        if (!localCompanyData || !localCompanyData.estrategia || !localCompanyData.estrategia.tows) return;
+
+        // 1. Get all SWOT factors from the UI lists
+        const getAllSwotFactors = (listId) => {
+            const listElement = document.getElementById(listId);
+            if (!listElement) return [];
+            return Array.from(listElement.querySelectorAll('li'))
+                .filter(li => !li.classList.contains('text-gray-500')) // Exclude placeholder text
+                .map(li => li.textContent);
+        };
+
+        const allForcas = new Set(getAllSwotFactors('swot-forcas'));
+        const allFraquezas = new Set(getAllSwotFactors('swot-fraquezas'));
+        const allOportunidades = new Set(getAllSwotFactors('swot-oportunidades'));
+        const allAmeacas = new Set(getAllSwotFactors('swot-ameacas'));
+
+        // 2. Get all used factors from the saved TOWS strategies
+        const towsData = localCompanyData.estrategia.tows;
+        const usedForcas = new Set();
+        const usedFraquezas = new Set();
+        const usedOportunidades = new Set();
+        const usedAmeacas = new Set();
+
+        Object.values(towsData).flat().forEach(strategy => {
+            if (strategy.oportunidade) usedOportunidades.add(strategy.oportunidade);
+            if (strategy.ameaca) usedAmeacas.add(strategy.ameaca);
+            if (strategy.forcas) strategy.forcas.forEach(f => usedForcas.add(f));
+            if (strategy.fraquezas) strategy.fraquezas.forEach(f => usedFraquezas.add(f));
+        });
+
+        // 3. Find the difference
+        const unusedForcas = [...allForcas].filter(f => !usedForcas.has(f));
+        const unusedFraquezas = [...allFraquezas].filter(f => !usedFraquezas.has(f));
+        const unusedOportunidades = [...allOportunidades].filter(o => !usedOportunidades.has(o));
+        const unusedAmeacas = [...allAmeacas].filter(a => !usedAmeacas.has(a));
+
+        // 4. Render the unused lists
+        const renderUnusedList = (listId, items) => {
+            const listElement = document.getElementById(listId);
+            if (!listElement) return;
+            if (items.length === 0) {
+                listElement.innerHTML = `<li class="text-gray-500">Nenhum fator não utilizado.</li>`;
+            } else {
+                listElement.innerHTML = items.map(item => `<li>${item}</li>`).join('');
+            }
+        };
+
+        renderUnusedList('tows-forcas-nao-utilizadas', unusedForcas);
+        renderUnusedList('tows-fraquezas-nao-utilizadas', unusedFraquezas);
+        renderUnusedList('tows-oportunidades-nao-utilizadas', unusedOportunidades);
+        renderUnusedList('tows-ameacas-nao-utilizadas', unusedAmeacas);
+    }
+
+    async function backupAllData() {
+        if (!db) {
+            alert("Conexão com a base de dados não estabelecida.");
+            return;
+        }
+        const button = document.getElementById('backup-btn');
+        button.textContent = 'Gerando...';
+        button.disabled = true;
+        try {
+            const allData = {};
+            const companiesCol = collection(db, `artifacts/${appId}/public/data/companies`);
+            const companySnapshot = await getDocs(companiesCol);
+            companySnapshot.forEach(doc => {
+                allData[doc.id] = doc.data();
+            });
+            const dataStr = JSON.stringify(allData, null, 2);
+            const blob = new Blob([dataStr], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `backup_geral_${new Date().toISOString().slice(0,10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch(error) {
+            console.error("Erro ao gerar backup geral:", error);
+            alert("Ocorreu um erro ao gerar o backup. Verifique o console para mais detalhes.");
+        } finally {
+            button.textContent = 'Fazer Backup Geral (JSON)';
+            button.disabled = false;
+        }
+    }
+
+    async function handleRestoreBackup() {
+        const fileInput = document.getElementById('backup-file-input');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            alert("Por favor, selecione um arquivo de backup JSON para restaurar.");
+            return;
+        }
+
+        showConfirmModal(
+            "AVISO: Esta ação irá sobrescrever TODOS os dados existentes na plataforma. Tem a certeza de que deseja continuar?",
+            () => { // Esta função será executada se o usuário clicar em "Sim"
+                const button = document.getElementById('restore-btn');
+                button.textContent = 'Restaurando...';
+                button.disabled = true;
+
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        const backupData = JSON.parse(event.target.result);
+
+                        for (const companyName in backupData) {
+                            if (Object.hasOwnProperty.call(backupData, companyName)) {
+                                const companyData = backupData[companyName];
+                                const companyRef = doc(db, `artifacts/${appId}/public/data/companies`, companyName);
+                                await setDoc(companyRef, companyData);
+                                console.log(`Dados para ${companyName} restaurados com sucesso.`);
+                            }
+                        }
+                        alert("Backup restaurado com sucesso! A página será recarregada para aplicar as alterações.");
+                        location.reload();
+
+                    } catch (error) {
+                        console.error("Erro ao processar o arquivo de backup:", error);
+                        alert("Ocorreu um erro ao restaurar o backup. Verifique o console para mais detalhes e certifique-se de que o arquivo JSON é válido.");
+                    } finally {
+                        button.textContent = 'Restaurar Backup';
+                        button.disabled = false;
+                        fileInput.value = ''; // Limpa o campo do arquivo
+                    }
+                };
+                reader.readAsText(file);
+            }
+        );
+    }
+
+</script>
+</body>
+</html>
+

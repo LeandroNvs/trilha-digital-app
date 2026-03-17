@@ -45,8 +45,7 @@ function PaginaGrupos() {
     const [disciplinasSelecionadas, setDisciplinasSelecionadas] = useState({});
     const [editando, setEditando] = useState(null);
     const [itemParaExcluir, setItemParaExcluir] = useState(null);
-    const [instituicaoFiltroId, setInstituicaoFiltroId] = useState('');
-    const [cursoFiltroId, setCursoFiltroId] = useState('');
+    const [turmaId, setTurmaId] = useState('');
     
     // Estado para controlar o modal de integrantes
     const [grupoParaIntegrantes, setGrupoParaIntegrantes] = useState(null);
@@ -54,26 +53,25 @@ function PaginaGrupos() {
     // Busca de dados
     const collectionPath = `/artifacts/${appId}/public/data/grupos`;
     const { documents: gruposData, isLoading: isGruposLoading } = useCollection(collectionPath);
-    const { documents: instituicoesData } = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
     const { documents: todosCursosData } = useCollection(`/artifacts/${appId}/public/data/cursos`);
     const { documents: todasDisciplinasData } = useCollection(`/artifacts/${appId}/public/data/disciplinas`);
+    const { documents: todasTurmasData } = useCollection(`/artifacts/${appId}/public/data/turmas`);
     const { documents: todosAlunosData } = useCollection('usuarios'); // Busca todos os usuários para passar para o modal
     
     const grupos = gruposData || [];
-    const instituicoes = instituicoesData || [];
-    const todosCursos = todosCursosData || [];
     const todasDisciplinas = todasDisciplinasData || [];
+    const todasTurmas = todasTurmasData || [];
     const todosAlunos = todosAlunosData || [];
     
     const { mapa: disciplinasMapa } = useDisciplinasCombinadas();
 
     // Lógica de filtragem
-    const cursosFiltrados = useMemo(() => todosCursos.filter(c => c.instituicaoId === instituicaoFiltroId), [todosCursos, instituicaoFiltroId]);
-    const disciplinasFiltradas = useMemo(() => todasDisciplinas.filter(d => d.cursoId === cursoFiltroId), [todasDisciplinas, cursoFiltroId]);
+    const selectedTurma = useMemo(() => todasTurmas.find(t => t.id === turmaId), [todasTurmas, turmaId]);
+    const disciplinasFiltradas = useMemo(() => todasDisciplinas.filter(d => d.cursoId === selectedTurma?.cursoId), [todasDisciplinas, selectedTurma]);
 
     const limparForm = () => {
         setNome(''); setDescricao(''); setSigla(''); setDisciplinasSelecionadas({});
-        setInstituicaoFiltroId(''); setCursoFiltroId(''); setEditando(null);
+        setTurmaId(''); setEditando(null);
     };
 
     const handleCheckboxChange = (disciplinaId) => {
@@ -90,6 +88,7 @@ function PaginaGrupos() {
             nome, 
             descricao, 
             sigla, 
+            turmaId,
             disciplinasIds, 
             integrantesIds: editando?.integrantesIds || [] // Mantém integrantes se estiver editando
         };
@@ -111,17 +110,7 @@ function PaginaGrupos() {
         const selecaoInicial = {};
         g.disciplinasIds.forEach(id => { selecaoInicial[id] = true; });
         setDisciplinasSelecionadas(selecaoInicial);
-
-        if (g.disciplinasIds.length > 0) {
-            const disciplina = todasDisciplinas.find(d => d.id === g.disciplinasIds[0]);
-            if (disciplina) {
-                const curso = todosCursos.find(c => c.id === disciplina.cursoId);
-                if (curso) {
-                    setInstituicaoFiltroId(curso.instituicaoId);
-                    setCursoFiltroId(curso.id);
-                }
-            }
-        }
+        setTurmaId(g.turmaId || '');
     };
 
     const handleExclusaoConfirmada = async () => {
@@ -143,27 +132,23 @@ function PaginaGrupos() {
                     <textarea value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Descrição" className="md:col-span-2 bg-gray-600 rounded-lg p-3 h-24 resize-none"></textarea>
                 </div>
                 <div>
-                    <h4 className="font-semibold mb-2">Filtros para Seleção de Disciplinas</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                         <select value={instituicaoFiltroId} onChange={e => {setInstituicaoFiltroId(e.target.value); setCursoFiltroId(''); setDisciplinasSelecionadas({});}} className="bg-gray-600 rounded-lg p-3" required>
-                            <option value="">1º Selecione a Instituição</option>
-                            {instituicoes.map(i => <option key={i.id} value={i.id}>{i.nome}</option>)}
-                        </select>
-                        <select value={cursoFiltroId} onChange={e => {setCursoFiltroId(e.target.value); setDisciplinasSelecionadas({});}} className="bg-gray-600 rounded-lg p-3" disabled={!instituicaoFiltroId} required>
-                            <option value="">2º Selecione o Curso</option>
-                            {cursosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                    <h4 className="font-semibold mb-2">Selecione a Turma e as Disciplinas</h4>
+                    <div className="mb-4">
+                         <select value={turmaId} onChange={e => {setTurmaId(e.target.value); setDisciplinasSelecionadas({});}} className="bg-gray-600 rounded-lg p-3 w-full md:w-1/2" required>
+                            <option value="">1º Selecione a Turma do Grupo</option>
+                            {todasTurmas.map(t => <option key={t.id} value={t.id}>{t.nome} ({t.sigla})</option>)}
                         </select>
                     </div>
                     <h4 className="font-semibold mb-2">Disciplinas do Curso Selecionado</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-48 overflow-y-auto bg-gray-600 p-3 rounded-lg">
-                        {cursoFiltroId ? (
+                        {turmaId ? (
                             disciplinasFiltradas.length > 0 ? disciplinasFiltradas.map(d => (
                                 <label key={d.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-500 cursor-pointer">
                                     <input type="checkbox" checked={!!disciplinasSelecionadas[d.id]} onChange={() => handleCheckboxChange(d.id)} className="w-5 h-5 bg-gray-700 rounded text-cyan-500 focus:ring-cyan-600" />
                                     <span>{d.nome} ({d.sigla})</span>
                                 </label>
-                            )) : <span className="text-gray-400">Nenhuma disciplina encontrada.</span>
-                        ) : <span className="text-gray-400">Selecione um curso para ver as disciplinas.</span>}
+                            )) : <span className="text-gray-400">Nenhuma disciplina cadastrada para o curso desta turma.</span>
+                        ) : <span className="text-gray-400">Selecione uma turma para ver as disciplinas.</span>}
                     </div>
                 </div>
                 <div className="flex gap-4"> <button type="submit" className="bg-cyan-500 hover:bg-cyan-600 font-bold py-2 px-5 rounded-lg">{editando ? 'Salvar' : 'Adicionar'}</button> {editando && <button type="button" onClick={limparForm} className="bg-gray-500 hover:bg-gray-600 font-bold py-2 px-5 rounded-lg">Cancelar</button>} </div>

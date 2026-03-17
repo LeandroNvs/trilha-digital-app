@@ -1,10 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, appId } from '../firebase/config.js'; // Corrigido para importar o appId
+import useCollection from '../hooks/useCollection.js';
 
 function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
     // Estado para guardar os IDs dos alunos selecionados
     const [selecionados, setSelecionados] = useState({});
+    
+    // Filtro por Turma
+    const [turmaFiltroId, setTurmaFiltroId] = useState(grupo?.turmaId || '');
+    const { documents: turmasData, isLoading: isTurmasLoading } = useCollection(`/artifacts/${appId}/public/data/turmas`);
+    const turmas = turmasData || [];
 
     // Efeito para inicializar o estado de selecionados com os integrantes atuais do grupo
     useEffect(() => {
@@ -25,10 +31,14 @@ function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
         }));
     };
 
-    // Filtra para exibir apenas usuários com o papel 'aluno'
+    // Filtra para exibir apenas usuários com o papel 'aluno' ou 'professor', e pela turma selecionada
     const alunosDisponiveis = useMemo(() => {
-        return todosAlunos.filter(u => u.papel === 'aluno');
-    }, [todosAlunos]);
+        return todosAlunos.filter(u => {
+            const isRoleValid = u.papel === 'aluno' || u.papel === 'professor';
+            const isTurmaValid = turmaFiltroId ? u.turmaId === turmaFiltroId : true;
+            return isRoleValid && isTurmaValid;
+        });
+    }, [todosAlunos, turmaFiltroId]);
 
     // Função para salvar as alterações no Firestore
     const handleSalvar = async () => {
@@ -52,7 +62,22 @@ function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
                 <h2 className="text-2xl font-bold text-cyan-400 mb-4">
                     Gerenciar Integrantes do Grupo: <span className="text-white">{grupo.nome}</span>
                 </h2>
-                <p className="text-gray-300 mb-6">Selecione os alunos que farão parte deste grupo.</p>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
+                    <p className="text-gray-300">Selecione os alunos ou professores que farão parte deste grupo.</p>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <span className="text-sm font-semibold text-gray-400">Filtrar Turma:</span>
+                        <select 
+                            value={turmaFiltroId} 
+                            onChange={(e) => setTurmaFiltroId(e.target.value)}
+                            className="bg-gray-800 border border-gray-600 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500 w-full sm:w-auto"
+                        >
+                            <option value="">Todas as Turmas</option>
+                            {turmas.map(t => (
+                                <option key={t.id} value={t.id}>{t.nome} ({t.sigla})</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
                 
                 <div className="flex-1 overflow-y-auto bg-gray-800 p-4 rounded-lg">
                     {alunosDisponiveis.length > 0 ? (

@@ -28,6 +28,7 @@ import SimuladorPainel from './pages/SimuladorPainel'; // Corrigido
 import SimuladorRanking from './pages/SimuladorRanking'; // Corrigido
 import SimuladorRelatorio from './pages/SimuladorRelatorio'; // Corrigido
 import SimuladorAnalyticsVendas from './pages/SimuladorAnalyticsVendas'; // Corrigido
+import InteligenciaCompetitiva from './pages/InteligenciaCompetitiva'; // NOVO MÓDULO
 
 
 // --- Layouts e Rotas ---
@@ -142,6 +143,7 @@ function App() {
                 {/* Rota do Painel do Aluno */}
                 <Route path="simulador/aluno" element={<SimuladorAlunoHub />} />
                 <Route path="simulador/painel/:simulacaoId/:empresaId" element={<SimuladorPainel />} />
+                <Route path="inteligencia-competitiva" element={<InteligenciaCompetitiva />} />
 
                 {/* Rotas de Admin/Professor do Simulador */}
                  <Route element={<ProfessorAdminRoute perfilUsuario={perfilUsuario} />}>
