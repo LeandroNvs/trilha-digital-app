@@ -8,7 +8,6 @@ import IcoVrio from '../components/InteligenciaCompetitiva/IcoVrio.jsx';
 import IcoPestel from '../components/InteligenciaCompetitiva/IcoPestel.jsx';
 import IcoPorter from '../components/InteligenciaCompetitiva/IcoPorter.jsx';
 import IcoPremortem from '../components/InteligenciaCompetitiva/IcoPremortem.jsx';
-import IcoRede from '../components/InteligenciaCompetitiva/IcoRede.jsx';
 import IcoSwot from '../components/InteligenciaCompetitiva/IcoSwot.jsx';
 import IcoTows from '../components/InteligenciaCompetitiva/IcoTows.jsx';
 
@@ -115,9 +114,8 @@ function InteligenciaCompetitiva() {
         { id: 'macroambiente', label: '3. Macroambiente (PESTEL)' },
         { id: 'competitivo', label: '4. Ambiente Competitivo (Porter)' },
         { id: 'riscos', label: '5. Riscos (Premortem)' },
-        { id: 'rede', label: '6. Rede de Negócios' },
-        { id: 'swot', label: '7. Matriz SWOT' },
-        { id: 'tows', label: '8. Estratégia (TOWS)' },
+        { id: 'swot', label: '6. Matriz SWOT' },
+        { id: 'tows', label: '7. Estratégia (TOWS)' },
     ];
 
     // Se nenhum grupo foi selecionado ainda (e há mais de 1), mostra a tela de seleção
@@ -200,7 +198,6 @@ function InteligenciaCompetitiva() {
                         {activeTab === 'macroambiente' && <IcoPestel companyData={companyData} onSave={handleSave} />}
                         {activeTab === 'competitivo' && <IcoPorter companyData={companyData} onSave={handleSave} />}
                         {activeTab === 'riscos' && <IcoPremortem companyData={companyData} onSave={handleSave} />}
-                        {activeTab === 'rede' && <IcoRede companyData={companyData} onSave={handleSave} />}
                         {activeTab === 'swot' && <IcoSwot companyData={companyData} onSave={handleSave} />}
                         {activeTab === 'tows' && <IcoTows companyData={companyData} onSave={handleSave} />}
                     </main>

@@ -29,6 +29,7 @@ import SimuladorRanking from './pages/SimuladorRanking'; // Corrigido
 import SimuladorRelatorio from './pages/SimuladorRelatorio'; // Corrigido
 import SimuladorAnalyticsVendas from './pages/SimuladorAnalyticsVendas'; // Corrigido
 import InteligenciaCompetitiva from './pages/InteligenciaCompetitiva'; // NOVO MÓDULO
+import RedeNegocios from './pages/RedeNegocios';
 
 
 // --- Layouts e Rotas ---
@@ -49,6 +50,7 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         if (pathname === '/simulador/aluno') { return 'Meus Jogos'; }
         if (pathname.startsWith('/simulador/painel/')) { return 'Painel da Empresa'; }
         if (pathname === '/simulador') { return 'Simulador'; }
+        if (pathname === '/rede-negocios') { return 'Rede de Negócios'; }
         const nomeDaPagina = pathname.split('/').pop().replace(/-/g, ' ') || 'dashboard';
         return nomeDaPagina.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
     };
@@ -144,6 +146,7 @@ function App() {
                 <Route path="simulador/aluno" element={<SimuladorAlunoHub />} />
                 <Route path="simulador/painel/:simulacaoId/:empresaId" element={<SimuladorPainel />} />
                 <Route path="inteligencia-competitiva" element={<InteligenciaCompetitiva />} />
+                <Route path="rede-negocios" element={<RedeNegocios perfilUsuario={perfilUsuario} />} />
 
                 {/* Rotas de Admin/Professor do Simulador */}
                  <Route element={<ProfessorAdminRoute perfilUsuario={perfilUsuario} />}>
