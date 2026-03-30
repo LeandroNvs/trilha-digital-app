@@ -77,10 +77,10 @@ function SimuladorForm() {
             Cenario_Inicial_Descricao: 'Bem-vindos à Guerra dos Ecossistemas Móveis!...', Taxa_Base_Inflacao: 3,
             // Aba 3: Mercado
             Segmento1_Nome: 'Premium', Segmento2_Nome: 'Básico',
-            // Aba 4: Setup Inicial
-            Tipo_Setup: 'Simetrico', Caixa_Inicial: 200000000, Divida_Inicial: 0, 
-            Valor_Contabil_Imobilizado: 100000000, Capacidade_Producao_Inicial: 1000000,
-            Custo_Fixo_Operacional: 20000000, Custo_Variavel_Montagem_Base: 120,
+            // Aba 4: Setup Inicial (Desafiador, mas cobrindo OPEX)
+            Tipo_Setup: 'Simetrico', Caixa_Inicial: 400000000, Divida_Inicial: 200000000, 
+            Valor_Contabil_Imobilizado: 120000000, Capacidade_Producao_Inicial: 400000,
+            Custo_Fixo_Operacional: 30000000, Custo_Variavel_Montagem_Base: 800,
             Nivel_Inicial_PD_Camera: 1, Nivel_Inicial_PD_Bateria: 1, 
             Nivel_Inicial_PD_Sist_Operacional_e_IA: 1,
             Nivel_Inicial_PD_Atualizacao_Geral: 1,
@@ -92,14 +92,14 @@ function SimuladorForm() {
             Custo_PD_Atualizacao_Geral_Nivel_2: 20000000, Custo_PD_Atualizacao_Geral_Nivel_3: 35000000, Custo_PD_Atualizacao_Geral_Nivel_4: 55000000, Custo_PD_Atualizacao_Geral_Nivel_5: 80000000,
             Custo_Expansao_Lote: 10000000, Incremento_Capacidade_Lote: 100000,
             // Aba 6: Rede de Negócios
-            Fornecedor_S1_Tela_A_Desc: 'Fornecedor S1-A (Transacional)...', Fornecedor_S1_Tela_A_Custo: 50,
-            Fornecedor_S1_Tela_B_Desc: 'Fornecedor S1-B (Relacional)...', Fornecedor_S1_Tela_B_Custo: 70,
-            Fornecedor_S1_Chip_C_Desc: 'Fornecedor S1-C (Padrão)...', Fornecedor_S1_Chip_C_Custo: 80,
-            Fornecedor_S1_Chip_D_Desc: 'Fornecedor S1-D (Inovação)...', Fornecedor_S1_Chip_D_Custo: 95, Fornecedor_S1_Chip_D_Bonus_PD_Percent: 10,
-            Fornecedor_S2_Tela_A_Desc: 'Fornecedor S2-A (Transacional)...', Fornecedor_S2_Tela_A_Custo: 50,
-            Fornecedor_S2_Tela_B_Desc: 'Fornecedor S2-B (Relacional)...', Fornecedor_S2_Tela_B_Custo: 70,
-            Fornecedor_S2_Chip_C_Desc: 'Fornecedor S2-C (Padrão)...', Fornecedor_S2_Chip_C_Custo: 80,
-            Fornecedor_S2_Chip_D_Desc: 'Fornecedor S2-D (Inovação)...', Fornecedor_S2_Chip_D_Custo: 95, Fornecedor_S2_Chip_D_Bonus_PD_Percent: 10,
+            Fornecedor_S1_Tela_A_Desc: 'Fornecedor S1-A (Transacional)...', Fornecedor_S1_Tela_A_Custo: 250,
+            Fornecedor_S1_Tela_B_Desc: 'Fornecedor S1-B (Relacional)...', Fornecedor_S1_Tela_B_Custo: 350,
+            Fornecedor_S1_Chip_C_Desc: 'Fornecedor S1-C (Padrão)...', Fornecedor_S1_Chip_C_Custo: 400,
+            Fornecedor_S1_Chip_D_Desc: 'Fornecedor S1-D (Inovação)...', Fornecedor_S1_Chip_D_Custo: 450, Fornecedor_S1_Chip_D_Bonus_PD_Percent: 10,
+            Fornecedor_S2_Tela_A_Desc: 'Fornecedor S2-A (Transacional)...', Fornecedor_S2_Tela_A_Custo: 250,
+            Fornecedor_S2_Tela_B_Desc: 'Fornecedor S2-B (Relacional)...', Fornecedor_S2_Tela_B_Custo: 350,
+            Fornecedor_S2_Chip_C_Desc: 'Fornecedor S2-C (Padrão)...', Fornecedor_S2_Chip_C_Custo: 400,
+            Fornecedor_S2_Chip_D_Desc: 'Fornecedor S2-D (Inovação)...', Fornecedor_S2_Chip_D_Custo: 450, Fornecedor_S2_Chip_D_Bonus_PD_Percent: 10,
             // Aba 7: Finanças
             Taxa_Juros_Curto_Prazo: 5, Taxa_Juros_Emergencia: 10, Taxa_Juros_Longo_Prazo: 3, Prazo_Fixo_Longo_Prazo: 4, 
             Limite_CP_Percent_Ativo_Circulante: 50, Limite_LP_Percent_Patrimonio_Liquido: 100,
@@ -114,15 +114,50 @@ function SimuladorForm() {
             // Status Interno
             Status: 'Configurando', Rodada_Atual: 0,
         };
+        const narrativas = [
+            // Rodada 1: Início Básico
+            { notic: 'Início do Jogo: O mercado Premium busca Câmera (P&D 40%) e o Básico foca quase tudo em Preço (50%).', 
+              d1: 700000, d2: 1600000, p1pd: 0.5, p1m: 0.3, p1pr: 0.2, p1q: 0.0, p1e: 0.0, p1c: 0.4, p1b: 0.3, p1ia: 0.3, p2pd: 0.2, p2m: 0.3, p2pr: 0.5, p2q: 0.0, p2e: 0.0 },
+            // Rodada 2: Bateria e Autonomia
+            { notic: 'Novos aplicativos exigem muito! Clientes Premium agora querem super baterias (Bateria 60%).', 
+              d1: 750000, d2: 1700000, p1pd: 0.5, p1m: 0.3, p1pr: 0.2, p1q: 0.0, p1e: 0.0, p1c: 0.2, p1b: 0.6, p1ia: 0.2, p2pd: 0.2, p2m: 0.3, p2pr: 0.5, p2q: 0.0, p2e: 0.0 },
+            // Rodada 3: Falhas Asiáticas
+            { notic: 'Escândalo: Lotes asiáticos falham! Até o público Básico passa a se cobrar selos de Qualidade Corporativa.', 
+              d1: 700000, d2: 1500000, p1pd: 0.4, p1m: 0.3, p1pr: 0.1, p1q: 0.2, p1e: 0.0, p1c: 0.3, p1b: 0.4, p1ia: 0.3, p2pd: 0.1, p2m: 0.2, p2pr: 0.5, p2q: 0.2, p2e: 0.0 },
+            // Rodada 4: Boom de I.A
+            { notic: 'A Era da IA chegou! O software (S.O e IA) disparou como fator de atração. A demanda geral aumentou!', 
+              d1: 850000, d2: 1900000, p1pd: 0.6, p1m: 0.2, p1pr: 0.1, p1q: 0.1, p1e: 0.0, p1c: 0.2, p1b: 0.2, p1ia: 0.6, p2pd: 0.3, p2m: 0.2, p2pr: 0.4, p2q: 0.1, p2e: 0.0 },
+            // Rodada 5: Crise
+            { notic: 'Crise Global Inflacionária. As vendas caíram fortemente. O público ficou hiper sensível a Preços e Descontos.', 
+              d1: 500000, d2: 1200000, p1pd: 0.4, p1m: 0.2, p1pr: 0.3, p1q: 0.1, p1e: 0.0, p1c: 0.3, p1b: 0.3, p1ia: 0.4, p2pd: 0.1, p2m: 0.1, p2pr: 0.8, p2q: 0.0, p2e: 0.0 },
+            // Rodada 6: Onda Verde
+            { notic: 'Mercado reaquece com Onda Verde (ESG). O público Premium boicota marcas sem práticas sustentáveis (ESG).', 
+              d1: 600000, d2: 1300000, p1pd: 0.3, p1m: 0.3, p1pr: 0.2, p1q: 0.1, p1e: 0.1, p1c: 0.3, p1b: 0.3, p1ia: 0.4, p2pd: 0.2, p2m: 0.2, p2pr: 0.5, p2q: 0.1, p2e: 0.0 },
+            // Rodada 7: Retomada 
+            { notic: 'Segurança Cibernética em foco! A qualidade dos Sistemas Operacionais (S.O) passa a valer 80% do P&D Premium.', 
+              d1: 700000, d2: 1500000, p1pd: 0.4, p1m: 0.2, p1pr: 0.2, p1q: 0.2, p1e: 0.0, p1c: 0.1, p1b: 0.1, p1ia: 0.8, p2pd: 0.2, p2m: 0.2, p2pr: 0.5, p2q: 0.1, p2e: 0.0 },
+            // Rodada 8: Tiktokers
+            { notic: 'Geração Conteúdo domina: até clientes focados em Preço abrem o bolso por câmeras potentes. Câmera vira febre no Básico.', 
+              d1: 750000, d2: 1600000, p1pd: 0.4, p1m: 0.3, p1pr: 0.2, p1q: 0.1, p1e: 0.0, p1c: 0.5, p1b: 0.2, p1ia: 0.3, p2pd: 0.4, p2m: 0.2, p2pr: 0.3, p2q: 0.1, p2e: 0.0 },
+            // Rodada 9: Consolidação
+            { notic: 'Fim da febre de Câmeras. O cenário agora testa a capacidade das marcas em balancear Equilíbrio Total nos produtos.', 
+              d1: 850000, d2: 1800000, p1pd: 0.3, p1m: 0.4, p1pr: 0.1, p1q: 0.1, p1e: 0.1, p1c: 0.3, p1b: 0.3, p1ia: 0.4, p2pd: 0.3, p2m: 0.3, p2pr: 0.3, p2q: 0.1, p2e: 0.0 },
+            // Rodada 10-12
+            { notic: 'Mercado hipercompetitivo e estável. Margens espremidas e quem construiu a melhor marca (Mkt) deve levar vantagem.', 
+              d1: 950000, d2: 2000000, p1pd: 0.2, p1m: 0.5, p1pr: 0.1, p1q: 0.1, p1e: 0.1, p1c: 0.3, p1b: 0.3, p1ia: 0.4, p2pd: 0.2, p2m: 0.4, p2pr: 0.3, p2q: 0.1, p2e: 0.0 }
+        ];
+
         for (let i = 1; i <= 12; i++) {
-            state[`Segmento1_Demanda_Rodada_${i}`] = (i === 1) ? 2000000 : 0;
-            state[`Segmento2_Demanda_Rodada_${i}`] = (i === 1) ? 5000000 : 0;
-            state[`Noticia_Rodada_${i}`] = (i === 1) ? 'Mercado otimista!' : '';
-            state[`Peso_PD_Premium_Rodada_${i}`] = 0.5; state[`Peso_Mkt_Premium_Rodada_${i}`] = 0.3; state[`Peso_Preco_Premium_Rodada_${i}`] = 0.2;
-            state[`Peso_Qualidade_Premium_Rodada_${i}`] = 0.0; state[`Peso_ESG_Premium_Rodada_${i}`] = 0.0;
-            state[`Peso_PD_Camera_Premium_Rodada_${i}`] = 0.4; state[`Peso_PD_Bateria_Premium_Rodada_${i}`] = 0.3; state[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${i}`] = 0.3;
-            state[`Peso_PD_Massa_Rodada_${i}`] = 0.2; state[`Peso_Mkt_Massa_Rodada_${i}`] = 0.3; state[`Peso_Preco_Massa_Rodada_${i}`] = 0.5;
-            state[`Peso_Qualidade_Massa_Rodada_${i}`] = 0.0; state[`Peso_ESG_Massa_Rodada_${i}`] = 0.0;
+            const conf = narrativas[i-1] || narrativas[narrativas.length - 1];
+            state[`Segmento1_Demanda_Rodada_${i}`] = conf.d1;
+            state[`Segmento2_Demanda_Rodada_${i}`] = conf.d2;
+            state[`Noticia_Rodada_${i}`] = conf.notic;
+            state[`Peso_PD_Premium_Rodada_${i}`] = conf.p1pd; state[`Peso_Mkt_Premium_Rodada_${i}`] = conf.p1m; 
+            state[`Peso_Preco_Premium_Rodada_${i}`] = conf.p1pr; state[`Peso_Qualidade_Premium_Rodada_${i}`] = conf.p1q; state[`Peso_ESG_Premium_Rodada_${i}`] = conf.p1e;
+            state[`Peso_PD_Camera_Premium_Rodada_${i}`] = conf.p1c; state[`Peso_PD_Bateria_Premium_Rodada_${i}`] = conf.p1b; state[`Peso_PD_Sist_Operacional_e_IA_Premium_Rodada_${i}`] = conf.p1ia;
+            
+            state[`Peso_PD_Massa_Rodada_${i}`] = conf.p2pd; state[`Peso_Mkt_Massa_Rodada_${i}`] = conf.p2m; 
+            state[`Peso_Preco_Massa_Rodada_${i}`] = conf.p2pr; state[`Peso_Qualidade_Massa_Rodada_${i}`] = conf.p2q; state[`Peso_ESG_Massa_Rodada_${i}`] = conf.p2e;
         }
         return state;
     };
@@ -245,7 +280,7 @@ function SimuladorForm() {
         nomesEmpresas.forEach((nome) => {
             const empresaRef = doc(db, simulacoesCollectionPath, simId, 'empresas', nome);
             const estadoInicialRef = doc(db, simulacoesCollectionPath, simId, 'empresas', nome, 'estados', '0');
-            batch.set(empresaRef, { Nome_Empresa: nome, Integrantes_Usuarios_IDs: [] });
+            batch.set(empresaRef, { Nome_Empresa: nome, grupoId: '' });
             const dividaInicialLP = Number(simParams.Divida_Inicial) || 0;
             const prazoLP = Number(simParams.Prazo_Fixo_Longo_Prazo) || 4; 
             const estadoInicial = {

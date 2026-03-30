@@ -51,43 +51,43 @@ function ModalAjuda({ titulo, texto, onClose }) {
      );
 }
 
-// --- Componente Modal de Seleção de Estratégia ---
-function ModalEstrategia({ onSalvar }) {
-    const [selecao, setSelecao] = useState('');
+// --- Componente AbaEstrategia ---
+function AbaEstrategia({ empresa, onSalvar }) {
+    const [selecao, setSelecao] = useState(empresa?.Estrategia || '');
+    const isLocked = Boolean(empresa?.Estrategia);
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-gray-800 rounded-xl shadow-2xl p-8 max-w-4xl w-full border border-gray-700">
-                <h2 className="text-3xl font-bold text-cyan-400 mb-2 text-center">Definição Estratégica</h2>
-                <p className="text-gray-400 text-center mb-8">
-                    Para garantir uma avaliação justa, escolha qual será o foco principal da sua gestão. 
-                    <br/>O cálculo do seu <strong>Ranking Final (IDG)</strong> será ajustado para premiar o sucesso na estratégia escolhida.
-                </p>
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">1. Definição Estratégica {isLocked && ' (Bloqueada)'}</h3>
+            <p className="text-gray-400 mb-8">
+                {isLocked ? "Sua estratégia diretriz foi definida e norteará seu IDG para toda a simulação." : "Para garantir uma avaliação justa, escolha qual será o foco principal da sua gestão. Esta decisão é única por simulação e não poderá ser alterada."}
+            </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    {ESTRATEGIAS.map((est) => (
-                        <div 
-                            key={est.id}
-                            onClick={() => setSelecao(est.id)}
-                            className={`p-6 rounded-lg border-2 cursor-pointer transition-all hover:scale-105 ${selecao === est.id ? 'border-cyan-500 bg-gray-700 shadow-lg shadow-cyan-500/20' : 'border-gray-600 bg-gray-750 hover:border-gray-500'}`}
-                        >
-                            <div className="text-4xl mb-4 text-center">{est.icone}</div>
-                            <h3 className="text-xl font-bold text-white mb-2 text-center">{est.titulo}</h3>
-                            <p className="text-sm text-gray-400 text-center line-clamp-4">{est.desc}</p>
-                        </div>
-                    ))}
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {ESTRATEGIAS.map((est) => (
+                    <div 
+                        key={est.id}
+                        onClick={() => !isLocked && setSelecao(est.id)}
+                        className={`p-6 rounded-lg border-2 transition-all ${!isLocked && 'cursor-pointer hover:scale-105 hover:border-gray-500'} ${selecao === est.id ? 'border-cyan-500 bg-gray-700 shadow-lg shadow-cyan-500/20' : 'border-gray-600 bg-gray-750'}`}
+                    >
+                        <div className="text-4xl mb-4 text-center">{est.icone}</div>
+                        <h3 className="text-xl font-bold text-white mb-2 text-center">{est.titulo}</h3>
+                        <p className="text-sm text-gray-400 text-center whitespace-pre-line">{est.desc}</p>
+                    </div>
+                ))}
+            </div>
 
-                <div className="flex justify-center">
+            {!isLocked && (
+                <div className="flex justify-end">
                     <button 
                         onClick={() => onSalvar(selecao)}
                         disabled={!selecao}
-                        className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-10 rounded-lg text-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-10 rounded-lg disabled:opacity-50"
                     >
                         Confirmar Estratégia
                     </button>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
@@ -177,26 +177,38 @@ const InputNumericoMasked = ({ id, label, value: externalValue, onChange, sufixo
 };
 
 // --- Componente AbaRedeNegocios ---
-function AbaRedeNegocios({ simulacao, decisoes, decisaoRef, rodadaDecisao, isSubmetido, custoUnitarioProjetado }) {
+function AbaRedeNegocios({ simulacao, decisoes, decisaoRef, rodadaDecisao, isSubmetido }) {
     const [decisaoFornecedorTela, setDecisaoFornecedorTela] = useState(''); const [decisaoFornecedorChip, setDecisaoFornecedorChip] = useState(''); const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); useEffect(() => { setDecisaoFornecedorTela(decisoes.Escolha_Fornecedor_Tela || ''); setDecisaoFornecedorChip(decisoes.Escolha_Fornecedor_Chip || ''); }, [decisoes]); const handleSave = async () => { setLoading(true); setFeedback(''); if (!decisaoFornecedorTela || !decisaoFornecedorChip) { setFeedback('Selecione opções.'); setLoading(false); return; } try { await setDoc(decisaoRef, { Rodada: rodadaDecisao, Escolha_Fornecedor_Tela: decisaoFornecedorTela, Escolha_Fornecedor_Chip: decisaoFornecedorChip, }, { merge: true }); setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000); } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } setLoading(false); };
     const formatCustoUnitario = (custo) => { if (custo === null || custo === undefined || isNaN(custo)) return 'N/A'; return Number(custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    
+    // Live calculation for visual feedback BEFORE saving
+    const liveCustoProjetado = useMemo(() => {
+        const ct = (decisaoFornecedorTela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : ((decisaoFornecedorTela === 'B') ? (simulacao.Fornecedor_S1_Tela_B_Custo || 0) : 0);
+        const cc = (decisaoFornecedorChip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : ((decisaoFornecedorChip === 'D') ? (simulacao.Fornecedor_S1_Chip_D_Custo || 0) : 0);
+        const cb = ct + cc;
+        const cvmb = (simulacao.Custo_Variavel_Montagem_Base || 0);
+        const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
+        const custoVariavelMontagemCorrigido = cvmb * Math.pow(1 + taxaInflacaoRodada, rodadaDecisao - 1); 
+        return custoVariavelMontagemCorrigido + cb;
+    }, [simulacao, decisaoFornecedorTela, decisaoFornecedorChip, rodadaDecisao]);
+
     return ( 
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in"> 
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">1. Decisões de Rede</h3> 
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">2. Decisões de Rede</h3> 
             <div className="bg-gray-900 p-4 rounded-lg mb-6 text-center">
-                <p className="text-sm text-gray-400">Custo Unitário Projetado (com Seleção Atual)</p>
-                <p className="text-xl font-bold text-white">{formatCustoUnitario(custoUnitarioProjetado)}</p>
-                <p className="text-xs text-gray-500 mt-1">Custo Base ({formatCustoUnitario(simulacao.Custo_Variavel_Montagem_Base)}) + Tela + Chip</p>
+                <p className="text-sm text-gray-400">Custo Unitário da Rede (com Seleção Atual)</p>
+                <p className="text-xl font-bold text-white">{formatCustoUnitario(liveCustoProjetado)}</p>
+                <p className="text-xs text-gray-500 mt-1">Custo Base Inflacionado + Fornecedor Tela + Fornecedor Chip</p>
             </div>
             <fieldset className="space-y-3" disabled={isSubmetido}> 
                 <legend className="text-xl font-semibold text-gray-200 mb-2">Fornecedor de Telas</legend> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'A' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="A" checked={decisaoFornecedorTela === 'A'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção A</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Tela_A_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Tela_A_Custo)}/unid.</p> </label> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'B' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="B" checked={decisaoFornecedorTela === 'B'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção B</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Tela_B_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Tela_B_Custo)}/unid.</p> </label> 
+                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'A' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="A" checked={decisaoFornecedorTela === 'A'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção A</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Tela_A_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Tela_A_Custo)}/unid.</p> </label> 
+                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'B' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="B" checked={decisaoFornecedorTela === 'B'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção B</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Tela_B_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Tela_B_Custo)}/unid.</p> </label> 
             </fieldset> 
             <fieldset className="space-y-3" disabled={isSubmetido}> 
                 <legend className="text-xl font-semibold text-gray-200 mb-2">Fornecedor de Chips</legend> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'C' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="C" checked={decisaoFornecedorChip === 'C'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção C</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Chip_C_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Chip_C_Custo)}/unid.</p> </label> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'D' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="D" checked={decisaoFornecedorChip === 'D'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção D</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_Chip_D_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_Chip_D_Custo)}/unid.</p> </label> 
+                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'C' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="C" checked={decisaoFornecedorChip === 'C'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção C</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Chip_C_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Chip_C_Custo)}/unid.</p> </label> 
+                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'D' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="D" checked={decisaoFornecedorChip === 'D'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção D</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Chip_D_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Chip_D_Custo)}/unid.</p> </label> 
             </fieldset> 
             {!isSubmetido && feedback && <p className={`text-sm text-center font-medium ${feedback.includes('sucesso') ? 'text-green-400' : 'text-red-400'}`}>{feedback}</p>} 
             {!isSubmetido && ( <div className="text-right mt-6"> <button onClick={handleSave} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg transition-colors disabled:opacity-50" disabled={loading}> {loading ? 'Salvando...' : 'Salvar Decisão da Rede'} </button> </div> )} 
@@ -268,7 +280,7 @@ function AbaPD({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, i
 
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">2. Decisões de P&D</h3>
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">3. Decisões de P&D</h3>
             <p className="text-sm text-yellow-300 bg-yellow-900 p-3 rounded-lg -mt-4"><span className="font-bold">Atenção:</span> Os investimentos em P&D realizados nesta rodada (R{rodadaDecisao}) só terão efeito (novo nível) a partir da <span className="font-bold">próxima rodada (R{rodadaDecisao + 1})</span>.</p>
             <div className="bg-gray-900 p-4 rounded-lg text-center">
                 <p className="text-sm text-gray-400">Caixa Projetado (Pré-Produção - Baseado em dados SALVOS)</p>
@@ -335,7 +347,7 @@ function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
     };
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">3. Decisões de Operações</h3>
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">4. Decisões de Operações</h3>
             <fieldset className="space-y-3" disabled={isSubmetido}>
                 <legend className="text-xl font-semibold text-gray-200 mb-2">Produção (OPEX)</legend>
                 <div className="bg-gray-900 p-4 rounded-lg mb-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -374,7 +386,7 @@ function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
     const textoAjudaMarketing = `O investimento em Marketing aumenta a atratividade do seu produto no segmento escolhido, ajudando a conquistar Market Share. O efeito tem retornos decrescentes (investir o dobro não necessariamente dobra o impacto).\n\nReferência: Compare seu investimento com o dos concorrentes (quando disponível) e analise os pesos de Marketing para cada segmento na rodada atual para guiar sua decisão.`;
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">4. Decisões de Marketing</h3>
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">5. Decisões de Marketing</h3>
             <div className="bg-gray-900 p-4 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <p className="text-gray-300"> Custo Unit. (Rodada {estadoRodada?.Rodada ?? 0}): <span className="font-bold text-white">{formatBRLDisplay(custoUnitarioAnterior)}</span> </p>
                 <p className="text-gray-300"> Custo Unit. Projetado (Base): <span className="font-bold text-cyan-400">{formatBRLDisplay(custoUnitarioProjetado)}</span> <span onClick={() => alert('Custo projetado = Custo Montagem Base + Custos Fornecedores (Aba 1). O custo real final será impactado pela inflação da rodada.')} className="inline-block ml-1 cursor-pointer align-middle"><IconeInfo /></span> </p>
@@ -469,7 +481,7 @@ function AbaFinancas({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDeci
 
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">5. Decisões Financeiras</h3>
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">6. Decisões Financeiras</h3>
             <div className="bg-gray-900 p-4 rounded-lg grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                  <p className="text-gray-300">Caixa Atual: <span className="font-bold text-cyan-400">{formatBRLDisplay(caixaAtual)}</span></p>
                  <p className="text-gray-300">Dívida CP (Vence R{rodadaDecisao}): <span className="font-bold text-yellow-400">{formatBRLDisplay(dividaCPVencendo)}</span></p>
@@ -561,7 +573,7 @@ function AbaOrganizacao({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaD
 
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">6. Decisões Organizacionais (ESG, Pessoas, Marca)</h3>
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">7. Decisões Organizacionais (ESG, Pessoas, Marca)</h3>
             <p className="text-sm text-yellow-300 bg-yellow-900 p-3 rounded-lg -mt-4"><span className="font-bold">Atenção:</span> Estes investimentos são de longo prazo. O retorno (Bônus no IDG) é baseado no valor <span className="font-bold">ACUMULADO</span> ao longo de várias rodadas.</p>
             <div className="bg-gray-900 p-4 rounded-lg text-center">
                 <p className="text-sm text-gray-400">Caixa Projetado (Pré-Produção - Baseado em dados SALVOS)</p>
@@ -685,6 +697,7 @@ function SimuladorPainel() {
 
      const abasRelatorio = [ { id: 'briefing', label: 'Briefing e Resultados' }, ];
      const chavesPorAba = { 
+         estrategia: [],
          rede: ['Escolha_Fornecedor_Tela', 'Escolha_Fornecedor_Chip'], 
          pd: ['Invest_PD_Camera', 'Invest_PD_Bateria', 'Invest_PD_Sist_Operacional_e_IA', 'Invest_PD_Atualizacao_Geral'], 
          operacoes: ['Producao_Planejada', 'Invest_Expansao_Fabrica'], 
@@ -694,23 +707,43 @@ function SimuladorPainel() {
          sumario: [], 
      }; 
      const abasDecisao = [ 
-         { id: 'rede', label: '1. Rede', chaves: chavesPorAba.rede }, 
-         { id: 'pd', label: '2. P&D', chaves: chavesPorAba.pd }, 
-         { id: 'operacoes', label: '3. Operações', chaves: chavesPorAba.operacoes }, 
-         { id: 'marketing', label: '4. Marketing', chaves: chavesPorAba.marketing }, 
-         { id: 'financas', label: '5. Finanças', chaves: chavesPorAba.financas }, 
-         { id: 'organizacao', label: '6. Organização', chaves: chavesPorAba.organizacao },
+         { id: 'estrategia', label: '1. Estratégia', chaves: chavesPorAba.estrategia }, 
+         { id: 'rede', label: '2. Rede', chaves: chavesPorAba.rede }, 
+         { id: 'pd', label: '3. P&D', chaves: chavesPorAba.pd }, 
+         { id: 'operacoes', label: '4. Operações', chaves: chavesPorAba.operacoes }, 
+         { id: 'marketing', label: '5. Marketing', chaves: chavesPorAba.marketing }, 
+         { id: 'financas', label: '6. Finanças', chaves: chavesPorAba.financas }, 
+         { id: 'organizacao', label: '7. Organização', chaves: chavesPorAba.organizacao },
          { id: 'sumario', label: 'Submissão', chaves: chavesPorAba.sumario }, 
      ];
-     const abasDecisaoCompletas = useMemo(() => { const c = {}; abasDecisao.forEach(a => { c[a.id] = a.chaves.every(k => decisoes[k] !== undefined && decisoes[k] !== null); }); c['sumario'] = abasDecisao.every(a => a.id === 'sumario' || c[a.id]); return c; }, [decisoes, abasDecisao]);
+     const abasDecisaoCompletas = useMemo(() => { 
+         const c = {}; 
+         abasDecisao.forEach(a => { 
+             if (a.id === 'estrategia') {
+                 c[a.id] = Boolean(empresa?.Estrategia);
+             } else {
+                 c[a.id] = a.chaves.every(k => decisoes[k] !== undefined && decisoes[k] !== null); 
+             }
+         }); 
+         c['sumario'] = abasDecisao.every(a => a.id === 'sumario' || c[a.id]); 
+         return c; 
+     }, [decisoes, abasDecisao, empresa?.Estrategia]);
      const isSubmetido = decisoes?.Status_Decisao === 'Submetido';
+     
+     // Auto-forward to Strategy tab if not chosen yet
+     useEffect(() => {
+         if (!loading && empresa && !empresa.Estrategia && abaAtiva !== 'estrategia') {
+             setAbaAtiva('estrategia');
+         }
+     }, [empresa, abaAtiva, loading]);
+
      useEffect(() => { if (isSubmetido && abasDecisao.some(a => a.id === abaAtiva)) { setAbaAtiva('briefing'); } }, [isSubmetido, abaAtiva, abasDecisao]);
 
     
     const custoUnitarioProjetado = useMemo(() => {
         if (!simulacao || !decisoes) return 0;
-        const ct = (decisoes.Escolha_Fornecedor_Tela === 'A') ? (simulacao.Fornecedor_Tela_A_Custo || 0) : (simulacao.Fornecedor_Tela_B_Custo || 0);
-        const cc = (decisoes.Escolha_Fornecedor_Chip === 'C') ? (simulacao.Fornecedor_Chip_C_Custo || 0) : (simulacao.Fornecedor_Chip_D_Custo || 0);
+        const ct = (decisoes.Escolha_Fornecedor_Tela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : (simulacao.Fornecedor_S1_Tela_B_Custo || 0);
+        const cc = (decisoes.Escolha_Fornecedor_Chip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : (simulacao.Fornecedor_S1_Chip_D_Custo || 0);
         const cb = ct + cc;
         const cvmb = (simulacao.Custo_Variavel_Montagem_Base || 0);
         const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
@@ -737,10 +770,7 @@ function SimuladorPainel() {
         <div className="animate-fade-in pb-10">
              {/* --- MODAIS --- */}
             
-            {/* Modal de Seleção de Estratégia (Obrigatório se não tiver) */}
-            {simulacao && empresa && !empresa.Estrategia && (
-                <ModalEstrategia onSalvar={handleSalvarEstrategia} />
-            )}
+             {/* Modal de Seleção de Estratégia Removido (Agora é uma Aba) */}
 
             {/* Modal de Informação da Estratégia (Clicado no Header) */}
             {infoEstrategiaAberto && (
@@ -775,7 +805,14 @@ function SimuladorPainel() {
              <nav className="flex flex-wrap justify-center bg-gray-800 rounded-lg p-2 mb-6 md:mb-8 gap-2 sticky top-0 z-10 shadow">
                 {abasRelatorio.map(tab => ( <button key={tab.id} onClick={() => setAbaAtiva(tab.id)} className={`flex items-center justify-center px-3 py-2 rounded-md font-semibold flex-grow transition-colors text-xs md:text-sm whitespace-nowrap ${abaAtiva === tab.id ? 'bg-cyan-500 text-white shadow-md' : 'bg-gray-700 hover:bg-cyan-600 text-gray-300'}`}> {tab.label} </button> ))}
                 {!isSubmetido && <div className="w-full md:w-auto md:border-l border-gray-600 md:mx-2 hidden md:block"></div>}
-                {!isSubmetido && estadoRodada && abasDecisao.map(tab => ( <button key={tab.id} onClick={() => setAbaAtiva(tab.id)} className={`flex items-center justify-center px-3 py-2 rounded-md font-semibold flex-grow transition-colors text-xs md:text-sm whitespace-nowrap ${abaAtiva === tab.id ? 'bg-cyan-500 text-white shadow-md' : 'bg-gray-700 hover:bg-cyan-600 text-gray-300'}`}> {tab.label} {abasDecisaoCompletas[tab.id] && tab.id !== 'sumario' && <IconeCheck />} {tab.id === 'sumario' && abasDecisaoCompletas['sumario'] && <IconeCheck />} </button> ))}
+                {!isSubmetido && estadoRodada && abasDecisao.map(tab => {
+                    const disabledStr = (!empresa.Estrategia && tab.id !== 'estrategia') ? true : false;
+                    return ( 
+                        <button key={tab.id} onClick={() => !disabledStr && setAbaAtiva(tab.id)} disabled={disabledStr} className={`flex items-center justify-center px-3 py-2 rounded-md font-semibold flex-grow transition-colors text-xs md:text-sm whitespace-nowrap ${abaAtiva === tab.id ? 'bg-cyan-500 text-white shadow-md' : disabledStr ? 'bg-gray-800 text-gray-600 cursor-not-allowed border border-gray-700' : 'bg-gray-700 hover:bg-cyan-600 text-gray-300'}`}> 
+                            {tab.label} {abasDecisaoCompletas[tab.id] && tab.id !== 'sumario' && <IconeCheck />} {tab.id === 'sumario' && abasDecisaoCompletas['sumario'] && <IconeCheck />} 
+                        </button> 
+                    );
+                })}
              </nav>
 
              {/* Conteúdo Principal */}
@@ -791,7 +828,9 @@ function SimuladorPainel() {
                  )}
                  {!isSubmetido && estadoRodada ? ( 
                      <>
-                         {abaAtiva === 'rede' && <AbaRedeNegocios simulacao={simulacao} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} custoUnitarioProjetado={custoUnitarioProjetado} />}
+                         {abaAtiva === 'estrategia' && <AbaEstrategia empresa={empresa} onSalvar={handleSalvarEstrategia} />}
+                         
+                         {abaAtiva === 'rede' && <AbaRedeNegocios simulacao={simulacao} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />}
                          
                          {abaAtiva === 'pd' && <AbaPD simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />}
                          

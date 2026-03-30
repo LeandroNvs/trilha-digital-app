@@ -16,15 +16,34 @@ function SimuladorAlunoHub() {
             setLoading(true);
             setErro('');
             try {
-                // 1. Encontra em quais empresas o aluno está
-                // Usamos collectionGroup para pesquisar em todas as subcoleções 'empresas'
-                const empresasRef = collectionGroup(db, 'empresas');
-                const q = query(empresasRef, where('Integrantes_Usuarios_IDs', 'array-contains', usuarioId));
+                // 1. Encontra em quais grupos o aluno está
+                const gruposRef = collection(db, `/artifacts/${appId}/public/data/grupos`);
+                const qGrupos = query(gruposRef, where('integrantesIds', 'array-contains', usuarioId));
+                const gruposSnap = await getDocs(qGrupos);
                 
-                const querySnapshot = await getDocs(q);
+                const meusGruposIds = gruposSnap.docs.map(d => d.id);
+                
+                if (meusGruposIds.length === 0) {
+                     setMinhasSimulacoes([]);
+                     setLoading(false);
+                     return;
+                }
+
+                // Firestore 'in' limita a 10 itens por array. Chunk helper:
+                const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
+                const chunks = chunkArray(meusGruposIds, 10);
+                
+                let querySnapshotDocs = [];
+                const empresasRef = collectionGroup(db, 'empresas');
+
+                for (const chunk of chunks) {
+                     const qEmpresas = query(empresasRef, where('grupoId', 'in', chunk));
+                     const snap = await getDocs(qEmpresas);
+                     querySnapshotDocs.push(...snap.docs);
+                }
                 
                 // 2. Para cada empresa encontrada, busca os dados da simulação "pai"
-                const promises = querySnapshot.docs.map(async (docEmpresa) => {
+                const promises = querySnapshotDocs.map(async (docEmpresa) => {
                     const empresaData = docEmpresa.data();
                     const simulacaoRef = docEmpresa.ref.parent.parent; // Referência ao documento da simulação
                     

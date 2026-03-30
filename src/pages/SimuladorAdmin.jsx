@@ -34,7 +34,7 @@ const gerarRodadaZero = async (simId, simParams, simulacoesCollectionPath) => {
         const estadoInicialRef = doc(db, simulacoesCollectionPath, simId, 'empresas', nome, 'estados', '0');
         
         // Cria documento da empresa
-        batch.set(empresaRef, { Nome_Empresa: nome, Integrantes_Usuarios_IDs: [] });
+        batch.set(empresaRef, { Nome_Empresa: nome, grupoId: '' });
 
         const dividaInicialLP = Number(simParams.Divida_Inicial) || 0;
         const prazoLP = Number(simParams.Prazo_Fixo_Longo_Prazo) || 4; 

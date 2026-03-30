@@ -14,8 +14,7 @@ function SumarioDecisoes({
     decisaoRef, 
     rodadaDecisoes, // (Ex: 1)
     rodadaRelatorio, // (Ex: 0)
-    custoUnitarioProjetadoS1, // NOVO
-    custoUnitarioProjetadoS2  // NOVO
+    custoUnitarioProjetado // NOVO: Mapeado da Aba de Operações/Rede
 }) {
     const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); const [showConfirm, setShowConfirm] = useState(false);
     const [percentualVendasEstimado, setPercentualVendasEstimado] = useState(80);
@@ -28,7 +27,7 @@ function SumarioDecisoes({
     const { 
         caixaProjetadoPreProducao, 
         custoTotalProducaoProjetado, 
-        pNumTotal // Renomeado de producaoPlanejadaNum
+        pNumTotal 
     } = useMemo(() => {
         const caixaInicial = estadoRodada?.Caixa || 0;
         
@@ -49,13 +48,11 @@ function SumarioDecisoes({
         const tomarLPNum = Number(decisoes.Tomar_Financiamento_LP) || 0;
         const amortizarLPNum = Number(decisoes.Amortizar_Divida_LP) || 0;
 
-        // MUDANÇA: Produção segmentada
-        const pNumS1 = Number(decisoes.Producao_Planejada_S1) || 0;
-        const pNumS2 = Number(decisoes.Producao_Planejada_S2) || 0;
-        const pNumTotal = pNumS1 + pNumS2;
+        // Produção Unificada (Correção)
+        const pNumTotal = Number(decisoes.Producao_Planejada) || 0;
 
-        // MUDANÇA: Custo de produção segmentado
-        const custoTotalProducaoProjetado = (pNumS1 * custoUnitarioProjetadoS1) + (pNumS2 * custoUnitarioProjetadoS2);
+        // Custo de Produção Unificado (Correção)
+        const custoTotalProducaoProjetado = (pNumTotal * custoUnitarioProjetado) || 0;
 
         // Custo Fixo (ajustado pela inflação da próxima rodada)
         const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
@@ -71,7 +68,7 @@ function SumarioDecisoes({
         
         return { caixaProjetadoPreProducao, custoTotalProducaoProjetado, pNumTotal };
 
-    }, [estadoRodada, decisoes, simulacao, custoUnitarioProjetadoS1, custoUnitarioProjetadoS2, rodadaDecisoes]);
+    }, [estadoRodada, decisoes, simulacao, custoUnitarioProjetado, rodadaDecisoes]);
     // =================================================================
 
 
@@ -99,13 +96,12 @@ function SumarioDecisoes({
     // =================================================================
     const todasDecisoesPreenchidas = useMemo(() => {
         const chavesObrigatorias = [
-            // Rede (4)
-            'Escolha_Fornecedor_S1_Tela', 'Escolha_Fornecedor_S1_Chip', 
-            'Escolha_Fornecedor_S2_Tela', 'Escolha_Fornecedor_S2_Chip',
+            // Rede (2)
+            'Escolha_Fornecedor_Tela', 'Escolha_Fornecedor_Chip', 
             // P&D (4)
             'Invest_PD_Camera', 'Invest_PD_Bateria', 'Invest_PD_Sist_Operacional_e_IA', 'Invest_PD_Atualizacao_Geral',
-            // Operações (3)
-            'Producao_Planejada_S1', 'Producao_Planejada_S2', 'Invest_Expansao_Fabrica',
+            // Operações (2)
+            'Producao_Planejada', 'Invest_Expansao_Fabrica',
             // Marketing (4)
             'Preco_Segmento_1', 'Marketing_Segmento_1',
             'Preco_Segmento_2', 'Marketing_Segmento_2',
@@ -114,8 +110,6 @@ function SumarioDecisoes({
             // Organização (3)
             'Invest_Organiz_Capacitacao', 'Invest_Organiz_Mkt_Institucional', 'Invest_Organiz_ESG'
         ];
-        // Verifica se a chave existe E não é null/undefined E não é string vazia
-        // (Permite valor 0)
         return chavesObrigatorias.every(key => 
             decisoes[key] !== undefined && 
             decisoes[key] !== null && 
