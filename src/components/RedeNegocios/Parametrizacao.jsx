@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { collection, addDoc, serverTimestamp, deleteDoc, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase/config.js';
+import { db, appId } from '../../firebase/config.js';
 
 // Componente Tooltip Didático
 const Tooltip = ({ text }) => (
@@ -36,6 +36,39 @@ function Parametrizacao({ atores, selectedGroupId, grupoSelecionado }) {
     // Modal States
     const [atorEditando, setAtorEditando] = useState(null);
     const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+    // States do Nó Central (Identidade)
+    const [isEditingCentral, setIsEditingCentral] = useState(false);
+    const [centralNome, setCentralNome] = useState('');
+    const [centralProposito, setCentralProposito] = useState('');
+    const [isSavingCentral, setIsSavingCentral] = useState(false);
+
+    // Atualiza os states do Central Node quando mudar o grupoSelecionado
+    useEffect(() => {
+        setCentralNome(grupoSelecionado?.identidadeRede?.nome || grupoSelecionado?.nome || '');
+        setCentralProposito(grupoSelecionado?.identidadeRede?.proposito || '');
+    }, [grupoSelecionado]);
+
+    const handleSaveCentral = async (e) => {
+        e.preventDefault();
+        if(!centralNome.trim()) { alert('O Nome não pode ser vazio'); return; }
+        setIsSavingCentral(true);
+        try {
+            const grupoRef = doc(db, `/artifacts/${appId}/public/data/grupos`, grupoSelecionado.id);
+            await updateDoc(grupoRef, {
+                identidadeRede: {
+                    nome: centralNome.trim(),
+                    proposito: centralProposito.trim()
+                }
+            });
+            setIsEditingCentral(false);
+        } catch(err) {
+            console.error("Erro ao salvar Identidade Central:", err);
+            alert("Erro ao salvar Identidade Central");
+        } finally {
+            setIsSavingCentral(false);
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -288,26 +321,31 @@ function Parametrizacao({ atores, selectedGroupId, grupoSelecionado }) {
             {atores.length === 0 ? (
                 <div className="text-center py-16 bg-gray-800/20 rounded-2xl border border-gray-700 border-dashed">
                     <svg className="w-16 h-16 text-yellow-500/50 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
-                    <p className="text-gray-300 font-medium text-lg">O Nó Central ({grupoSelecionado?.nome}) está isolado.</p>
+                    <p className="text-gray-300 font-medium text-lg">O Nó Central ({grupoSelecionado?.identidadeRede?.nome || grupoSelecionado?.nome}) está isolado.</p>
                     <p className="text-gray-500 text-sm mt-1">Preencha o formulário acima para conectar Stakeholders à sua rede.</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {/* CARD DO NÓ CENTRAL (Nossa Empresa) */}
+                    {/* CARD DO NÓ CENTRAL (Identidade Customizável) */}
                     <div className="rounded-2xl p-6 flex flex-col relative border-solid border-[3px] border-yellow-500 bg-gray-800 shadow-[0_0_15px_rgba(234,179,8,0.15)] order-first">
                         <div className="flex justify-between items-start mb-4">
                             <div>
                                 <span className="text-xs font-bold px-2.5 py-1 rounded bg-yellow-500/20 text-yellow-500 uppercase tracking-wider border border-yellow-500/50">Nó Central (Base)</span>
-                                <h3 className="text-2xl font-black text-white mt-3 leading-tight">{grupoSelecionado?.nome || 'Nossa Empresa'}</h3>
-                                <p className="text-sm text-gray-400 mt-1">Centro da Teia de Relações</p>
+                                <h3 className="text-2xl font-black text-white mt-3 leading-tight flex items-center gap-2 group cursor-pointer" onClick={() => setIsEditingCentral(true)} title="Clique para editar a identidade virtual desta rede">
+                                    {grupoSelecionado?.identidadeRede?.nome || grupoSelecionado?.nome || 'Nossa Empresa'}
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 group-hover:text-yellow-400 transition-colors" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" /></svg>
+                                </h3>
+                                <p className="text-sm text-gray-400 mt-1 italic leading-relaxed">
+                                    {grupoSelecionado?.identidadeRede?.proposito ? `"${grupoSelecionado.identidadeRede.proposito}"` : 'Propósito central não definido'}
+                                </p>
                             </div>
-                            <div className="bg-yellow-500/20 p-3 rounded-full">
+                            <div className="bg-yellow-500/20 p-3 rounded-full cursor-pointer hover:bg-yellow-500/30 transition-colors shrink-0" onClick={() => setIsEditingCentral(true)} title="Editar Identidade">
                                 <svg className="w-8 h-8 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
                             </div>
                         </div>
-                        <div className="mt-4 border-t border-gray-700/50 pt-4 text-sm text-gray-300 flex-1">
-                            <p className="font-medium text-yellow-500/90 mb-2">Visão Estrutural Ativa</p>
-                            <p>Todos os {atores.length} atores cadastrados nesta tela representam conexões, trocas de recursos e níveis de influência <strong>direcionados a esta Entidade Central.</strong></p>
+                        <div className="mt-auto border-t border-gray-700/50 pt-4 text-sm text-gray-300">
+                            <p className="font-medium text-yellow-500/90 mb-1">Visão Estrutural Ativa</p>
+                            <p className="text-xs text-gray-400">Os demais {atores.length} atores desta tela representam conexões, trocas de recursos e níveis de influência <strong>direcionados a esta Entidade Central.</strong></p>
                         </div>
                     </div>
 
@@ -544,6 +582,66 @@ function Parametrizacao({ atores, selectedGroupId, grupoSelecionado }) {
                     </div>
                 </div>
             )}
+
+            {/* MODAL DE IDENTIDADE CENTRAL */}
+            {isEditingCentral && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+                    <div className="bg-gray-800 rounded-2xl shadow-2xl border-2 border-yellow-500/50 w-full max-w-lg flex flex-col relative animate-fade-in-up">
+                        
+                        <div className="p-5 border-b border-gray-700 bg-gray-900/50 rounded-t-2xl flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-yellow-500 flex items-center gap-2">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                                Identidade do Nó Central
+                            </h2>
+                            <button onClick={() => setIsEditingCentral(false)} className="text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 p-1.5 rounded-full transition-colors">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        </div>
+
+                        <div className="p-6">
+                            <form id="form-central" onSubmit={handleSaveCentral} className="space-y-5">
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-300 mb-1">Nome Fictício da Sua Empresa *</label>
+                                    <p className="text-xs text-gray-500 mb-2">Desvincule o nome do grupo escolar. Dê um nome à corporação que está no centro desta rede.</p>
+                                    <input 
+                                        type="text" 
+                                        value={centralNome} 
+                                        onChange={e => setCentralNome(e.target.value)} 
+                                        required 
+                                        placeholder="Ex: Tech Corp Solutions" 
+                                        className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-yellow-500" 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-300 mb-1">Missão Corporativa ou Proposta de Valor</label>
+                                    <p className="text-xs text-gray-500 mb-2">Qual é a principal atividade fim do seu negócio central?</p>
+                                    <textarea 
+                                        value={centralProposito} 
+                                        onChange={e => setCentralProposito(e.target.value)} 
+                                        rows="3" 
+                                        placeholder="Ex: Fornecer energia limpa e conectada para condomínios urbanos." 
+                                        className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-yellow-500 resize-none text-sm" 
+                                    />
+                                </div>
+                            </form>
+                        </div>
+
+                        <div className="p-5 border-t border-gray-700 bg-gray-900/50 flex justify-end gap-3 rounded-b-2xl">
+                            <button type="button" onClick={() => setIsEditingCentral(false)} className="px-5 py-2 text-gray-300 hover:text-white font-medium">Cancelar</button>
+                            <button 
+                                type="submit" 
+                                form="form-central"
+                                disabled={isSavingCentral}
+                                className="bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-bold px-8 py-2.5 rounded-lg transition-colors flex items-center gap-2"
+                            >
+                                {isSavingCentral ? 'Gravando...' : 'Assumir Identidade'}
+                            </button>
+                        </div>
+
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }

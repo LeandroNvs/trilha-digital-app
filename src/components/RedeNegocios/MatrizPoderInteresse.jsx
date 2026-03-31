@@ -60,7 +60,7 @@ function MatrizPoderInteresse({ atores, grupoSelecionado }) {
                     Matriz de Mendelow (Poder x Interesse)
                     {grupoSelecionado && (
                         <span className="text-sm font-bold bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full border border-yellow-500/30 w-max">
-                            Âncora de Análise: {grupoSelecionado.nome}
+                            Âncora de Análise: {grupoSelecionado.identidadeRede?.nome || grupoSelecionado.nome}
                         </span>
                     )}
                 </h2>
