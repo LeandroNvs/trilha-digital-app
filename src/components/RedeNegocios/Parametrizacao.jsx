@@ -15,7 +15,7 @@ const Tooltip = ({ text }) => (
     </div>
 );
 
-function Parametrizacao({ atores, selectedGroupId }) {
+function Parametrizacao({ atores, selectedGroupId, grupoSelecionado }) {
     const [isLoading, setIsLoading] = useState(false);
 
     // Form States
@@ -287,12 +287,31 @@ function Parametrizacao({ atores, selectedGroupId }) {
             
             {atores.length === 0 ? (
                 <div className="text-center py-16 bg-gray-800/20 rounded-2xl border border-gray-700 border-dashed">
-                    <svg className="w-16 h-16 text-gray-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                    <p className="text-gray-400 font-medium text-lg">A rede de negócios está vazia.</p>
-                    <p className="text-gray-500 text-sm mt-1">Nenhum dossiê de Ator/Stakeholder encontrado.</p>
+                    <svg className="w-16 h-16 text-yellow-500/50 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                    <p className="text-gray-300 font-medium text-lg">O Nó Central ({grupoSelecionado?.nome}) está isolado.</p>
+                    <p className="text-gray-500 text-sm mt-1">Preencha o formulário acima para conectar Stakeholders à sua rede.</p>
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {/* CARD DO NÓ CENTRAL (Nossa Empresa) */}
+                    <div className="rounded-2xl p-6 flex flex-col relative border-solid border-[3px] border-yellow-500 bg-gray-800 shadow-[0_0_15px_rgba(234,179,8,0.15)] order-first">
+                        <div className="flex justify-between items-start mb-4">
+                            <div>
+                                <span className="text-xs font-bold px-2.5 py-1 rounded bg-yellow-500/20 text-yellow-500 uppercase tracking-wider border border-yellow-500/50">Nó Central (Base)</span>
+                                <h3 className="text-2xl font-black text-white mt-3 leading-tight">{grupoSelecionado?.nome || 'Nossa Empresa'}</h3>
+                                <p className="text-sm text-gray-400 mt-1">Centro da Teia de Relações</p>
+                            </div>
+                            <div className="bg-yellow-500/20 p-3 rounded-full">
+                                <svg className="w-8 h-8 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                            </div>
+                        </div>
+                        <div className="mt-4 border-t border-gray-700/50 pt-4 text-sm text-gray-300 flex-1">
+                            <p className="font-medium text-yellow-500/90 mb-2">Visão Estrutural Ativa</p>
+                            <p>Todos os {atores.length} atores cadastrados nesta tela representam conexões, trocas de recursos e níveis de influência <strong>direcionados a esta Entidade Central.</strong></p>
+                        </div>
+                    </div>
+
+                    {/* DEMAIS ATORES (STAKEHOLDERS) */}
                     {atores.map(ator => {
                         const influenciaEstilo = getEstiloInfluencia(ator.influencia);
                         const cardStyle = estilosCardPorForca[ator.forcaVinculo] || 'border-solid border-gray-700 bg-gray-800';

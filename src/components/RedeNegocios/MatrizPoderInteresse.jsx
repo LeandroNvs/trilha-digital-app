@@ -1,6 +1,6 @@
 import React from 'react';
 
-function MatrizPoderInteresse({ atores }) {
+function MatrizPoderInteresse({ atores, grupoSelecionado }) {
     
     // O eixo Y (Poder) usa "influencia", o eixo X (Interesse) usa "nivelInteresse"
     // Valores: 'Muito Baixo', 'Baixo', 'Médio', 'Alto', 'Muito Alto'
@@ -56,11 +56,16 @@ function MatrizPoderInteresse({ atores }) {
     return (
         <div className="bg-gray-800 p-8 rounded-2xl shadow-xl border border-gray-700 mt-6 animate-fade-in-up">
             <div className="mb-8">
-                <h2 className="text-2xl font-bold text-white flex items-center gap-2 mb-2">
+                <h2 className="text-2xl font-bold text-white flex flex-col md:flex-row md:items-center gap-2 mb-2">
                     Matriz de Mendelow (Poder x Interesse)
+                    {grupoSelecionado && (
+                        <span className="text-sm font-bold bg-yellow-500/20 text-yellow-500 px-3 py-1 rounded-full border border-yellow-500/30 w-max">
+                            Âncora de Análise: {grupoSelecionado.nome}
+                        </span>
+                    )}
                 </h2>
                 <p className="text-gray-400">
-                     A Matriz orienta como se relacionar com cada stakeholder com base no <strong className="text-gray-300">Poder de Influência</strong> que exercem no negócio versus o <strong className="text-gray-300">Nível de Interesse</strong> que possuem nos resultados.
+                     A Matriz orienta como se relacionar com cada stakeholder com base no <strong className="text-gray-300">Poder de Influência</strong> que exercem no negócio versus o <strong className="text-gray-300">Nível de Interesse</strong> que possuem nos resultados <strong>da Entidade Central.</strong>
                 </p>
             </div>
 

@@ -153,10 +153,10 @@ function RedeNegocios() {
 
             <main className="animate-fade-in-up">
                 {activeTab === 'parametrizacao' && (
-                    <Parametrizacao atores={atores} selectedGroupId={selectedGroupId} />
+                    <Parametrizacao atores={atores} selectedGroupId={selectedGroupId} grupoSelecionado={grupoSelecionado} />
                 )}
                 {activeTab === 'matriz' && (
-                    <MatrizPoderInteresse atores={atores} />
+                    <MatrizPoderInteresse atores={atores} grupoSelecionado={grupoSelecionado} />
                 )}
             </main>
         </div>
