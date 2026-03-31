@@ -33,36 +33,35 @@ function SimuladorAlunoHub() {
                 const chunkArray = (arr, size) => arr.length ? [arr.slice(0, size), ...chunkArray(arr.slice(size), size)] : [];
                 const chunks = chunkArray(meusGruposIds, 10);
                 
-                let querySnapshotDocs = [];
-                const empresasRef = collectionGroup(db, 'empresas');
+                // 2. Busca todas as Simulações
+                const simulacoesRef = collection(db, `/artifacts/${appId}/public/data/simulacoes`);
+                const simSnap = await getDocs(simulacoesRef);
 
-                for (const chunk of chunks) {
-                     const qEmpresas = query(empresasRef, where('grupoId', 'in', chunk));
-                     const snap = await getDocs(qEmpresas);
-                     querySnapshotDocs.push(...snap.docs);
-                }
-                
-                // 2. Para cada empresa encontrada, busca os dados da simulação "pai"
-                const promises = querySnapshotDocs.map(async (docEmpresa) => {
-                    const empresaData = docEmpresa.data();
-                    const simulacaoRef = docEmpresa.ref.parent.parent; // Referência ao documento da simulação
+                // 3. Varre as empresas de cada simulação (Bypassa o collectionGroup Index)
+                const promessasBusca = simSnap.docs.map(async (simDoc) => {
+                    const simData = simDoc.data();
+                    const empresasRef = collection(db, `/artifacts/${appId}/public/data/simulacoes/${simDoc.id}/empresas`);
                     
-                    if (simulacaoRef && simulacaoRef.path.startsWith(`artifacts/${appId}/public/data/simulacoes`)) {
-                        const simDoc = await getDoc(simulacaoRef);
-                        if (simDoc.exists()) {
-                            return {
-                                simId: simDoc.id,
-                                empresaId: docEmpresa.id,
-                                simData: simDoc.data(),
-                                empresaData: empresaData
-                            };
-                        }
+                    let meusDocumentosEmpresa = [];
+                    for (const chunk of chunks) {
+                        const qEmpresas = query(empresasRef, where('grupoId', 'in', chunk));
+                        const snap = await getDocs(qEmpresas);
+                        meusDocumentosEmpresa.push(...snap.docs);
                     }
-                    return null;
+
+                    // Se encontrou a empresa pra mim nesta simulação, retorna
+                    return meusDocumentosEmpresa.map(docEmpresa => ({
+                        simId: simDoc.id,
+                        empresaId: docEmpresa.id,
+                        simData: simData,
+                        empresaData: docEmpresa.data()
+                    }));
                 });
 
-                const results = await Promise.all(promises);
-                setMinhasSimulacoes(results.filter(Boolean)); // Filtra nulos
+                const arrayDeResultados = await Promise.all(promessasBusca);
+                const results = arrayDeResultados.flat(); // Achata o array de arrays
+
+                setMinhasSimulacoes(results); 
                 
             } catch (error) {
                 console.error("Erro ao buscar simulações do aluno:", error);
