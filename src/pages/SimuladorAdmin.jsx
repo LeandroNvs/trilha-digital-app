@@ -176,6 +176,10 @@ function SimuladorAdmin() {
             // Agora passamos 'db' e 'appId' conforme exigido pelo novo motor.js
             const resultado = await processarRodada(simulacao.id, simSnap.data(), db, appId);
             
+            if (!resultado.sucesso) {
+                throw new Error(resultado.erro || "Erro desconhecido ao processar a rodada. Verifique o console.");
+            }
+            
             console.log(`Rodada ${resultado.rodadaProcessada} processada com sucesso!`); 
         } catch (error) {
             console.error("Erro GERAL no processamento:", error);

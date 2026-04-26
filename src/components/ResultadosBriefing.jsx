@@ -386,6 +386,7 @@ function ResultadosBriefing({ simulacao, simulacaoId, empresaId, rodadaRelatorio
                                     <li className="flex justify-between"><span>Estoque S2:</span> <span className="text-white"><FormatNumero valor={dadosVisao.estado.Estoque_S2_Unidades} tipo="unidade" /></span></li>
                                     <li className="border-t border-gray-600 pt-2 mt-2 text-xs text-gray-400 text-center">
                                         {dadosVisao.estado.Noticia_Ruptura_Estoque_S1 && <div className="text-yellow-300 mb-1">⚠️ {dadosVisao.estado.Noticia_Ruptura_Estoque_S1}</div>}
+                                        {dadosVisao.estado.Noticia_Ruptura_Estoque_S2 && <div className="text-yellow-300 mb-1">⚠️ {dadosVisao.estado.Noticia_Ruptura_Estoque_S2}</div>}
                                         {dadosVisao.estado.Divida_Emergencia > 0 && <div className="text-red-400 font-bold">🚨 Dívida de Emergência Contraída!</div>}
                                     </li>
                                 </ul>

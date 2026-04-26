@@ -120,12 +120,12 @@ function TabelaComparativa({ data, loading, simulacao, rodadas }) {
                 <table className="min-w-full divide-y divide-gray-600">
                     {renderHeader()}
                     <tbody className="bg-gray-800 divide-y divide-gray-700">
-                        {renderRow("Custo Base Rede (Tela+Chip)|Decisão", 'custoBaseRede', formatBRL)}
-                        {renderRow("Produção Efetiva|Resultado", 'qtdeProduzida', formatNum)}
-                        {renderRow("Estoque Final|Resultado", 'totalEstoque', formatNum)}
+                        {renderRow("Produção Efetiva (S1+S2)|Resultado", 'qtdeProduzida', formatNum)}
+                        {renderRow("Estoque Final (S1+S2)|Resultado", 'totalEstoque', formatNum)}
                         
                         {/* Segmento Premium */}
                         <tr className="bg-gray-700"><td colSpan={rodadas.length + 1} className="px-4 py-2 text-sm font-semibold text-cyan-300">{simulacao.Segmento1_Nome || 'Premium'}</td></tr>
+                        {renderRow("Custo Fornec. (Tela+Chip)|Decisão", 'custoBaseRedeS1', formatBRL)}
                         {renderRowComparativa(`Preço Venda (${simulacao.Segmento1_Nome})|Decisão`, 'meuPreco1', 'mediaPreco1', formatBRL)}
                         {renderRowComparativa(`Mkt (${simulacao.Segmento1_Nome})|Decisão`, 'meuMkt1', 'mediaMkt1', formatBRL)}
                         {renderRow(`Vendas (Unid.)|Resultado`, 'minhasVendas1', formatNum)}
@@ -133,6 +133,7 @@ function TabelaComparativa({ data, loading, simulacao, rodadas }) {
                         
                         {/* Segmento Massa */}
                         <tr className="bg-gray-700"><td colSpan={rodadas.length + 1} className="px-4 py-2 text-sm font-semibold text-cyan-300">{simulacao.Segmento2_Nome || 'Massa'}</td></tr>
+                        {renderRow("Custo Fornec. (Tela+Chip)|Decisão", 'custoBaseRedeS2', formatBRL)}
                         {renderRowComparativa(`Preço Venda (${simulacao.Segmento2_Nome})|Decisão`, 'meuPreco2', 'mediaPreco2', formatBRL)}
                         {renderRowComparativa(`Mkt (${simulacao.Segmento2_Nome})|Decisão`, 'meuMkt2', 'mediaMkt2', formatBRL)}
                         {renderRow(`Vendas (Unid.)|Resultado`, 'minhasVendas2', formatNum)}
@@ -320,15 +321,18 @@ function SimuladorRelatorio() {
                     const mediaMkt2 = calcMedia(decisoesConcorrentes, 'Marketing_Segmento_2');
 
                     // Calcular Custo Rede
-                    const custoTela = (decisaoMinha.Escolha_Fornecedor_Tela === 'A') ? (simulacao.Fornecedor_Tela_A_Custo || 0) : (simulacao.Fornecedor_Tela_B_Custo || 0);
-                    const custoChip = (decisaoMinha.Escolha_Fornecedor_Chip === 'C') ? (simulacao.Fornecedor_Chip_C_Custo || 0) : (simulacao.Fornecedor_Chip_D_Custo || 0);
+                    const custoTelaS1 = (decisaoMinha.Escolha_Fornecedor_S1_Tela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : (simulacao.Fornecedor_S1_Tela_B_Custo || 0);
+                    const custoChipS1 = (decisaoMinha.Escolha_Fornecedor_S1_Chip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : (simulacao.Fornecedor_S1_Chip_D_Custo || 0);
+                    const custoTelaS2 = (decisaoMinha.Escolha_Fornecedor_S2_Tela === 'A') ? (simulacao.Fornecedor_S2_Tela_A_Custo || 0) : (simulacao.Fornecedor_S2_Tela_B_Custo || 0);
+                    const custoChipS2 = (decisaoMinha.Escolha_Fornecedor_S2_Chip === 'C') ? (simulacao.Fornecedor_S2_Chip_C_Custo || 0) : (simulacao.Fornecedor_S2_Chip_D_Custo || 0);
                     
                     // Montar objeto da rodada
                     dataFinal.push({
                         round: r,
-                        custoBaseRede: custoTela + custoChip,
-                        qtdeProduzida: estadoMeu.Producao_Efetiva || 0,
-                        totalEstoque: estadoMeu.Estoque_Final_Unidades || 0,
+                        custoBaseRedeS1: custoTelaS1 + custoChipS1,
+                        custoBaseRedeS2: custoTelaS2 + custoChipS2,
+                        qtdeProduzida: (estadoMeu.Producao_Efetiva_S1 || 0) + (estadoMeu.Producao_Efetiva_S2 || 0),
+                        totalEstoque: (estadoMeu.Estoque_S1_Unidades || 0) + (estadoMeu.Estoque_S2_Unidades || 0),
                         
                         meuPreco1: decisaoMinha.Preco_Segmento_1 || 0,
                         mediaPreco1: mediaPreco1,
@@ -393,8 +397,9 @@ Responda em português.`;
             Mkt_Premium: decisoes.Marketing_Segmento_1,
             Preco_Massa: decisoes.Preco_Segmento_2,
             Mkt_Massa: decisoes.Marketing_Segmento_2,
-            Invest_PD_Total: (decisoes.Invest_PD_Camera || 0) + (decisoes.Invest_PD_Bateria || 0) + (decisoes.Invest_PD_IA || 0),
-            Producao_Planejada: decisoes.Producao_Planejada,
+            Invest_PD_Total: (decisoes.Invest_PD_Camera || 0) + (decisoes.Invest_PD_Bateria || 0) + (decisoes.Invest_PD_Sist_Operacional_e_IA || 0) + (decisoes.Invest_PD_Atualizacao_Geral || 0),
+            Producao_Planejada_Premium: decisoes.Producao_Planejada_S1,
+            Producao_Planejada_Massa: decisoes.Producao_Planejada_S2,
             Invest_Expansao: decisoes.Invest_Expansao_Fabrica,
             Tomou_CP: decisoes.Tomar_Emprestimo_CP,
             Tomou_LP: decisoes.Tomar_Financiamento_LP,
@@ -409,10 +414,10 @@ Responda em português.`;
             Market_Share_Premium: estado.Market_Share_Premium,
             Market_Share_Massa: estado.Market_Share_Massa,
             Custo_Produtos_Vendidos: estado.Custo_Produtos_Vendidos,
-            Despesas_Operacionais: estado.Despesas_Operacionais_Outras, // Usando o campo correto do motor
+            Despesas_Operacionais: estado.Despesas_Operacionais_Outras,
             Despesas_Juros_Total: (estado.Despesas_Juros_CP || 0) + (estado.Despesas_Juros_Emergencia || 0) + (estado.Despesas_Juros_LP || 0),
             Caixa_Final: estado.Caixa,
-            Estoque_Final_Unid: estado.Estoque_Final_Unidades,
+            Estoque_Final_Unid: (estado.Estoque_S1_Unidades || 0) + (estado.Estoque_S2_Unidades || 0),
             Alerta_Ruptura_Estoque: estado.Noticia_Ruptura_Estoque,
             Alerta_Emergencia: estado.Divida_Emergencia > 0
         };
@@ -639,8 +644,9 @@ Responda em português.`;
                                 <DataCard titulo="Mkt Premium" valor={formatBRL(decisoes.Marketing_Segmento_1)} />
                                 <DataCard titulo="Preço Massa" valor={formatBRL(decisoes.Preco_Segmento_2)} />
                                 <DataCard titulo="Mkt Massa" valor={formatBRL(decisoes.Marketing_Segmento_2)} />
-                                <DataCard titulo="Produção (Unid.)" valor={formatNum(decisoes.Producao_Planejada)} />
-                                <DataCard titulo="Invest. P&D" valor={formatBRL((decisoes.Invest_PD_Camera || 0) + (decisoes.Invest_PD_Bateria || 0) + (decisoes.Invest_PD_IA || 0))} />
+                                <DataCard titulo="Produção Premium" valor={formatNum(decisoes.Producao_Planejada_S1)} />
+                                <DataCard titulo="Produção Massa" valor={formatNum(decisoes.Producao_Planejada_S2)} />
+                                <DataCard titulo="Invest. P&D" valor={formatBRL((decisoes.Invest_PD_Camera || 0) + (decisoes.Invest_PD_Bateria || 0) + (decisoes.Invest_PD_Sist_Operacional_e_IA || 0) + (decisoes.Invest_PD_Atualizacao_Geral || 0))} />
                                 <DataCard titulo="Invest. Expansão" valor={formatBRL(decisoes.Invest_Expansao_Fabrica)} />
                                 <DataCard titulo="Tomou Empr. CP" valor={formatBRL(decisoes.Tomar_Emprestimo_CP)} />
                                 <DataCard titulo="Tomou Empr. LP" valor={formatBRL(decisoes.Tomar_Financiamento_LP)} />

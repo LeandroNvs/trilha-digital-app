@@ -42,6 +42,7 @@ function SimuladorRanking() {
     // Dados para o Gráfico (quando "Evolução" é selecionada)
     const [chartData, setChartData] = useState([]);
     const [empresaNomes, setEmpresaNomes] = useState([]);
+    const [filtroEstrategia, setFiltroEstrategia] = useState('todas');
 
 
     // 1. Busca os dados da simulação (nome, rodada atual)
@@ -109,11 +110,14 @@ function SimuladorRanking() {
                                 nome: empresaData.Nome_Empresa || empresaDoc.id,
                                 IDG_Score: estadoData.IDG_Score || 0,
                                 Lucro_Acumulado: estadoData.Lucro_Acumulado || 0,
+                                Vendas_Premium: estadoData.Vendas_Efetivas_Premium || 0,
+                                Vendas_Massa: estadoData.Vendas_Efetivas_Massa || 0,
                                 Vendas_Totais: (estadoData.Vendas_Efetivas_Premium || 0) + (estadoData.Vendas_Efetivas_Massa || 0),
                                 Valor_Marca: estadoData.Valor_Marca_Acumulado || 0,
                                 // CAMPOS ADICIONADOS
                                 Market_Share_Premium: estadoData.Market_Share_Premium || 0,
                                 Market_Share_Massa: estadoData.Market_Share_Massa || 0,
+                                estrategia: estadoData.IDG_Metricas?.estrategia || empresaData.Estrategia || 'Nenhuma',
                             };
                         }
                         return null;
@@ -185,6 +189,15 @@ function SimuladorRanking() {
         }
     }, [simulacao, rodadaSelecionada, simulacaoId]); // Gatilho principal
 
+    const estrategiasDisponiveis = useMemo(() => {
+        const estrategias = new Set(rankingData.map(e => e.estrategia));
+        return Array.from(estrategias);
+    }, [rankingData]);
+
+    const rankingFiltrado = useMemo(() => {
+        if (filtroEstrategia === 'todas') return rankingData;
+        return rankingData.filter(e => e.estrategia === filtroEstrategia);
+    }, [rankingData, filtroEstrategia]);
 
         return (
             <div className="bg-gray-800 shadow-lg rounded-xl p-8 animate-fade-in">
@@ -200,41 +213,65 @@ function SimuladorRanking() {
     
                 {erro && <p className="text-red-400 bg-red-900 p-3 rounded-lg mb-4">{erro}</p>}
     
-                <div className="mb-6 max-w-xs">
-                    <label htmlFor="rodadaSelect" className="block text-sm font-medium text-gray-300 mb-1">
-                        Ver Ranking:
-                    </label>
-                    <select
-                        id="rodadaSelect"
-                        value={rodadaSelecionada || ''}
-                        onChange={(e) => setRodadaSelecionada(e.target.value === 'evolucao' ? 'evolucao' : Number(e.target.value))}
-                        disabled={loading || !simulacao || simulacao.Rodada_Atual === 0}
-                        className="w-full bg-gray-700 p-2 rounded-lg text-white focus:ring-2 focus:ring-cyan-500"
-                    >
-                        {rodadasDisponiveis.length === 0 && <option value="">Nenhum ranking disponível</option>}
-                        {rodadasDisponiveis.map(r => (
-                            r === 'evolucao' ? (
-                                <option key="evolucao" value="evolucao">Evolução (Acumulado)</option>
-                            ) : (
-                                <option key={r} value={r}>Rodada {r}</option>
-                            )
-                        ))}
-                    </select>
+                <div className="mb-6 flex gap-4 flex-wrap">
+                    <div className="max-w-xs w-full sm:w-auto">
+                        <label htmlFor="rodadaSelect" className="block text-sm font-medium text-gray-300 mb-1">
+                            Ver Ranking:
+                        </label>
+                        <select
+                            id="rodadaSelect"
+                            value={rodadaSelecionada || ''}
+                            onChange={(e) => setRodadaSelecionada(e.target.value === 'evolucao' ? 'evolucao' : Number(e.target.value))}
+                            disabled={loading || !simulacao || simulacao.Rodada_Atual === 0}
+                            className="w-full bg-gray-700 p-2 rounded-lg text-white focus:ring-2 focus:ring-cyan-500"
+                        >
+                            {rodadasDisponiveis.length === 0 && <option value="">Nenhum ranking disponível</option>}
+                            {rodadasDisponiveis.map(r => (
+                                r === 'evolucao' ? (
+                                    <option key="evolucao" value="evolucao">Evolução (Acumulado)</option>
+                                ) : (
+                                    <option key={r} value={r}>Rodada {r}</option>
+                                )
+                            ))}
+                        </select>
+                    </div>
+
+                    {!loading && rodadaSelecionada !== 'evolucao' && rankingData.length > 0 && (
+                        <div className="max-w-xs w-full sm:w-auto">
+                            <label htmlFor="estrategiaSelect" className="block text-sm font-medium text-gray-300 mb-1">
+                                Filtrar por Estratégia:
+                            </label>
+                            <select
+                                id="estrategiaSelect"
+                                value={filtroEstrategia}
+                                onChange={(e) => setFiltroEstrategia(e.target.value)}
+                                className="w-full bg-gray-700 p-2 rounded-lg text-white focus:ring-2 focus:ring-cyan-500"
+                            >
+                                <option value="todas">Todas as Estratégias</option>
+                                {estrategiasDisponiveis.map(est => (
+                                    <option key={est} value={est}>{est.charAt(0).toUpperCase() + est.slice(1)}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
     
                 {loading && <p className="text-center text-gray-400 py-10">Carregando dados...</p>}
     
                 {/* --- Renderização da Tabela (Ranking da Rodada) --- */}
-                {!loading && rodadaSelecionada !== 'evolucao' && rankingData.length > 0 && (
+                {!loading && rodadaSelecionada !== 'evolucao' && rankingFiltrado.length > 0 && (
                     <div className="overflow-x-auto animate-fade-in">
                         <table className="w-full text-left">
                             <thead className="text-xs uppercase bg-gray-700 text-gray-400">
                                 <tr>
                                     <th className="px-6 py-3 text-center">Pos.</th>
                                     <th className="px-6 py-3">Empresa</th>
+                                    <th className="px-6 py-3 text-center">Estratégia</th>
                                     <th className="px-6 py-3 text-right">IDG Score</th>
                                     <th className="px-6 py-3 text-right">Lucro Acumulado</th>
-                                    <th className="px-6 py-3 text-right">Vendas Totais (Unid.)</th>
+                                    <th className="px-6 py-3 text-right">Vendas Totais</th>
+                                    <th className="px-6 py-3 text-right">Vendas {simulacao?.Segmento1_Nome || 'Premium'}</th>
+                                    <th className="px-6 py-3 text-right">Vendas {simulacao?.Segmento2_Nome || 'Massa'}</th>
                                     <th className="px-6 py-3 text-right">Valor da Marca</th>
                                     {/* COLUNAS ADICIONADAS */}
                                     <th className="px-6 py-3 text-right">MKS {simulacao?.Segmento1_Nome || 'Premium'}</th>
@@ -242,12 +279,13 @@ function SimuladorRanking() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {rankingData.map((empresa, index) => (
+                                {rankingFiltrado.map((empresa, index) => (
                                     <tr key={empresa.id} className="bg-gray-800 border-b border-gray-700 hover:bg-gray-700">
                                         <td className="px-6 py-4 text-center font-bold text-lg">
                                             {index === 0 ? '🏆' : (index + 1)}
                                         </td>
                                         <td className="px-6 py-4 font-medium text-white">{empresa.nome}</td>
+                                        <td className="px-6 py-4 text-center text-gray-300 uppercase text-xs">{empresa.estrategia}</td>
                                         <td className="px-6 py-4 text-right font-semibold text-cyan-300">
                                             <FormatNumero valor={empresa.IDG_Score} />
                                         </td>
@@ -256,6 +294,12 @@ function SimuladorRanking() {
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <FormatNumero valor={empresa.Vendas_Totais} tipo="unidade" />
+                                        </td>
+                                        <td className="px-6 py-4 text-right text-gray-300">
+                                            <FormatNumero valor={empresa.Vendas_Premium} tipo="unidade" />
+                                        </td>
+                                        <td className="px-6 py-4 text-right text-gray-300">
+                                            <FormatNumero valor={empresa.Vendas_Massa} tipo="unidade" />
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <FormatNumero valor={empresa.Valor_Marca} tipo="moeda" />

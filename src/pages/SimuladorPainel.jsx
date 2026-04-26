@@ -178,40 +178,97 @@ const InputNumericoMasked = ({ id, label, value: externalValue, onChange, sufixo
 
 // --- Componente AbaRedeNegocios ---
 function AbaRedeNegocios({ simulacao, decisoes, decisaoRef, rodadaDecisao, isSubmetido }) {
-    const [decisaoFornecedorTela, setDecisaoFornecedorTela] = useState(''); const [decisaoFornecedorChip, setDecisaoFornecedorChip] = useState(''); const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); useEffect(() => { setDecisaoFornecedorTela(decisoes.Escolha_Fornecedor_Tela || ''); setDecisaoFornecedorChip(decisoes.Escolha_Fornecedor_Chip || ''); }, [decisoes]); const handleSave = async () => { setLoading(true); setFeedback(''); if (!decisaoFornecedorTela || !decisaoFornecedorChip) { setFeedback('Selecione opções.'); setLoading(false); return; } try { await setDoc(decisaoRef, { Rodada: rodadaDecisao, Escolha_Fornecedor_Tela: decisaoFornecedorTela, Escolha_Fornecedor_Chip: decisaoFornecedorChip, }, { merge: true }); setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000); } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } setLoading(false); };
+    const [telaS1, setTelaS1] = useState(''); const [chipS1, setChipS1] = useState('');
+    const [telaS2, setTelaS2] = useState(''); const [chipS2, setChipS2] = useState('');
+    const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState('');
+    
+    useEffect(() => { 
+        setTelaS1(decisoes.Escolha_Fornecedor_S1_Tela || ''); setChipS1(decisoes.Escolha_Fornecedor_S1_Chip || ''); 
+        setTelaS2(decisoes.Escolha_Fornecedor_S2_Tela || ''); setChipS2(decisoes.Escolha_Fornecedor_S2_Chip || ''); 
+    }, [decisoes]);
+    
+    const handleSave = async () => { 
+        setLoading(true); setFeedback(''); 
+        if (!telaS1 || !chipS1 || !telaS2 || !chipS2) { setFeedback('Selecione todas as opções.'); setLoading(false); return; } 
+        try { 
+            await setDoc(decisaoRef, { 
+                Rodada: rodadaDecisao, 
+                Escolha_Fornecedor_S1_Tela: telaS1, Escolha_Fornecedor_S1_Chip: chipS1,
+                Escolha_Fornecedor_S2_Tela: telaS2, Escolha_Fornecedor_S2_Chip: chipS2
+            }, { merge: true }); 
+            setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000); 
+        } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); } 
+        setLoading(false); 
+    };
+    
     const formatCustoUnitario = (custo) => { if (custo === null || custo === undefined || isNaN(custo)) return 'N/A'; return Number(custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     
-    // Live calculation for visual feedback BEFORE saving
-    const liveCustoProjetado = useMemo(() => {
-        const ct = (decisaoFornecedorTela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : ((decisaoFornecedorTela === 'B') ? (simulacao.Fornecedor_S1_Tela_B_Custo || 0) : 0);
-        const cc = (decisaoFornecedorChip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : ((decisaoFornecedorChip === 'D') ? (simulacao.Fornecedor_S1_Chip_D_Custo || 0) : 0);
+    const liveCustoProjetadoS1 = useMemo(() => {
+        const ct = (telaS1 === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : ((telaS1 === 'B') ? (simulacao.Fornecedor_S1_Tela_B_Custo || 0) : 0);
+        const cc = (chipS1 === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : ((chipS1 === 'D') ? (simulacao.Fornecedor_S1_Chip_D_Custo || 0) : 0);
         const cb = ct + cc;
         const cvmb = (simulacao.Custo_Variavel_Montagem_Base || 0);
         const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
         const custoVariavelMontagemCorrigido = cvmb * Math.pow(1 + taxaInflacaoRodada, rodadaDecisao - 1); 
         return custoVariavelMontagemCorrigido + cb;
-    }, [simulacao, decisaoFornecedorTela, decisaoFornecedorChip, rodadaDecisao]);
+    }, [simulacao, telaS1, chipS1, rodadaDecisao]);
+
+    const liveCustoProjetadoS2 = useMemo(() => {
+        const ct = (telaS2 === 'A') ? (simulacao.Fornecedor_S2_Tela_A_Custo || 0) : ((telaS2 === 'B') ? (simulacao.Fornecedor_S2_Tela_B_Custo || 0) : 0);
+        const cc = (chipS2 === 'C') ? (simulacao.Fornecedor_S2_Chip_C_Custo || 0) : ((chipS2 === 'D') ? (simulacao.Fornecedor_S2_Chip_D_Custo || 0) : 0);
+        const cb = ct + cc;
+        const cvmb = (simulacao.Custo_Variavel_Montagem_Base || 0);
+        const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
+        const custoVariavelMontagemCorrigido = cvmb * Math.pow(1 + taxaInflacaoRodada, rodadaDecisao - 1); 
+        return custoVariavelMontagemCorrigido + cb;
+    }, [simulacao, telaS2, chipS2, rodadaDecisao]);
 
     return ( 
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in"> 
-            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">2. Decisões de Rede</h3> 
-            <div className="bg-gray-900 p-4 rounded-lg mb-6 text-center">
-                <p className="text-sm text-gray-400">Custo Unitário da Rede (com Seleção Atual)</p>
-                <p className="text-xl font-bold text-white">{formatCustoUnitario(liveCustoProjetado)}</p>
-                <p className="text-xs text-gray-500 mt-1">Custo Base Inflacionado + Fornecedor Tela + Fornecedor Chip</p>
+            <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">2. Decisões de Rede de Fornecedores</h3> 
+            
+            {/* Segmento 1 */}
+            <div className="bg-gray-900 p-4 rounded-lg mt-4 border border-gray-700">
+                <h4 className="text-xl font-semibold text-white mb-4">Segmento: {simulacao?.Segmento1_Nome || 'Premium'}</h4>
+                <div className="mb-6 text-center">
+                    <p className="text-sm text-gray-400">Custo Unitário da Rede (com Seleção Atual)</p>
+                    <p className="text-xl font-bold text-white">{formatCustoUnitario(liveCustoProjetadoS1)}</p>
+                    <p className="text-xs text-gray-500 mt-1">Custo Base Inflacionado + Fornecedor Tela + Fornecedor Chip</p>
+                </div>
+                <fieldset className="space-y-3" disabled={isSubmetido}> 
+                    <legend className="text-lg font-semibold text-gray-200 mb-2">Fornecedor de Telas ({simulacao?.Segmento1_Nome || 'Premium'})</legend> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${telaS1 === 'A' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="telaS1" value="A" checked={telaS1 === 'A'} onChange={(e) => setTelaS1(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção A</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Tela_A_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Tela_A_Custo)}/unid.</p> </label> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${telaS1 === 'B' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="telaS1" value="B" checked={telaS1 === 'B'} onChange={(e) => setTelaS1(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção B</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Tela_B_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Tela_B_Custo)}/unid.</p> </label> 
+                </fieldset> 
+                <fieldset className="space-y-3 mt-4" disabled={isSubmetido}> 
+                    <legend className="text-lg font-semibold text-gray-200 mb-2">Fornecedor de Chips ({simulacao?.Segmento1_Nome || 'Premium'})</legend> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${chipS1 === 'C' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="chipS1" value="C" checked={chipS1 === 'C'} onChange={(e) => setChipS1(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção C</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Chip_C_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Chip_C_Custo)}/unid.</p> </label> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${chipS1 === 'D' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="chipS1" value="D" checked={chipS1 === 'D'} onChange={(e) => setChipS1(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção D</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Chip_D_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Chip_D_Custo)}/unid.</p> </label> 
+                </fieldset>
             </div>
-            <fieldset className="space-y-3" disabled={isSubmetido}> 
-                <legend className="text-xl font-semibold text-gray-200 mb-2">Fornecedor de Telas</legend> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'A' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="A" checked={decisaoFornecedorTela === 'A'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção A</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Tela_A_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Tela_A_Custo)}/unid.</p> </label> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorTela === 'B' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_tela" value="B" checked={decisaoFornecedorTela === 'B'} onChange={(e) => setDecisaoFornecedorTela(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção B</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Tela_B_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Tela_B_Custo)}/unid.</p> </label> 
-            </fieldset> 
-            <fieldset className="space-y-3" disabled={isSubmetido}> 
-                <legend className="text-xl font-semibold text-gray-200 mb-2">Fornecedor de Chips</legend> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'C' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="C" checked={decisaoFornecedorChip === 'C'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção C</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Chip_C_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Chip_C_Custo)}/unid.</p> </label> 
-                <label className={`block p-4 rounded-lg border-2 transition-colors ${decisaoFornecedorChip === 'D' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="fornecedor_chip" value="D" checked={decisaoFornecedorChip === 'D'} onChange={(e) => setDecisaoFornecedorChip(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção D</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S1_Chip_D_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S1_Chip_D_Custo)}/unid.</p> </label> 
-            </fieldset> 
+
+            {/* Segmento 2 */}
+            <div className="bg-gray-900 p-4 rounded-lg mt-6 border border-gray-700">
+                <h4 className="text-xl font-semibold text-white mb-4">Segmento: {simulacao?.Segmento2_Nome || 'Massa'}</h4>
+                <div className="mb-6 text-center">
+                    <p className="text-sm text-gray-400">Custo Unitário da Rede (com Seleção Atual)</p>
+                    <p className="text-xl font-bold text-white">{formatCustoUnitario(liveCustoProjetadoS2)}</p>
+                    <p className="text-xs text-gray-500 mt-1">Custo Base Inflacionado + Fornecedor Tela + Fornecedor Chip</p>
+                </div>
+                <fieldset className="space-y-3" disabled={isSubmetido}> 
+                    <legend className="text-lg font-semibold text-gray-200 mb-2">Fornecedor de Telas ({simulacao?.Segmento2_Nome || 'Massa'})</legend> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${telaS2 === 'A' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="telaS2" value="A" checked={telaS2 === 'A'} onChange={(e) => setTelaS2(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção A</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S2_Tela_A_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S2_Tela_A_Custo)}/unid.</p> </label> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${telaS2 === 'B' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="telaS2" value="B" checked={telaS2 === 'B'} onChange={(e) => setTelaS2(e.target.value)} className="hidden" disabled={isSubmetido} /> <span className="font-bold text-lg text-white">Opção B</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S2_Tela_B_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S2_Tela_B_Custo)}/unid.</p> </label> 
+                </fieldset> 
+                <fieldset className="space-y-3 mt-4" disabled={isSubmetido}> 
+                    <legend className="text-lg font-semibold text-gray-200 mb-2">Fornecedor de Chips ({simulacao?.Segmento2_Nome || 'Massa'})</legend> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${chipS2 === 'C' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="chipS2" value="C" checked={chipS2 === 'C'} onChange={(e) => setChipS2(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção C</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S2_Chip_C_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S2_Chip_C_Custo)}/unid.</p> </label> 
+                    <label className={`block p-4 rounded-lg border-2 transition-colors ${chipS2 === 'D' ? 'border-cyan-500 bg-gray-700' : 'border-gray-600 bg-gray-900 hover:border-cyan-700'} ${isSubmetido ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}> <input type="radio" name="chipS2" value="D" checked={chipS2 === 'D'} onChange={(e) => setChipS2(e.target.value)} className="hidden" disabled={isSubmetido}/> <span className="font-bold text-lg text-white">Opção D</span> <p className="text-sm text-gray-300 mt-1">{simulacao.Fornecedor_S2_Chip_D_Desc}</p> <p className="text-lg font-semibold text-cyan-300 mt-1">Custo: {formatCustoUnitario(simulacao.Fornecedor_S2_Chip_D_Custo)}/unid.</p> </label> 
+                </fieldset>
+            </div>
+
             {!isSubmetido && feedback && <p className={`text-sm text-center font-medium ${feedback.includes('sucesso') ? 'text-green-400' : 'text-red-400'}`}>{feedback}</p>} 
-            {!isSubmetido && ( <div className="text-right mt-6"> <button onClick={handleSave} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg transition-colors disabled:opacity-50" disabled={loading}> {loading ? 'Salvando...' : 'Salvar Decisão da Rede'} </button> </div> )} 
+            {!isSubmetido && ( <div className="text-right mt-6"> <button onClick={handleSave} className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-6 rounded-lg transition-colors disabled:opacity-50" disabled={loading}> {loading ? 'Salvando...' : 'Salvar Decisões da Rede'} </button> </div> )} 
         </div> 
     );
 }
@@ -318,21 +375,35 @@ function AbaPD({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, i
 }
 
 // --- Componente da Aba Operações ---
-function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido, custoUnitarioProjetado }) { 
-    const [producaoPlanejada, setProducaoPlanejada] = useState(''); const [investExpansao, setInvestExpansao] = useState('');
+function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido, custoUnitarioProjetadoS1, custoUnitarioProjetadoS2 }) { 
+    const [producaoPlanejadaS1, setProducaoPlanejadaS1] = useState(''); 
+    const [producaoPlanejadaS2, setProducaoPlanejadaS2] = useState(''); 
+    const [investExpansao, setInvestExpansao] = useState('');
     const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); const [erroForm, setErroForm] = useState({});
     const capacidadeAtual = estadoRodada?.Capacidade_Fabrica || 0; const custoLote = simulacao?.Custo_Expansao_Lote || 0; const incrementoLote = simulacao?.Incremento_Capacidade_Lote || 0;
-    useEffect(() => { setProducaoPlanejada(decisoes.Producao_Planejada || ''); setInvestExpansao(decisoes.Invest_Expansao_Fabrica || ''); }, [decisoes]);
-    const handleProducaoChange = (e) => setProducaoPlanejada(e.target.value); const handleExpansaoChange = (e) => setInvestExpansao(e.target.value);
+    
+    useEffect(() => { 
+        setProducaoPlanejadaS1(decisoes.Producao_Planejada_S1 || ''); 
+        setProducaoPlanejadaS2(decisoes.Producao_Planejada_S2 || ''); 
+        setInvestExpansao(decisoes.Invest_Expansao_Fabrica || ''); 
+    }, [decisoes]);
+    
+    const handleProducaoS1Change = (e) => setProducaoPlanejadaS1(e.target.value); 
+    const handleProducaoS2Change = (e) => setProducaoPlanejadaS2(e.target.value); 
+    const handleExpansaoChange = (e) => setInvestExpansao(e.target.value);
     
     const formatBRL = (num) => (Number(num) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const formatNumber = (num) => (Number(num) || 0).toLocaleString('pt-BR');
     
-    const custoTotalProjetado = (Number(producaoPlanejada) || 0) * custoUnitarioProjetado;
+    const custoTotalProjetadoS1 = (Number(producaoPlanejadaS1) || 0) * (custoUnitarioProjetadoS1 || 0);
+    const custoTotalProjetadoS2 = (Number(producaoPlanejadaS2) || 0) * (custoUnitarioProjetadoS2 || 0);
+    const custoTotalProjetado = custoTotalProjetadoS1 + custoTotalProjetadoS2;
 
     const validarCampos = () => {
-        const erros = {}; const pNum = Number(producaoPlanejada) || 0; const eNum = Number(investExpansao) || 0;
-        if (pNum < 0) erros.producao='Negativo?'; else if (pNum > capacidadeAtual) erros.producao = `Excede ${formatNumber(capacidadeAtual)} unid.`;
+        const erros = {}; const pNumS1 = Number(producaoPlanejadaS1) || 0; const pNumS2 = Number(producaoPlanejadaS2) || 0; const eNum = Number(investExpansao) || 0;
+        if (pNumS1 < 0) erros.producaoS1='Negativo?'; 
+        if (pNumS2 < 0) erros.producaoS2='Negativo?'; 
+        if ((pNumS1 + pNumS2) > capacidadeAtual) erros.producaoTotal = `Total excede ${formatNumber(capacidadeAtual)} unid.`;
         if (eNum < 0) erros.expansao='Negativo?'; else if (custoLote > 0 && eNum % custoLote !== 0) erros.expansao = `Múltiplo de ${formatBRL(custoLote)}`;
         setErroForm(erros); return Object.keys(erros).length === 0;
     };
@@ -340,7 +411,12 @@ function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
         setLoading(true); setFeedback(''); setErroForm({});
         if (!validarCampos()) { setLoading(false); setFeedback('Erros no form.'); return; }
         try {
-            await setDoc(decisaoRef, { Rodada: rodadaDecisao, Producao_Planejada: Number(producaoPlanejada) || 0, Invest_Expansao_Fabrica: Number(investExpansao) || 0, }, { merge: true });
+            await setDoc(decisaoRef, { 
+                Rodada: rodadaDecisao, 
+                Producao_Planejada_S1: Number(producaoPlanejadaS1) || 0, 
+                Producao_Planejada_S2: Number(producaoPlanejadaS2) || 0, 
+                Invest_Expansao_Fabrica: Number(investExpansao) || 0, 
+            }, { merge: true });
             setFeedback('Salvo!'); setTimeout(() => setFeedback(''), 3000);
         } catch (error) { console.error("Erro:", error); setFeedback('Falha.'); }
         setLoading(false);
@@ -350,14 +426,29 @@ function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
             <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">4. Decisões de Operações</h3>
             <fieldset className="space-y-3" disabled={isSubmetido}>
                 <legend className="text-xl font-semibold text-gray-200 mb-2">Produção (OPEX)</legend>
-                <div className="bg-gray-900 p-4 rounded-lg mb-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div><p className="text-gray-300">Capacidade Atual:</p><p className="font-bold text-cyan-400 text-lg">{formatNumber(capacidadeAtual)} <span className="text-sm">Unid.</span></p></div>
-                    <div><p className="text-gray-300">Custo Unit. Projetado (Base):</p><p className="font-bold text-cyan-400 text-lg">{formatBRL(custoUnitarioProjetado)}</p></div>
-                    <div><p className="text-gray-300">Custo Total da Produção:</p><p className="font-bold text-yellow-400 text-lg">{formatBRL(custoTotalProjetado)}</p></div>
+                <div className="bg-gray-900 p-4 rounded-lg mb-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div><p className="text-gray-300">Capacidade Atual da Fábrica:</p><p className="font-bold text-cyan-400 text-lg">{formatNumber(capacidadeAtual)} <span className="text-sm">Unid.</span></p></div>
+                    <div><p className="text-gray-300">Custo Total Projetado da Produção:</p><p className="font-bold text-yellow-400 text-lg">{formatBRL(custoTotalProjetado)}</p></div>
                 </div>
-                <InputNumericoMasked id="Producao_Planejada" name="Producao_Planejada" label="Unidades a Produzir" value={producaoPlanejada} onChange={handleProducaoChange} onBlur={validarCampos} sufixo="Unid." required disabled={isSubmetido} />
-                {erroForm.producao && <p className="text-red-400 text-sm mt-1">{erroForm.producao}</p>}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-gray-700 p-4 rounded-lg">
+                        <h4 className="text-lg font-semibold text-white mb-2">{simulacao?.Segmento1_Nome || 'Premium'}</h4>
+                        <p className="text-xs text-gray-400 mb-2">Custo Unitário (Base + Fornecedores): <span className="text-cyan-300">{formatBRL(custoUnitarioProjetadoS1)}</span></p>
+                        <InputNumericoMasked id="Producao_Planejada_S1" name="Producao_Planejada_S1" label={`Unidades a Produzir (${simulacao?.Segmento1_Nome || 'Premium'})`} value={producaoPlanejadaS1} onChange={handleProducaoS1Change} onBlur={validarCampos} sufixo="Unid." required disabled={isSubmetido} />
+                        {erroForm.producaoS1 && <p className="text-red-400 text-sm mt-1">{erroForm.producaoS1}</p>}
+                    </div>
+                    
+                    <div className="bg-gray-700 p-4 rounded-lg">
+                        <h4 className="text-lg font-semibold text-white mb-2">{simulacao?.Segmento2_Nome || 'Massa'}</h4>
+                        <p className="text-xs text-gray-400 mb-2">Custo Unitário (Base + Fornecedores): <span className="text-cyan-300">{formatBRL(custoUnitarioProjetadoS2)}</span></p>
+                        <InputNumericoMasked id="Producao_Planejada_S2" name="Producao_Planejada_S2" label={`Unidades a Produzir (${simulacao?.Segmento2_Nome || 'Massa'})`} value={producaoPlanejadaS2} onChange={handleProducaoS2Change} onBlur={validarCampos} sufixo="Unid." required disabled={isSubmetido} />
+                        {erroForm.producaoS2 && <p className="text-red-400 text-sm mt-1">{erroForm.producaoS2}</p>}
+                    </div>
+                </div>
+                {erroForm.producaoTotal && <p className="text-red-400 text-sm mt-2 text-center font-bold bg-red-900 p-2 rounded">{erroForm.producaoTotal}</p>}
             </fieldset>
+            
             <fieldset className="space-y-3 pt-4 border-t border-gray-700" disabled={isSubmetido}>
                 <legend className="text-xl font-semibold text-gray-200 mb-2">Expansão (CAPEX)</legend>
                 <div className="bg-gray-900 p-4 rounded-lg mb-4"> <p className="text-gray-300 text-sm"> Cada lote custa <span className="font-semibold text-cyan-400">{formatBRL(custoLote)}</span> e adiciona <span className="font-semibold text-cyan-400"> {formatNumber(incrementoLote)}</span> unid. à capacidade da <span className="font-bold text-white">próxima rodada</span>. </p> </div>
@@ -371,13 +462,14 @@ function AbaOperacoes({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
 }
 
 // --- Componente da Aba Marketing ---
-function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido, custoUnitarioProjetado }) {
+function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDecisao, isSubmetido, custoUnitarioProjetadoS1, custoUnitarioProjetadoS2 }) {
     const [precoSeg1, setPrecoSeg1] = useState(''); const [mktSeg1, setMktSeg1] = useState(''); const [precoSeg2, setPrecoSeg2] = useState(''); const [mktSeg2, setMktSeg2] = useState('');
     const [loading, setLoading] = useState(false); const [feedback, setFeedback] = useState(''); const [modalAjudaVisivel, setModalAjudaVisivel] = useState(false);
     
-    const markupSeg1 = custoUnitarioProjetado > 0 && (Number(precoSeg1) || 0) > 0 ? (((Number(precoSeg1) / custoUnitarioProjetado) - 1) * 100) : 0;
-    const markupSeg2 = custoUnitarioProjetado > 0 && (Number(precoSeg2) || 0) > 0 ? (((Number(precoSeg2) / custoUnitarioProjetado) - 1) * 100) : 0;
-    const custoUnitarioAnterior = estadoRodada?.Custo_Variavel_Unitario_Medio || 0;
+    const markupSeg1 = custoUnitarioProjetadoS1 > 0 && (Number(precoSeg1) || 0) > 0 ? (((Number(precoSeg1) / custoUnitarioProjetadoS1) - 1) * 100) : 0;
+    const markupSeg2 = custoUnitarioProjetadoS2 > 0 && (Number(precoSeg2) || 0) > 0 ? (((Number(precoSeg2) / custoUnitarioProjetadoS2) - 1) * 100) : 0;
+    const custoUnitarioAnteriorS1 = estadoRodada?.Custo_Unitario_S1 || 0;
+    const custoUnitarioAnteriorS2 = estadoRodada?.Custo_Unitario_S2 || 0;
 
     useEffect(() => { setPrecoSeg1(decisoes.Preco_Segmento_1 || ''); setMktSeg1(decisoes.Marketing_Segmento_1 || ''); setPrecoSeg2(decisoes.Preco_Segmento_2 || ''); setMktSeg2(decisoes.Marketing_Segmento_2 || ''); }, [decisoes]);
     const handlePreco1Change = (e) => setPrecoSeg1(e.target.value); const handleMkt1Change = (e) => setMktSeg1(e.target.value); const handlePreco2Change = (e) => setPrecoSeg2(e.target.value); const handleMkt2Change = (e) => setMktSeg2(e.target.value);
@@ -387,12 +479,13 @@ function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mt-6 space-y-6 animate-fade-in">
             <h3 className="text-2xl font-semibold text-cyan-400 border-b-2 border-cyan-500 pb-2">5. Decisões de Marketing</h3>
-            <div className="bg-gray-900 p-4 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <p className="text-gray-300"> Custo Unit. (Rodada {estadoRodada?.Rodada ?? 0}): <span className="font-bold text-white">{formatBRLDisplay(custoUnitarioAnterior)}</span> </p>
-                <p className="text-gray-300"> Custo Unit. Projetado (Base): <span className="font-bold text-cyan-400">{formatBRLDisplay(custoUnitarioProjetado)}</span> <span onClick={() => alert('Custo projetado = Custo Montagem Base + Custos Fornecedores (Aba 1). O custo real final será impactado pela inflação da rodada.')} className="inline-block ml-1 cursor-pointer align-middle"><IconeInfo /></span> </p>
-            </div>
-            <fieldset className="space-y-4 pt-4 border-t border-gray-700" disabled={isSubmetido}>
+            
+            <fieldset className="space-y-4" disabled={isSubmetido}>
                 <legend className="text-xl font-semibold text-gray-200 mb-2">Segmento: {simulacao?.Segmento1_Nome || 'Seg. 1'}</legend>
+                <div className="bg-gray-900 p-4 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
+                    <p className="text-gray-300"> Custo Unit. Ant. (R{estadoRodada?.Rodada ?? 0}): <span className="font-bold text-white">{formatBRLDisplay(custoUnitarioAnteriorS1)}</span> </p>
+                    <p className="text-gray-300"> Custo Unit. Proj. (Base): <span className="font-bold text-cyan-400">{formatBRLDisplay(custoUnitarioProjetadoS1)}</span> </p>
+                </div>
                 <div> 
                     <h4 className="text-lg font-medium text-gray-400 mb-2">Precificação</h4> 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> 
@@ -402,8 +495,13 @@ function AbaMarketing({ simulacao, estadoRodada, decisoes, decisaoRef, rodadaDec
                 </div>
                 <div className="pt-4 border-t border-gray-600"> <h4 className="text-lg font-medium text-gray-400 mb-2 flex items-center"> Investimento em Marketing <span onClick={() => setModalAjudaVisivel(true)} className="cursor-pointer"><IconeInfo /></span> </h4> <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> <InputMoedaMasked id="Marketing_Segmento_1" name="Marketing_Segmento_1" label="Investimento Total (R$)" value={mktSeg1} onChange={handleMkt1Change} required disabled={isSubmetido} /> </div> </div>
             </fieldset>
+            
             <fieldset className="space-y-4 pt-4 border-t border-gray-700" disabled={isSubmetido}>
                 <legend className="text-xl font-semibold text-gray-200 mb-2">Segmento: {simulacao?.Segmento2_Nome || 'Seg. 2'}</legend>
+                <div className="bg-gray-900 p-4 rounded-lg grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
+                    <p className="text-gray-300"> Custo Unit. Ant. (R{estadoRodada?.Rodada ?? 0}): <span className="font-bold text-white">{formatBRLDisplay(custoUnitarioAnteriorS2)}</span> </p>
+                    <p className="text-gray-300"> Custo Unit. Proj. (Base): <span className="font-bold text-cyan-400">{formatBRLDisplay(custoUnitarioProjetadoS2)}</span> </p>
+                </div>
                 <div> 
                     <h4 className="text-lg font-medium text-gray-400 mb-2">Precificação</h4> 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> 
@@ -698,9 +796,9 @@ function SimuladorPainel() {
      const abasRelatorio = [ { id: 'briefing', label: 'Briefing e Resultados' }, ];
      const chavesPorAba = { 
          estrategia: [],
-         rede: ['Escolha_Fornecedor_Tela', 'Escolha_Fornecedor_Chip'], 
+         rede: ['Escolha_Fornecedor_S1_Tela', 'Escolha_Fornecedor_S1_Chip', 'Escolha_Fornecedor_S2_Tela', 'Escolha_Fornecedor_S2_Chip'], 
          pd: ['Invest_PD_Camera', 'Invest_PD_Bateria', 'Invest_PD_Sist_Operacional_e_IA', 'Invest_PD_Atualizacao_Geral'], 
-         operacoes: ['Producao_Planejada', 'Invest_Expansao_Fabrica'], 
+         operacoes: ['Producao_Planejada_S1', 'Producao_Planejada_S2', 'Invest_Expansao_Fabrica'], 
          marketing: ['Preco_Segmento_1', 'Marketing_Segmento_1', 'Preco_Segmento_2', 'Marketing_Segmento_2'], 
          financas: ['Tomar_Emprestimo_CP', 'Tomar_Financiamento_LP', 'Amortizar_Divida_LP'], 
          organizacao: ['Invest_Organiz_Capacitacao', 'Invest_Organiz_Mkt_Institucional', 'Invest_Organiz_ESG'],
@@ -740,16 +838,27 @@ function SimuladorPainel() {
      useEffect(() => { if (isSubmetido && abasDecisao.some(a => a.id === abaAtiva)) { setAbaAtiva('briefing'); } }, [isSubmetido, abaAtiva, abasDecisao]);
 
     
-    const custoUnitarioProjetado = useMemo(() => {
+    const custoUnitarioProjetadoS1 = useMemo(() => {
         if (!simulacao || !decisoes) return 0;
-        const ct = (decisoes.Escolha_Fornecedor_Tela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : (simulacao.Fornecedor_S1_Tela_B_Custo || 0);
-        const cc = (decisoes.Escolha_Fornecedor_Chip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : (simulacao.Fornecedor_S1_Chip_D_Custo || 0);
+        const ct = (decisoes.Escolha_Fornecedor_S1_Tela === 'A') ? (simulacao.Fornecedor_S1_Tela_A_Custo || 0) : (simulacao.Fornecedor_S1_Tela_B_Custo || 0);
+        const cc = (decisoes.Escolha_Fornecedor_S1_Chip === 'C') ? (simulacao.Fornecedor_S1_Chip_C_Custo || 0) : (simulacao.Fornecedor_S1_Chip_D_Custo || 0);
         const cb = ct + cc;
         const cvmb = (simulacao.Custo_Variavel_Montagem_Base || 0);
         const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
         const custoVariavelMontagemCorrigido = cvmb * Math.pow(1 + taxaInflacaoRodada, rodadaDecisao - 1); 
         return custoVariavelMontagemCorrigido + cb;
-    }, [simulacao, decisoes.Escolha_Fornecedor_Tela, decisoes.Escolha_Fornecedor_Chip, rodadaDecisao]);
+    }, [simulacao, decisoes.Escolha_Fornecedor_S1_Tela, decisoes.Escolha_Fornecedor_S1_Chip, rodadaDecisao]);
+
+    const custoUnitarioProjetadoS2 = useMemo(() => {
+        if (!simulacao || !decisoes) return 0;
+        const ct = (decisoes.Escolha_Fornecedor_S2_Tela === 'A') ? (simulacao.Fornecedor_S2_Tela_A_Custo || 0) : (simulacao.Fornecedor_S2_Tela_B_Custo || 0);
+        const cc = (decisoes.Escolha_Fornecedor_S2_Chip === 'C') ? (simulacao.Fornecedor_S2_Chip_C_Custo || 0) : (simulacao.Fornecedor_S2_Chip_D_Custo || 0);
+        const cb = ct + cc;
+        const cvmb = (simulacao.Custo_Variavel_Montagem_Base || 0);
+        const taxaInflacaoRodada = (simulacao.Taxa_Base_Inflacao || 0) / 100 / 4;
+        const custoVariavelMontagemCorrigido = cvmb * Math.pow(1 + taxaInflacaoRodada, rodadaDecisao - 1); 
+        return custoVariavelMontagemCorrigido + cb;
+    }, [simulacao, decisoes.Escolha_Fornecedor_S2_Tela, decisoes.Escolha_Fornecedor_S2_Chip, rodadaDecisao]);
 
 
     if (loading || !simulacao || !empresa) { 
@@ -834,9 +943,9 @@ function SimuladorPainel() {
                          
                          {abaAtiva === 'pd' && <AbaPD simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} />}
                          
-                         {abaAtiva === 'operacoes' && <AbaOperacoes simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} custoUnitarioProjetado={custoUnitarioProjetado} />}
+                         {abaAtiva === 'operacoes' && <AbaOperacoes simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} custoUnitarioProjetadoS1={custoUnitarioProjetadoS1} custoUnitarioProjetadoS2={custoUnitarioProjetadoS2} />}
                          
-                         {abaAtiva === 'marketing' && <AbaMarketing simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} custoUnitarioProjetado={custoUnitarioProjetado} />}
+                         {abaAtiva === 'marketing' && <AbaMarketing simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} custoUnitarioProjetadoS1={custoUnitarioProjetadoS1} custoUnitarioProjetadoS2={custoUnitarioProjetadoS2} />}
                          
                          {abaAtiva === 'financas' && <AbaFinancas simulacao={simulacao} estadoRodada={estadoRodada} decisoes={decisoes} decisaoRef={decisaoRef} rodadaDecisao={rodadaDecisao} isSubmetido={isSubmetido} rodadaRelatorio={rodadaRelatorio} />}
                          
@@ -850,7 +959,8 @@ function SimuladorPainel() {
                                  decisaoRef={decisaoRef} 
                                  rodadaDecisoes={rodadaDecisao} 
                                  rodadaRelatorio={rodadaRelatorio}
-                                 custoUnitarioProjetado={custoUnitarioProjetado} 
+                                 custoUnitarioProjetadoS1={custoUnitarioProjetadoS1}
+                                 custoUnitarioProjetadoS2={custoUnitarioProjetadoS2} 
                              />
                          )}
                      </>
