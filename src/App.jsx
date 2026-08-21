@@ -30,6 +30,8 @@ import SimuladorRelatorio from './pages/SimuladorRelatorio'; // Corrigido
 import SimuladorAnalyticsVendas from './pages/SimuladorAnalyticsVendas'; // Corrigido
 import InteligenciaCompetitiva from './pages/InteligenciaCompetitiva'; // NOVO MÓDULO
 import RedeNegocios from './pages/RedeNegocios';
+import AdmSIOrganizacao from './pages/AdmSIOrganizacao';
+import AdmSIGovernanca from './pages/AdmSIGovernanca';
 
 
 // --- Layouts e Rotas ---
@@ -51,6 +53,8 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         if (pathname.startsWith('/simulador/painel/')) { return 'Painel da Empresa'; }
         if (pathname === '/simulador') { return 'Simulador'; }
         if (pathname === '/rede-negocios') { return 'Rede de Negócios'; }
+        if (pathname === '/adm-si/organizacao') { return 'Adm SI - Organização'; }
+        if (pathname === '/adm-si/governanca') { return 'Adm SI - Matriz Transacional'; }
         const nomeDaPagina = pathname.split('/').pop().replace(/-/g, ' ') || 'dashboard';
         return nomeDaPagina.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
     };
@@ -147,6 +151,8 @@ function App() {
                 <Route path="simulador/painel/:simulacaoId/:empresaId" element={<SimuladorPainel />} />
                 <Route path="inteligencia-competitiva" element={<InteligenciaCompetitiva />} />
                 <Route path="rede-negocios" element={<RedeNegocios perfilUsuario={perfilUsuario} />} />
+                <Route path="adm-si/organizacao" element={<AdmSIOrganizacao />} />
+                <Route path="adm-si/governanca" element={<AdmSIGovernanca />} />
 
                 {/* Rotas de Admin/Professor do Simulador */}
                  <Route element={<ProfessorAdminRoute perfilUsuario={perfilUsuario} />}>
