@@ -17,20 +17,6 @@ function DidacticInfo({ id, title, text, activeTooltipId, setActiveTooltipId, al
         setActiveTooltipId(isOpen ? null : id);
     };
 
-    let tooltipClasses = "absolute bottom-full mb-2 bg-gray-900 border border-cyan-500/50 p-4 rounded-xl shadow-2xl z-50 w-72 sm:w-80 text-[11px] font-normal text-gray-300 leading-relaxed animate-fade-in-up ";
-    let arrowClasses = "absolute top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-gray-900 ";
-
-    if (align === "left") {
-        tooltipClasses += "left-0";
-        arrowClasses += "left-4";
-    } else if (align === "right") {
-        tooltipClasses += "right-0";
-        arrowClasses += "right-4";
-    } else {
-        tooltipClasses += "left-1/2 -translate-x-1/2";
-        arrowClasses += "left-1/2 -translate-x-1/2";
-    }
-
     return (
         <div className="inline-block ml-2 relative align-middle">
             <button 
@@ -42,14 +28,58 @@ function DidacticInfo({ id, title, text, activeTooltipId, setActiveTooltipId, al
                 i
             </button>
             {isOpen && (
-                <div className={tooltipClasses} onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-between items-center mb-2 border-b border-cyan-900 pb-1">
-                        <strong className="text-cyan-400 uppercase tracking-wider text-[9px]">{title}</strong>
-                        <button type="button" onClick={() => setActiveTooltipId(null)} className="text-gray-500 hover:text-white font-bold">&times;</button>
+                <>
+                    {/* VERSÃO MOBILE: Modal centralizado na tela com fundo semi-transparente */}
+                    <div 
+                        className="sm:hidden fixed inset-0 bg-black/75 z-[100] flex items-center justify-center p-4 animate-fade-in"
+                        onClick={() => setActiveTooltipId(null)}
+                    >
+                        <div 
+                            className="bg-gray-900 border border-cyan-500/40 p-5 rounded-2xl shadow-2xl w-full max-w-xs text-left relative space-y-3 animate-fade-in-up"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex justify-between items-center border-b border-cyan-900/60 pb-2">
+                                <strong className="text-cyan-400 uppercase tracking-wider text-[11px] font-bold">{title}</strong>
+                                <button 
+                                    type="button" 
+                                    onClick={() => setActiveTooltipId(null)} 
+                                    className="text-gray-400 hover:text-white font-bold text-lg leading-none"
+                                >
+                                    &times;
+                                </button>
+                            </div>
+                            <p className="whitespace-pre-line text-xs font-normal text-gray-200 leading-relaxed">
+                                {text}
+                            </p>
+                            <div className="pt-2 text-right">
+                                <button 
+                                    type="button" 
+                                    onClick={() => setActiveTooltipId(null)} 
+                                    className="bg-cyan-600 hover:bg-cyan-500 text-gray-950 font-bold text-[10px] px-3.5 py-1.5 rounded-lg transition-all shadow"
+                                >
+                                    Entendi
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <p className="whitespace-pre-line">{text}</p>
-                    <div className={arrowClasses}></div>
-                </div>
+
+                    {/* VERSÃO DESKTOP: Balão flutuante absoluto ao lado do ícone */}
+                    <div 
+                        className={`hidden sm:block absolute bottom-full mb-2 bg-gray-900 border border-cyan-500/50 p-4 rounded-xl shadow-2xl z-50 w-80 text-[11px] font-normal text-gray-300 leading-relaxed animate-fade-in-up ${
+                            align === "left" ? "left-0" : align === "right" ? "right-0" : "left-1/2 -translate-x-1/2"
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex justify-between items-center mb-2 border-b border-cyan-900 pb-1">
+                            <strong className="text-cyan-400 uppercase tracking-wider text-[9px] font-bold">{title}</strong>
+                            <button type="button" onClick={() => setActiveTooltipId(null)} className="text-gray-500 hover:text-white font-bold">&times;</button>
+                        </div>
+                        <p className="whitespace-pre-line">{text}</p>
+                        <div className={`absolute top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-gray-900 ${
+                            align === "left" ? "left-4" : align === "right" ? "right-4" : "left-1/2 -translate-x-1/2"
+                        }`}></div>
+                    </div>
+                </>
             )}
         </div>
     );
