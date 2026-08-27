@@ -66,11 +66,20 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         <div className="flex h-screen bg-gray-900 text-white">
             <Sidebar perfilUsuario={perfilUsuario} aberta={sidebarAberta} setSidebarAberta={setSidebarAberta} />
             <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="bg-gray-800 shadow-md p-4 flex justify-between items-center h-16 border-b border-gray-700 flex-shrink-0">
-                    <h1 className="text-2xl font-extrabold text-white whitespace-nowrap"><span className="text-cyan-400">Trilha</span>Digital</h1>
-                    <h2 className="text-xl font-semibold capitalize">{tituloDaPagina}</h2>
+                <header className="bg-gray-800 shadow-md px-4 py-3 flex justify-between items-center h-16 border-b border-gray-700 flex-shrink-0">
+                    <div className="flex items-center gap-3">
+                        <button 
+                            onClick={() => setSidebarAberta(!sidebarAberta)} 
+                            className="lg:hidden p-2 rounded-md hover:bg-gray-700 text-white focus:outline-none"
+                            title="Menu"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                        </button>
+                        <h1 className="text-xl md:text-2xl font-extrabold text-white whitespace-nowrap"><span className="text-cyan-400">Trilha</span>Digital</h1>
+                    </div>
+                    <h2 className="text-sm md:text-lg font-semibold capitalize text-gray-300 truncate max-w-[180px] sm:max-w-xs">{tituloDaPagina}</h2>
                 </header>
-                <main className="flex-1 p-6 sm:p-8 overflow-y-auto bg-gray-900"><Outlet /></main>
+                <main className="flex-1 p-3 sm:p-8 overflow-y-auto bg-gray-900"><Outlet /></main>
             </div>
         </div>
     );
@@ -95,7 +104,21 @@ function ProfessorAdminRoute({ perfilUsuario }) {
 function App() {
     const [perfilUsuario, setPerfilUsuario] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [sidebarAberta, setSidebarAberta] = useState(true);
+    const [sidebarAberta, setSidebarAberta] = useState(window.innerWidth >= 1024);
+
+    // Auto ajustar sidebar com o tamanho da tela
+    useEffect(() => {
+        const handleResize = () => {
+            if (window.innerWidth < 1024) {
+                setSidebarAberta(false);
+            } else {
+                setSidebarAberta(true);
+            }
+        };
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // Efeito de autenticação (inalterado)
     useEffect(() => {

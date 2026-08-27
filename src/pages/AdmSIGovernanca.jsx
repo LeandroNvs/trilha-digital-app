@@ -3,27 +3,118 @@ import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db, appId, auth } from '../firebase/config.js';
 import useCollection from '../hooks/useCollection.js';
 
+// Suggestion Lists for mobile-friendly quick filling
+const SUGESTOES_ATOR = ["Cliente", "Vendedor", "Gerente", "Operador de Caixa", "Sistema (Autônomo)"];
+const SUGESTOES_SINTATICAS = ["CPF com 11 dígitos", "Valor maior que zero", "E-mail obrigatório", "CNPJ com 14 dígitos", "Data de nascimento válida"];
+const SUGESTOES_LOGS = ["UID do Usuário", "Timestamp do Servidor (UTC)", "Endereço IP", "Assinatura Hash", "Payload da Transação"];
+
 // Componente Tooltip Didático
-function DidacticInfo({ title, text }) {
-    const [open, setOpen] = useState(false);
+function DidacticInfo({ id, title, text, activeTooltipId, setActiveTooltipId, align = "center" }) {
+    const isOpen = activeTooltipId === id;
+    
+    const toggle = (e) => {
+        e.stopPropagation();
+        setActiveTooltipId(isOpen ? null : id);
+    };
+
+    let tooltipClasses = "absolute bottom-full mb-2 bg-gray-900 border border-cyan-500/50 p-4 rounded-xl shadow-2xl z-50 w-72 sm:w-80 text-[11px] font-normal text-gray-300 leading-relaxed animate-fade-in-up ";
+    let arrowClasses = "absolute top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-gray-900 ";
+
+    if (align === "left") {
+        tooltipClasses += "left-0";
+        arrowClasses += "left-4";
+    } else if (align === "right") {
+        tooltipClasses += "right-0";
+        arrowClasses += "right-4";
+    } else {
+        tooltipClasses += "left-1/2 -translate-x-1/2";
+        arrowClasses += "left-1/2 -translate-x-1/2";
+    }
+
     return (
         <div className="inline-block ml-2 relative align-middle">
             <button 
                 type="button"
-                onClick={() => setOpen(!open)}
-                className="w-5 h-5 rounded-full bg-cyan-900/50 hover:bg-cyan-800 text-cyan-400 font-bold text-xs flex items-center justify-center border border-cyan-700/50 transition-all focus:outline-none"
+                onClick={toggle}
+                className={`w-4 h-4 rounded-full font-bold text-[10px] flex items-center justify-center border transition-all focus:outline-none ${isOpen ? 'bg-cyan-500 text-gray-900 border-cyan-400' : 'bg-cyan-900/50 hover:bg-cyan-800 text-cyan-400 border-cyan-700/50'}`}
                 title="Clique para ajuda didática"
             >
                 i
             </button>
-            {open && (
-                <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-gray-950 border border-cyan-500/50 p-4 rounded-xl shadow-2xl z-50 w-72 text-xs font-normal text-gray-300 leading-relaxed animate-fade-in-up">
+            {isOpen && (
+                <div className={tooltipClasses} onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-between items-center mb-2 border-b border-cyan-900 pb-1">
-                        <strong className="text-cyan-400 uppercase tracking-wider text-[10px]">{title}</strong>
-                        <button type="button" onClick={() => setOpen(false)} className="text-gray-500 hover:text-white font-bold">&times;</button>
+                        <strong className="text-cyan-400 uppercase tracking-wider text-[9px]">{title}</strong>
+                        <button type="button" onClick={() => setActiveTooltipId(null)} className="text-gray-500 hover:text-white font-bold">&times;</button>
                     </div>
                     <p className="whitespace-pre-line">{text}</p>
-                    <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-gray-950"></div>
+                    <div className={arrowClasses}></div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Sub-componente para renderizar os cards de auditoria com alerta colapsável individual
+function TransactionAuditCard({ item }) {
+    const [showRecommendations, setShowRecommendations] = useState(false);
+    return (
+        <div className="bg-gray-950/70 p-3 rounded-lg border border-gray-800 space-y-2">
+            <div className="flex justify-between items-start gap-4">
+                <div>
+                    <h5 className="font-bold text-white text-[12px]">{item.transacaoAtomica}</h5>
+                    <span className="text-[8px] bg-gray-850 text-gray-400 px-1.5 py-0.5 rounded uppercase font-semibold border border-gray-850 mt-1 inline-block">
+                        {item.dominioNegocio}
+                    </span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded ${item.scorePercent === 100 ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-yellow-950 text-yellow-400 border border-yellow-800'}`}>
+                        {item.scorePercent}%
+                    </span>
+                    {item.scorePercent < 100 && (
+                        <button
+                            type="button"
+                            onClick={() => setShowRecommendations(!showRecommendations)}
+                            className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-xs border transition-all focus:outline-none ${showRecommendations ? 'bg-red-500 text-white border-red-400 animate-pulse' : 'bg-red-950/60 text-red-405 border-red-900/50 hover:bg-red-900/30'}`}
+                            title="Ver recomendações"
+                        >
+                            i
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Barrinha de Cobertura */}
+            <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${item.scorePercent === 100 ? 'bg-emerald-500' : 'bg-yellow-500'}`} style={{ width: `${item.scorePercent}%` }}></div>
+            </div>
+
+            {/* Checkmarks de Governança */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[9px] text-gray-400 font-semibold">
+                <span className={item.coberturaSintatica ? "text-emerald-400" : "text-red-400"}>
+                    {item.coberturaSintatica ? "✓" : "✗"} Controles de Entrada
+                </span>
+                <span className={item.coberturaSod ? "text-emerald-400" : "text-red-400"}>
+                    {item.coberturaSod ? "✓" : "✗"} SoD Vinculado
+                </span>
+                <span className={item.coberturaAuditoria ? "text-emerald-400" : "text-red-400"} title={`Atributos de log cadastrados: ${item.qtdLogs}`}>
+                    {item.coberturaAuditoria ? "✓" : "✗"} Logs ({item.qtdLogs}/4)
+                </span>
+                <span className={item.coberturaSRE ? "text-emerald-400" : "text-red-400"}>
+                    {item.coberturaSRE ? "✓" : "✗"} Continuidade
+                </span>
+            </div>
+
+            {/* Alertas Diagnósticos Colapsáveis */}
+            {item.scorePercent < 100 && showRecommendations && (
+                <div className="bg-red-950/20 border border-red-900/40 p-2 rounded text-[10px] text-red-400/90 leading-normal animate-fade-in-up">
+                    <strong>Recomendações do Auditor:</strong>
+                    <ul className="list-disc list-inside mt-0.5 space-y-0.5 font-medium">
+                        {!item.coberturaSintatica && <li>Configurar controles de entrada de dados para evitar corrupção de entrada.</li>}
+                        {!item.coberturaSod && <li>Vincular uma regra de alçada a um perfil de aprovação SoD.</li>}
+                        {!item.coberturaAuditoria && <li>Adicionar pelo menos 4 atributos de log de auditoria para fins de não-repudiação.</li>}
+                        {!item.coberturaSRE && <li>Planejar a diretriz de risco na queda e o plano de continuidade.</li>}
+                    </ul>
                 </div>
             )}
         </div>
@@ -52,6 +143,15 @@ function AdmSIGovernanca() {
     const toggleAccordion = (name) => {
         setActiveAccordion(activeAccordion === name ? '' : name);
     };
+
+    // Controlador de Tooltips Didáticos (Lógica de fechar os outros ao abrir um)
+    const [activeTooltipId, setActiveTooltipId] = useState(null);
+
+    useEffect(() => {
+        const fecharTodosTooltips = () => setActiveTooltipId(null);
+        window.addEventListener('click', fecharTodosTooltips);
+        return () => window.removeEventListener('click', fecharTodosTooltips);
+    }, []);
 
     // ----------------------------------------------------
     // FORM STATES - SANFONA 1: EVENTOS OPERACIONAIS
@@ -360,6 +460,12 @@ function AdmSIGovernanca() {
         setAtorEntrada(evt.atorEntrada || '');
         setDominioNegocio(evt.dominioNegocio || '');
         setCriticidadeRisco(evt.criticidadeRisco || '');
+
+        // Rolar suavemente de volta para o formulário no celular
+        setTimeout(() => {
+            const el = document.getElementById('accordion-eventos-header');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
     };
 
     const handleCancelarEditarEvento = () => {
@@ -415,6 +521,12 @@ function AdmSIGovernanca() {
     const handleIniciarEditarValidacao = (idx) => {
         setEditandoValidacaoIdx(idx);
         setNovaValidacaoSintatica(validacoesSintaticas[idx]);
+
+        // Rolar de volta para o topo do formulário
+        setTimeout(() => {
+            const el = document.getElementById('accordion-regras-header');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
     };
 
     const handleCancelarEditarValidacao = () => {
@@ -466,6 +578,12 @@ function AdmSIGovernanca() {
         setEditandoRegraSodId(item.id);
         setNovaRegraNegocio(item.regraNegocio || '');
         setNovaSodSistemico(item.sodSistemico || '');
+
+        // Rolar de volta para o topo do formulário
+        setTimeout(() => {
+            const el = document.getElementById('accordion-regras-header');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
     };
 
     const handleCancelarEditarRegraSod = () => {
@@ -506,6 +624,12 @@ function AdmSIGovernanca() {
     const handleIniciarEditarTrilha = (idx) => {
         setEditandoTrilhaIdx(idx);
         setNovaTrilha(trilhaNaoRepudiacao[idx]);
+
+        // Rolar de volta para o topo do formulário
+        setTimeout(() => {
+            const el = document.getElementById('accordion-persistencia-header');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
     };
 
     const handleCancelarEditarTrilha = () => {
@@ -533,8 +657,8 @@ function AdmSIGovernanca() {
     if (meusGrupos.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center p-8 text-center h-[60vh]">
-                <h2 className="text-2xl font-bold text-red-400">Acesso Restrito ou Sem Grupos</h2>
-                <p className="text-gray-400 mt-2">Você precisa estar vinculado a um Grupo (Empresa) para governar o sistema.</p>
+                <h2 className="text-2xl font-bold text-red-400 text-base">Acesso Restrito ou Sem Grupos</h2>
+                <p className="text-gray-400 mt-2 text-xs">Você precisa estar vinculado a um Grupo (Empresa) para governar o sistema.</p>
             </div>
         );
     }
@@ -543,8 +667,8 @@ function AdmSIGovernanca() {
         return (
             <div className="max-w-4xl mx-auto p-4 md:p-8 animate-fade-in">
                 <header className="mb-8 text-center">
-                    <h1 className="text-3xl md:text-4xl font-bold text-cyan-400">Matriz Transacional de Governança</h1>
-                    <p className="text-gray-400 mt-2">Selecione o Grupo para abrir a Matriz Transacional.</p>
+                    <h1 className="text-2xl md:text-3xl font-bold text-cyan-400">Matriz Transacional de Governança</h1>
+                    <p className="text-gray-400 mt-2 text-xs">Selecione o Grupo para abrir a Matriz Transacional.</p>
                 </header>
                 <div className="grid gap-4 sm:grid-cols-2">
                     {meusGrupos.map(grupo => (
@@ -553,8 +677,8 @@ function AdmSIGovernanca() {
                             onClick={() => setSelectedGroupId(grupo.id)}
                             className="bg-gray-800 hover:bg-gray-700 border border-t-cyan-500 border-t-4 p-6 rounded-lg text-left transition-all shadow-lg hover:shadow-cyan-500/20"
                         >
-                            <h3 className="text-xl font-bold text-white mb-2">{grupo.nome} <span className="text-cyan-400 text-sm ml-2">({grupo.sigla})</span></h3>
-                            <p className="text-gray-400 text-sm">{grupo.descricao || 'Sem descrição.'}</p>
+                            <h3 className="text-lg font-bold text-white mb-2">{grupo.nome} <span className="text-cyan-400 text-xs ml-2">({grupo.sigla})</span></h3>
+                            <p className="text-gray-400 text-xs">{grupo.descricao || 'Sem descrição.'}</p>
                         </button>
                     ))}
                 </div>
@@ -565,26 +689,26 @@ function AdmSIGovernanca() {
     const grupoSelecionado = meusGrupos.find(g => g.id === selectedGroupId);
 
     return (
-        <div className="max-w-7xl mx-auto p-4 md:p-8 animate-fade-in mt-6 space-y-6">
+        <div className="max-w-7xl mx-auto p-1 sm:p-4 md:p-8 animate-fade-in mt-2 sm:mt-6 space-y-4 sm:space-y-6">
             
             {/* TOPO FIXO: Exibição da Organização Selecionada */}
-            <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="bg-gray-800 p-4 sm:p-6 rounded-xl border border-gray-700 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h2 className="text-xs font-bold text-cyan-400 uppercase tracking-widest text-[10px]">Organização de Referência</h2>
+                    <h2 className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">Organização de Referência</h2>
                     {dadosASI.organizacao ? (
                         <>
-                            <h3 className="text-2xl font-black text-white mt-1">{dadosASI.organizacao.nomeEmpresa}</h3>
-                            <p className="text-sm text-gray-400 mt-1 line-clamp-1">{dadosASI.organizacao.descricaoNegocio}</p>
+                            <h3 className="text-lg sm:text-2xl font-black text-white mt-1">{dadosASI.organizacao.nomeEmpresa}</h3>
+                            <p className="text-[11px] sm:text-sm text-gray-400 mt-1 line-clamp-1">{dadosASI.organizacao.descricaoNegocio}</p>
                         </>
                     ) : (
-                        <div className="mt-2 text-yellow-400 text-sm font-semibold flex items-center gap-2">
+                        <div className="mt-2 text-yellow-400 text-xs font-semibold flex items-center gap-2">
                             <span>⚠️ Nenhuma Organização vinculada a este grupo ainda!</span>
                             <a href="/adm-si/organizacao" className="underline text-cyan-400 hover:text-cyan-300">Cadastrar Organização agora</a>
                         </div>
                     )}
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-xs bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300">
+                    <span className="text-[11px] bg-gray-900 px-3 py-1.5 rounded-lg border border-gray-700 text-gray-300">
                         Grupo: <strong>{grupoSelecionado?.sigla}</strong>
                     </span>
                     {meusGrupos.length > 1 && (
@@ -595,8 +719,8 @@ function AdmSIGovernanca() {
                 </div>
             </div>
 
-            {erro && <div className="bg-red-900/50 border border-red-500 text-red-300 p-4 rounded-lg">{erro}</div>}
-            {sucesso && <div className="bg-green-900/50 border border-green-500 text-green-300 p-4 rounded-lg">{sucesso}</div>}
+            {erro && <div className="bg-red-900/50 border border-red-500 text-red-300 p-4 rounded-lg text-xs">{erro}</div>}
+            {sucesso && <div className="bg-green-900/50 border border-green-500 text-green-300 p-4 rounded-lg text-xs">{sucesso}</div>}
 
             {/* CONTAINER DO ACORDEÃO VERDADEIRO (COLAPSA AO CLICAR) */}
             <div className="space-y-4">
@@ -605,29 +729,34 @@ function AdmSIGovernanca() {
                 <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
                     <button 
                         type="button"
+                        id="accordion-eventos-header"
                         onClick={() => toggleAccordion('eventos')}
-                        className={`w-full p-5 flex justify-between items-center transition-all text-left font-bold text-lg text-white outline-none focus:outline-none ${activeAccordion === 'eventos' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
+                        className={`w-full p-4 sm:p-5 flex justify-between items-center transition-all text-left font-bold text-sm sm:text-base text-white outline-none focus:outline-none ${activeAccordion === 'eventos' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
                     >
                         <span className="flex items-center gap-2">⚡ 1. Eventos Operacionais</span>
-                        <span className="text-sm font-semibold">{activeAccordion === 'eventos' ? '▲ Recolher' : '▼ Expandir'}</span>
+                        <span className="text-xs font-semibold">{activeAccordion === 'eventos' ? '▲ Recolher' : '▼ Expandir'}</span>
                     </button>
                     {activeAccordion === 'eventos' && (
-                        <div className="p-6 border-t border-gray-700 space-y-6 animate-fade-in">
-                            <div className="border-b border-gray-700 pb-3 flex items-center justify-between">
-                                <h3 className="text-lg font-bold text-gray-300">
+                        <div className="p-3 sm:p-6 border-t border-gray-700 space-y-6 animate-fade-in">
+                            <div className="border-b border-gray-700 pb-2 flex items-center justify-between">
+                                <h3 className="text-sm font-bold text-gray-300">
                                     {eventoEditandoId ? 'Editando Evento Operacional' : 'Cadastro de Transações'}
                                 </h3>
-                                <span className="text-xs text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-1 rounded font-semibold">Fase de Entrada</span>
+                                <span className="text-[10px] text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-0.5 rounded font-semibold">Fase de Entrada</span>
                             </div>
 
-                            <form onSubmit={handleSalvarEvento} className="space-y-4 bg-gray-900/50 p-5 rounded-xl border border-gray-700/50">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <form onSubmit={handleSalvarEvento} className="space-y-3 bg-gray-900/50 p-4 rounded-xl border border-gray-700/50">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-400 mb-1">
-                                            Transação Atômica *
+                                        <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                            Transação *
                                             <DidacticInfo 
-                                                title="Transação Atômica" 
-                                                text="A menor unidade lógica e indivisível de processamento em um sistema. Ela deve ser concluída inteiramente (Commit) ou desfeita em sua totalidade (Rollback).\n\nExemplo: 'Faturamento de Pedido' ou 'Baixa de Estoque'." 
+                                                id="transacao"
+                                                title="Transação" 
+                                                text={"Descreva a ação de negócio relevante que o sistema deve registrar. Uma transação é um evento corporativo que precisa ser executado do início ao fim para ser válido; ela não pode ser feita pela metade.\n\nExemplo: 'Faturamento de Pedido', 'Aprovação de Crédito' ou 'Baixa de Estoque'."} 
+                                                activeTooltipId={activeTooltipId}
+                                                setActiveTooltipId={setActiveTooltipId}
+                                                align="left"
                                             />
                                         </label>
                                         <input 
@@ -636,15 +765,19 @@ function AdmSIGovernanca() {
                                             onChange={e => setTransacaoAtomica(e.target.value)} 
                                             required 
                                             placeholder="Ex: Faturamento de Pedido" 
-                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none" 
+                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-400 mb-1">
-                                            Ator de Entrada *
+                                        <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                            Ator de entrada *
                                             <DidacticInfo 
-                                                title="Ator de Entrada" 
-                                                text="O cargo, papel ou sistema que inicia a transação e insere os dados no sistema de informação.\n\nExemplo: 'Vendedor', 'Cliente via Portal', 'Operador de Caixa'." 
+                                                id="ator"
+                                                title="Ator de entrada" 
+                                                text={"Indica o responsável direto (humano ou máquina) pela execução e registro da atividade no sistema, o que permite mapear responsabilidades e auditar o processo.\n\nExemplo: 'Vendedor', 'Cliente via Portal', 'Operador de Caixa'."} 
+                                                activeTooltipId={activeTooltipId}
+                                                setActiveTooltipId={setActiveTooltipId}
+                                                align="right"
                                             />
                                         </label>
                                         <input 
@@ -653,18 +786,35 @@ function AdmSIGovernanca() {
                                             onChange={e => setAtorEntrada(e.target.value)} 
                                             required 
                                             placeholder="Ex: Vendedor" 
-                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none" 
+                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
                                         />
+                                        {/* SUGESTÕES MOBILE RÁPIDAS */}
+                                        <div className="flex gap-1 overflow-x-auto pb-1 mt-1 scrollbar-none max-w-full">
+                                            {SUGESTOES_ATOR.map(s => (
+                                                <button
+                                                    key={s}
+                                                    type="button"
+                                                    onClick={() => setAtorEntrada(s)}
+                                                    className="text-[8px] bg-gray-800 hover:bg-gray-700 text-cyan-400 border border-cyan-800/40 px-2 py-0.5 rounded-full whitespace-nowrap transition-all font-semibold"
+                                                >
+                                                    + {s}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-400 mb-1">
-                                            Domínio de Negócio *
+                                        <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                            Área funcional *
                                             <DidacticInfo 
-                                                title="Domínio de Negócio" 
-                                                text="Representa a área funcional ou o subsistema (módulo) da corporação responsável pela execução da transação.\n\nExemplo: Comercial, Financeiro, Suprimentos, Logística, etc." 
+                                                id="dominio"
+                                                title="Área funcional" 
+                                                text={"Indique o departamento ou setor da corporação que detém a propriedade administrativa sobre a transação. Essa definição estabelece de onde a informação nasce antes de fluir para o resto da companhia.\n\nExemplo: 'Comercial', 'Tesouraria', 'Suprimentos', 'Logística'."} 
+                                                activeTooltipId={activeTooltipId}
+                                                setActiveTooltipId={setActiveTooltipId}
+                                                align="left"
                                             />
                                         </label>
                                         <input 
@@ -672,46 +822,54 @@ function AdmSIGovernanca() {
                                             value={dominioNegocio} 
                                             onChange={e => setDominioNegocio(e.target.value)} 
                                             required 
-                                            placeholder="Ex: Comercial / Vendas" 
-                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none" 
+                                            placeholder="Ex: Comercial" 
+                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-400 mb-1">
-                                            Criticidade de Risco *
+                                        <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                            Categoria do risco *
                                             <DidacticInfo 
-                                                title="Criticidade de Risco" 
-                                                text="A principal categoria de impacto negativo à organização caso esta transação falhe, seja fraudada ou invadida.\n\nCategorias:\n- Risco Financeiro (Desvio de caixa)\n- Risco LGPD (Exposição de dados sensíveis)\n- Risco Operacional (Linha de montagem parada)" 
+                                                id="risco"
+                                                title="Categoria do risco" 
+                                                text={"Indique a principal categoria de impacto negativo sofrido pela organização caso o processamento desta transação seja interrompido, fraudado ou tenha seus dados vazados."} 
+                                                activeTooltipId={activeTooltipId}
+                                                setActiveTooltipId={setActiveTooltipId}
+                                                align="right"
                                             />
                                         </label>
-                                        <input 
-                                            type="text" 
+                                        <select 
                                             value={criticidadeRisco} 
                                             onChange={e => setCriticidadeRisco(e.target.value)} 
                                             required 
-                                            placeholder="Ex: Risco Financeiro (Fraude em alçada)" 
-                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none" 
-                                        />
+                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none"
+                                        >
+                                            <option value="">Selecione uma categoria...</option>
+                                            <option value="Risco operacional">Risco operacional (Paralisação de processos vitais - ex: linha de produção parada)</option>
+                                            <option value="Risco financeiro">Risco financeiro (Perda direta de capital ou multas - ex: desvio de caixa)</option>
+                                            <option value="Risco legal e de compliance">Risco legal e de compliance (Descumprimento de leis ou regulamentos - ex: LGPD)</option>
+                                            <option value="Risco reputacional">Risco reputacional (Dano à imagem da marca perante o mercado - ex: exposição pública)</option>
+                                        </select>
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-400 mb-1">Descrição do Processo</label>
+                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">Descrição do processo</label>
                                     <textarea 
                                         value={descricao} 
                                         onChange={e => setDescricao(e.target.value)} 
                                         rows="3" 
                                         placeholder="Descreva brevemente como esta transação física ocorre..." 
-                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:ring-2 focus:ring-cyan-500 outline-none resize-none" 
+                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none resize-y" 
                                     />
                                 </div>
 
-                                <div className="flex justify-end gap-2">
+                                <div className="flex justify-end gap-2 pt-1">
                                     {eventoEditandoId && (
                                         <button 
                                             type="button" 
                                             onClick={handleCancelarEditarEvento}
-                                            className="bg-gray-700 hover:bg-gray-650 text-white font-bold py-2.5 px-6 rounded-lg text-xs transition-all shadow"
+                                            className="bg-gray-700 hover:bg-gray-650 text-white font-bold py-2 px-5 rounded-lg text-[10px] transition-all shadow"
                                         >
                                             Cancelar Edição
                                         </button>
@@ -719,7 +877,7 @@ function AdmSIGovernanca() {
                                     <button 
                                         type="submit" 
                                         disabled={loading} 
-                                        className="bg-cyan-600 hover:bg-cyan-550 text-white font-bold py-2.5 px-6 rounded-lg text-xs transition-all shadow"
+                                        className="bg-cyan-600 hover:bg-cyan-550 text-white font-bold py-2 px-5 rounded-lg text-[10px] transition-all shadow"
                                     >
                                         {eventoEditandoId ? 'Salvar Alterações' : 'Mapear Transação'}
                                     </button>
@@ -727,25 +885,25 @@ function AdmSIGovernanca() {
                             </form>
 
                             {/* Lista de Eventos Mapeados */}
-                            <div className="space-y-3">
-                                <h4 className="text-sm font-bold text-gray-400">Transações Operacionais Mapeadas ({dadosASI.eventos.length})</h4>
+                            <div className="space-y-3 pt-2">
+                                <h4 className="text-xs font-bold text-gray-400">Transações Operacionais Mapeadas ({dadosASI.eventos.length})</h4>
                                 {dadosASI.eventos.length === 0 ? (
-                                    <p className="text-sm text-gray-500 italic py-4 text-center bg-gray-900/20 rounded-lg border border-dashed border-gray-700">Nenhuma transação operacional mapeada ainda.</p>
+                                    <p className="text-xs text-gray-500 italic py-4 text-center bg-gray-900/20 rounded-lg border border-dashed border-gray-700">Nenhuma transação operacional mapeada ainda.</p>
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         {dadosASI.eventos.map(evt => (
-                                            <div key={evt.id} className="bg-gray-900 p-4 rounded-xl border border-gray-700 flex flex-col justify-between gap-4 relative overflow-hidden">
+                                            <div key={evt.id} className="bg-gray-900 p-3 rounded-xl border border-gray-700 flex flex-col justify-between gap-3 relative overflow-hidden">
                                                 <div className={`absolute top-0 right-0 left-0 h-1 ${eventoEditandoId === evt.id ? 'bg-yellow-500 animate-pulse' : 'bg-cyan-500'}`}></div>
-                                                <div className="space-y-2">
-                                                    <div className="flex justify-between items-start">
-                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-gray-800 text-gray-400 rounded border border-gray-750 uppercase">{evt.dominioNegocio}</span>
-                                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-red-950 text-red-400 rounded border border-red-900">⚠️ {evt.criticidadeRisco}</span>
+                                                <div className="space-y-1.5">
+                                                    <div className="flex justify-between items-start gap-1">
+                                                        <span className="text-[8px] font-bold px-1.5 py-0.5 bg-gray-800 text-gray-400 rounded border border-gray-750 uppercase">{evt.dominioNegocio}</span>
+                                                        <span className="text-[8px] font-bold px-1.5 py-0.5 bg-red-950 text-red-400 rounded border border-red-900 whitespace-nowrap">⚠️ {evt.criticidadeRisco}</span>
                                                     </div>
-                                                    <h4 className="text-lg font-black text-white">{evt.transacaoAtomica}</h4>
-                                                    <p className="text-xs text-gray-400 font-semibold">Ator: <span className="text-cyan-400">{evt.atorEntrada || 'Não definido'}</span></p>
-                                                    {evt.descricao && <p className="text-xs text-gray-500 italic">"{evt.descricao}"</p>}
+                                                    <h4 className="text-sm font-black text-white">{evt.transacaoAtomica}</h4>
+                                                    <p className="text-[10px] text-gray-400 font-semibold">Ator: <span className="text-cyan-400">{evt.atorEntrada || 'Não definido'}</span></p>
+                                                    {evt.descricao && <p className="text-[10px] text-gray-500 italic">"{evt.descricao}"</p>}
                                                 </div>
-                                                <div className="flex justify-between border-t border-gray-850 pt-2 text-xs">
+                                                <div className="flex flex-wrap gap-2 border-t border-gray-855 pt-2 text-[10px]">
                                                     <button 
                                                         onClick={() => handleIniciarEditarEvento(evt)} 
                                                         className="text-cyan-400 hover:text-cyan-300 font-bold transition-all"
@@ -755,10 +913,39 @@ function AdmSIGovernanca() {
                                                     </button>
                                                     <button 
                                                         onClick={() => handleRemoverEvento(evt.id)} 
-                                                        className="text-gray-500 hover:text-red-400 font-bold transition-all"
+                                                        className="text-gray-505 hover:text-red-400 font-bold transition-all"
                                                         title="Excluir Transação"
                                                     >
                                                         Remover
+                                                    </button>
+                                                    <div className="w-full h-px bg-gray-800/50"></div>
+                                                    
+                                                    {/* ATALHOS DE NAVEGAÇÃO RECURSIVA MOBILE */}
+                                                    <button 
+                                                        onClick={() => {
+                                                            setSelectedEventoIdRegras(evt.id);
+                                                            setActiveAccordion('regras');
+                                                            setTimeout(() => {
+                                                                const el = document.getElementById('accordion-regras-header');
+                                                                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                            }, 150);
+                                                        }} 
+                                                        className="text-[9px] bg-cyan-950/60 hover:bg-cyan-900 text-cyan-400 border border-cyan-800/40 px-2 py-0.5 rounded font-bold transition-all flex items-center gap-1"
+                                                    >
+                                                        ⚙️ Regras SoD
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => {
+                                                            setSelectedEventoIdPersistencia(evt.id);
+                                                            setActiveAccordion('persistencia');
+                                                            setTimeout(() => {
+                                                                const el = document.getElementById('accordion-persistencia-header');
+                                                                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                                            }, 150);
+                                                        }} 
+                                                        className="text-[9px] bg-purple-950/60 hover:bg-purple-900 text-purple-400 border border-purple-800/40 px-2 py-0.5 rounded font-bold transition-all flex items-center gap-1"
+                                                    >
+                                                        💾 Logs / Falha
                                                     </button>
                                                 </div>
                                             </div>
@@ -774,44 +961,45 @@ function AdmSIGovernanca() {
                 <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
                     <button 
                         type="button"
+                        id="accordion-regras-header"
                         onClick={() => toggleAccordion('regras')}
-                        className={`w-full p-5 flex justify-between items-center transition-all text-left font-bold text-lg text-white outline-none focus:outline-none ${activeAccordion === 'regras' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
+                        className={`w-full p-4 sm:p-5 flex justify-between items-center transition-all text-left font-bold text-sm sm:text-base text-white outline-none focus:outline-none ${activeAccordion === 'regras' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
                     >
                         <span className="flex items-center gap-2">⚙️ 2. Motor de Regras</span>
-                        <span className="text-sm font-semibold">{activeAccordion === 'regras' ? '▲ Recolher' : '▼ Expandir'}</span>
+                        <span className="text-xs font-semibold">{activeAccordion === 'regras' ? '▲ Recolher' : '▼ Expandir'}</span>
                     </button>
                     {activeAccordion === 'regras' && (
-                        <div className="p-6 border-t border-gray-700 space-y-6 animate-fade-in">
-                            <div className="border-b border-gray-700 pb-3 flex justify-between items-center flex-wrap gap-2">
+                        <div className="p-3 sm:p-6 border-t border-gray-700 space-y-6 animate-fade-in">
+                            <div className="border-b border-gray-700 pb-2 flex justify-between items-center flex-wrap gap-2">
                                 <div>
-                                    <h3 className="text-lg font-bold text-gray-300 flex items-center gap-2">
+                                    <h3 className="text-sm font-bold text-gray-300 flex items-center gap-2">
                                         Travas & Segurança 
                                         {selectedEventoIdRegras && (
                                             loading ? (
-                                                <span className="text-yellow-400 text-[10px] animate-pulse ml-2 font-normal">💾 Salvando...</span>
+                                                <span className="text-yellow-400 text-[9px] animate-pulse ml-2 font-normal">💾 Salvando...</span>
                                             ) : (
-                                                <span className="text-emerald-400 text-[10px] ml-2 font-normal">✓ Sincronizado</span>
+                                                <span className="text-emerald-400 text-[9px] ml-2 font-normal">✓ Sincronizado</span>
                                             )
                                         )}
                                     </h3>
-                                    <p className="text-xs text-gray-450 mt-1">Defina travas e SoD. Salvamento automático ao inserir ou remover.</p>
+                                    <p className="text-[11px] text-gray-450 mt-1">Defina travas e SoD. Salvamento automático ao inserir ou remover.</p>
                                 </div>
-                                <span className="text-xs text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-1 rounded font-semibold">Fase de Validação</span>
+                                <span className="text-[10px] text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-0.5 rounded font-semibold">Fase de Validação</span>
                             </div>
 
                             {dadosASI.eventos.length === 0 ? (
                                 <div className="text-center py-8">
-                                    <p className="text-yellow-400 text-sm font-semibold">⚠️ Cadastre pelo menos uma Transação Operacional na Sanfona 1 antes de parametrizar as regras.</p>
+                                    <p className="text-yellow-400 text-xs font-semibold">⚠️ Cadastre pelo menos uma Transação Operacional na Sanfona 1 antes de parametrizar as regras.</p>
                                 </div>
                             ) : (
-                                <div className="space-y-5">
+                                <div className="space-y-4">
                                     <div>
-                                        <label className="block text-sm font-semibold text-gray-350 mb-1">Selecione a Transação Operacional *</label>
+                                        <label className="block text-[11px] font-semibold text-gray-350 mb-1">Selecione a Transação Operacional *</label>
                                         <select 
                                             value={selectedEventoIdRegras} 
                                             onChange={e => setSelectedEventoIdRegras(e.target.value)} 
                                             required 
-                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-cyan-500 outline-none text-sm"
+                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-cyan-500 outline-none text-xs"
                                         >
                                             <option value="">Selecione uma transação...</option>
                                             {dadosASI.eventos.map(e => <option key={e.id} value={e.id}>{e.transacaoAtomica} ({e.dominioNegocio})</option>)}
@@ -819,15 +1007,18 @@ function AdmSIGovernanca() {
                                     </div>
 
                                     {selectedEventoIdRegras && (
-                                        <div className="space-y-5 bg-gray-900/30 p-4 rounded-xl border border-gray-750 animate-fade-in">
-                                            
+                                        <div className="space-y-4 bg-gray-900/30 p-3 rounded-xl border border-gray-750 animate-fade-in">
                                             {/* Validações Sintáticas */}
-                                            <div className="border-b border-gray-800 pb-4">
-                                                <label className="block text-xs font-semibold text-gray-400 mb-1">
-                                                    Validações Sintáticas (Travas de Interface) *
+                                            <div className="border-b border-gray-800 pb-3">
+                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                    Controles de entrada de dados *
                                                     <DidacticInfo 
-                                                        title="Validação Sintática" 
-                                                        text="Filtros e máscaras estruturais no frontend que impedem dados corrompidos de saírem da interface do usuário.\n\nExemplo: Máscara de CNPJ obrigatória, Bloqueio de valores negativos, Campo 'E-mail' com validação Regex." 
+                                                        id="validacoes"
+                                                        title="Controles de entrada de dados" 
+                                                        text={"Regras e máscaras aplicadas na tela do sistema para garantir a padronização e impedir que erros de digitação poluam a base de dados. É a primeira linha de defesa contra o efeito 'lixo entra, lixo sai', bloqueando formatos inválidos antes do processamento.\n\nExemplo: Obrigatoriedade de 14 dígitos no campo CNPJ; Bloqueio de letras em campos de valor financeiro; Impedir o preenchimento de datas no passado."} 
+                                                        activeTooltipId={activeTooltipId}
+                                                        setActiveTooltipId={setActiveTooltipId}
+                                                        align="left"
                                                     />
                                                 </label>
                                                 <div className="flex gap-2">
@@ -835,14 +1026,14 @@ function AdmSIGovernanca() {
                                                         type="text" 
                                                         value={novaValidacaoSintatica} 
                                                         onChange={e => setNovaValidacaoSintatica(e.target.value)} 
-                                                        placeholder={editandoValidacaoIdx !== null ? "Atualizar trava de validação..." : "Ex: CNPJ deve ser obrigatório e possuir 14 dígitos"} 
-                                                        className="flex-1 bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-cyan-500" 
+                                                        placeholder={editandoValidacaoIdx !== null ? "Atualizar controle de entrada..." : "Ex: Obrigatoriedade de 14 dígitos no campo CNPJ"} 
+                                                        className="flex-1 bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500" 
                                                     />
                                                     {editandoValidacaoIdx !== null && (
                                                         <button 
                                                             type="button" 
                                                             onClick={handleCancelarEditarValidacao}
-                                                            className="bg-gray-750 hover:bg-gray-700 text-white font-semibold px-4 rounded-lg text-xs transition-all"
+                                                            className="bg-gray-750 hover:bg-gray-700 text-white font-semibold px-3 rounded-lg text-[10px] transition-all"
                                                         >
                                                             Cancelar
                                                         </button>
@@ -850,17 +1041,30 @@ function AdmSIGovernanca() {
                                                     <button 
                                                         type="button" 
                                                         onClick={handleAdicionarValidacaoSintatica}
-                                                        className="bg-gray-750 hover:bg-gray-700 text-cyan-400 font-bold px-5 rounded-lg text-xs transition-all"
+                                                        className="bg-gray-750 hover:bg-gray-700 text-cyan-400 font-bold px-4 rounded-lg text-[10px] transition-all"
                                                     >
                                                         {editandoValidacaoIdx !== null ? 'Salvar' : 'Inserir'}
                                                     </button>
                                                 </div>
+                                                {/* SUGESTÕES MOBILE RÁPIDAS */}
+                                                <div className="flex gap-1 overflow-x-auto pb-1 mt-1 scrollbar-none max-w-full">
+                                                    {SUGESTOES_SINTATICAS.map(s => (
+                                                        <button
+                                                            key={s}
+                                                            type="button"
+                                                            onClick={() => setNovaValidacaoSintatica(s)}
+                                                            className="text-[8px] bg-gray-950 hover:bg-gray-900 text-cyan-400 border border-cyan-850 px-2 py-0.5 rounded-full whitespace-nowrap transition-all font-semibold"
+                                                        >
+                                                            + {s}
+                                                        </button>
+                                                    ))}
+                                                </div>
                                                 {validacoesSintaticas.length > 0 && (
-                                                    <ul className="mt-3 space-y-1.5">
+                                                    <ul className="mt-2 space-y-1">
                                                         {validacoesSintaticas.map((val, idx) => (
-                                                            <li key={idx} className={`bg-gray-950/60 px-3 py-2 rounded border text-xs text-gray-300 flex justify-between items-center ${editandoValidacaoIdx === idx ? 'border-yellow-500' : 'border-gray-850'}`}>
+                                                            <li key={idx} className={`bg-gray-950/60 px-2 py-1.5 rounded border text-[11px] text-gray-300 flex justify-between items-center ${editandoValidacaoIdx === idx ? 'border-yellow-500' : 'border-gray-850'}`}>
                                                                 <span>• {val}</span>
-                                                                <div className="flex gap-2 text-[10px]">
+                                                                <div className="flex gap-2 text-[9px]">
                                                                     <button type="button" onClick={() => handleIniciarEditarValidacao(idx)} className="text-cyan-400 hover:underline">Editar</button>
                                                                     <button type="button" onClick={() => handleRemoverValidacaoSintatica(idx)} className="text-red-400 hover:underline">Remover</button>
                                                                 </div>
@@ -870,35 +1074,39 @@ function AdmSIGovernanca() {
                                                 )}
                                             </div>
 
-                                            {/* Regra de Negócio + SoD Vinculados */}
-                                            <div className="space-y-4">
-                                                <h4 className="text-xs font-bold uppercase text-yellow-500 tracking-wider flex items-center gap-2">
-                                                    Regras e Alçadas (SoD Vinculada)
+                                            {/* Regras de Negócio e Aprovações (SoD) */}
+                                            <div className="space-y-3">
+                                                <h4 className="text-[11px] font-bold text-yellow-500 flex items-center gap-2">
+                                                    Regras de negócio e aprovações (SoD)
                                                     <DidacticInfo 
-                                                        title="Regras & SoD Vinculados" 
-                                                        text="Para cada Regra de Alçada restritiva do sistema, defina explicitamente qual cargo receberá o alerta de violação, impedindo a auto-aprovação (SoD).\n\nExemplo:\nRegra: Compras automáticas autorizadas até R$ 2.000.\nSoD: Transações excedentes exigem aprovação do Diretor de Compras, e o sistema valida que o operador não possui privilégio de aprovação." 
+                                                        id="regras"
+                                                        title="Regras de negócio e aprovações (SoD)" 
+                                                        text={"Defina as condições lógicas que o sistema deve validar para permitir a transação e quem possui autoridade para aprovar exceções. Isto inclui restrições de alçada (limites) e Segregação de Funções (SoD) para evitar fraudes ou conflitos de interesse.\n\nExemplo: 'Desconto máximo de 5%. Valores superiores bloqueiam a venda e exigem aprovação do Gerente Comercial. O sistema garante que o vendedor não pode autoaprovar a exceção.'"} 
+                                                        activeTooltipId={activeTooltipId}
+                                                        setActiveTooltipId={setActiveTooltipId}
+                                                        align="left"
                                                     />
                                                 </h4>
                                                 
-                                                <div className="bg-gray-950/50 p-4 rounded-lg border border-gray-800 space-y-3">
+                                                <div className="bg-gray-950/50 p-3 rounded-lg border border-gray-800 space-y-2.5">
                                                     <div>
-                                                        <label className="block text-[11px] text-gray-400 mb-1">Regra de Negócio (Alçada Limitadora)</label>
+                                                        <label className="block text-[11px] font-bold text-gray-400 mb-1">Regra de negócio (alçada limitadora)</label>
                                                         <textarea 
                                                             value={novaRegraNegocio} 
                                                             onChange={e => setNovaRegraNegocio(e.target.value)} 
                                                             placeholder="Ex: Descontos automáticos restritos a no máximo 5%" 
                                                             rows="2"
-                                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-xs text-white focus:ring-1 focus:ring-cyan-500 resize-none outline-none" 
+                                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 resize-none outline-none" 
                                                         />
                                                     </div>
                                                     <div>
-                                                        <label className="block text-[11px] text-gray-400 mb-1">Segregação de Funções (SoD Sistêmica)</label>
+                                                        <label className="block text-[11px] font-bold text-gray-400 mb-1">Segregação de funções (SoD sistêmica)</label>
                                                         <textarea 
                                                             value={novaSodSistemico} 
                                                             onChange={e => setNovaSodSistemico(e.target.value)} 
                                                             placeholder="Ex: Exceções disparam aprovação para o Diretor Comercial. O sistema impede a auto-validação do vendedor travando seu UID." 
                                                             rows="2"
-                                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-xs text-white focus:ring-1 focus:ring-cyan-500 resize-none outline-none" 
+                                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 resize-none outline-none" 
                                                         />
                                                     </div>
                                                     <div className="text-right flex justify-end gap-2">
@@ -906,7 +1114,7 @@ function AdmSIGovernanca() {
                                                             <button 
                                                                 type="button" 
                                                                 onClick={handleCancelarEditarRegraSod}
-                                                                className="bg-gray-700 hover:bg-gray-650 text-white font-bold px-4 py-2 rounded-lg text-xs transition-all shadow"
+                                                                className="bg-gray-700 hover:bg-gray-650 text-white font-bold px-3 py-1.5 rounded-lg text-[10px] transition-all shadow"
                                                             >
                                                                 Cancelar
                                                             </button>
@@ -914,7 +1122,7 @@ function AdmSIGovernanca() {
                                                         <button 
                                                             type="button" 
                                                             onClick={handleAdicionarRegraSod}
-                                                            className="bg-yellow-600 hover:bg-yellow-500 text-gray-950 font-bold px-4 py-1.5 rounded-lg text-xs transition-all shadow"
+                                                            className="bg-yellow-600 hover:bg-yellow-500 text-gray-950 font-bold px-3 py-1.5 rounded-lg text-[10px] transition-all shadow"
                                                         >
                                                             {editandoRegraSodId ? 'Salvar Edição' : 'Vincular Regra & SoD'}
                                                         </button>
@@ -923,16 +1131,16 @@ function AdmSIGovernanca() {
 
                                                 {/* Exibição da Lista de Regras + SoD */}
                                                 {regrasSod.length > 0 && (
-                                                    <div className="space-y-2">
-                                                        <h5 className="text-[11px] font-bold text-gray-400">Regras e Alçadas Aplicadas a esta Transação</h5>
-                                                        <div className="grid grid-cols-1 gap-3">
+                                                    <div className="space-y-1.5">
+                                                        <h5 className="text-[10px] font-bold text-gray-400">Regras e aprovações (SoD) aplicadas</h5>
+                                                        <div className="grid grid-cols-1 gap-2">
                                                             {regrasSod.map((item) => (
-                                                                <div key={item.id} className={`bg-gray-950 border p-3 rounded-lg flex justify-between gap-4 text-xs ${editandoRegraSodId === item.id ? 'border-yellow-500' : 'border-gray-885'}`}>
+                                                                <div key={item.id} className={`bg-gray-950 border p-2.5 rounded-lg flex justify-between gap-3 text-[11px] ${editandoRegraSodId === item.id ? 'border-yellow-500' : 'border-gray-800'}`}>
                                                                     <div className="space-y-1">
                                                                         <p className="text-white"><strong className="text-cyan-400 font-bold">Regra:</strong> {item.regraNegocio}</p>
                                                                         <p className="text-gray-300"><strong className="text-yellow-500 font-bold">SoD:</strong> {item.sodSistemico}</p>
                                                                     </div>
-                                                                    <div className="flex flex-col gap-2 shrink-0 self-start text-[10px] font-bold">
+                                                                    <div className="flex flex-col gap-2 shrink-0 self-start text-[9px] font-bold">
                                                                         <button 
                                                                             type="button" 
                                                                             onClick={() => handleIniciarEditarRegraSod(item)}
@@ -967,44 +1175,45 @@ function AdmSIGovernanca() {
                 <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
                     <button 
                         type="button"
+                        id="accordion-persistencia-header"
                         onClick={() => toggleAccordion('persistencia')}
-                        className={`w-full p-5 flex justify-between items-center transition-all text-left font-bold text-lg text-white outline-none focus:outline-none ${activeAccordion === 'persistencia' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
+                        className={`w-full p-4 sm:p-5 flex justify-between items-center transition-all text-left font-bold text-sm sm:text-base text-white outline-none focus:outline-none ${activeAccordion === 'persistencia' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
                     >
                         <span className="flex items-center gap-2">💾 3. Saída / Persistência</span>
-                        <span className="text-sm font-semibold">{activeAccordion === 'persistencia' ? '▲ Recolher' : '▼ Expandir'}</span>
+                        <span className="text-xs font-semibold">{activeAccordion === 'persistencia' ? '▲ Recolher' : '▼ Expandir'}</span>
                     </button>
                     {activeAccordion === 'persistencia' && (
-                        <div className="p-6 border-t border-gray-700 space-y-6 animate-fade-in">
-                            <div className="border-b border-gray-700 pb-3 flex justify-between items-center flex-wrap gap-2">
+                        <div className="p-3 sm:p-6 border-t border-gray-700 space-y-6 animate-fade-in">
+                            <div className="border-b border-gray-700 pb-2 flex justify-between items-center flex-wrap gap-2">
                                 <div>
-                                    <h3 className="text-lg font-bold text-gray-300 flex items-center gap-2">
-                                        Resiliência & Auditabilidade
+                                    <h3 className="text-sm font-bold text-gray-300 flex items-center gap-2">
+                                        Rastreabilidade & Conformidade
                                         {selectedEventoIdPersistencia && (
                                             loading ? (
-                                                <span className="text-yellow-400 text-[10px] animate-pulse ml-2 font-normal">💾 Salvando...</span>
+                                                <span className="text-yellow-400 text-[9px] animate-pulse ml-2 font-normal">💾 Salvando...</span>
                                             ) : (
-                                                <span className="text-emerald-400 text-[10px] ml-2 font-normal">✓ Sincronizado</span>
+                                                <span className="text-emerald-400 text-[9px] ml-2 font-normal">✓ Sincronizado</span>
                                             )
                                         )}
                                     </h3>
-                                    <p className="text-xs text-gray-450 mt-1">Configure trilhas de logs e resiliência técnica de commit.</p>
+                                    <p className="text-xs text-gray-450 mt-1">Defina os requisitos de gravação histórica desta transação.</p>
                                 </div>
-                                <span className="text-xs text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-1 rounded font-semibold">Fase de Commit</span>
+                                <span className="text-[10px] text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-0.5 rounded font-semibold">Fase de Commit</span>
                             </div>
 
                             {dadosASI.eventos.length === 0 ? (
                                 <div className="text-center py-8">
-                                    <p className="text-yellow-400 text-sm font-semibold">⚠️ Cadastre pelo menos uma Transação Operacional na Sanfona 1 antes de gerenciar a persistência.</p>
+                                    <p className="text-yellow-400 text-xs font-semibold">⚠️ Cadastre pelo menos uma Transação Operacional na Sanfona 1 antes de gerenciar a persistência.</p>
                                 </div>
                             ) : (
-                                <div className="space-y-5">
+                                <div className="space-y-4">
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-355 mb-1">Selecione a Transação Operacional *</label>
                                         <select 
                                             value={selectedEventoIdPersistencia} 
                                             onChange={e => setSelectedEventoIdPersistencia(e.target.value)} 
                                             required 
-                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-white focus:ring-2 focus:ring-cyan-500 outline-none text-sm"
+                                            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-cyan-500 outline-none text-xs"
                                         >
                                             <option value="">Selecione uma transação...</option>
                                             {dadosASI.eventos.map(e => <option key={e.id} value={e.id}>{e.transacaoAtomica} ({e.dominioNegocio})</option>)}
@@ -1012,15 +1221,19 @@ function AdmSIGovernanca() {
                                     </div>
 
                                     {selectedEventoIdPersistencia && (
-                                        <div className="space-y-5 bg-gray-900/30 p-4 rounded-xl border border-gray-750 animate-fade-in">
+                                        <div className="space-y-4 bg-gray-900/30 p-3 rounded-xl border border-gray-750 animate-fade-in">
                                             
                                             {/* Trilha de Não-Repudiação (Mapeável incrementalmente) */}
-                                            <div className="border-b border-gray-800 pb-4">
-                                                <label className="block text-xs font-semibold text-gray-400 mb-2">
-                                                    Trilha de Não-Repudiação (Atributos de Auditoria Imutáveis no Log) *
+                                            <div className="border-b border-gray-800 pb-3">
+                                                <label className="block text-[11px] font-bold text-gray-400 mb-2">
+                                                    Trilha de auditoria e responsabilidade legal *
                                                     <DidacticInfo 
-                                                        title="Não-Repudiação / Audit Log" 
-                                                        text="Garantia legal de que o autor do evento não poderá negar sua autoria. O sistema deve gravar atributos imutáveis e auditáveis no log no momento da transação.\n\nExemplo:\n1. ID Único do Usuário (UID)\n2. Endereço IP / Geolocalização\n3. Timestamp do Servidor (UTC)\n4. Assinatura Hash ou Payload do Evento" 
+                                                        id="trilha"
+                                                        title="Trilha de auditoria e responsabilidade legal" 
+                                                        text={"Especifique os dados obrigatórios que o sistema deve registrar silenciosamente para garantir rastreabilidade inquestionável. O objetivo é proteger a empresa legalmente e evitar que o usuário negue a autoria da transação em caso de fraude."} 
+                                                        activeTooltipId={activeTooltipId}
+                                                        setActiveTooltipId={setActiveTooltipId}
+                                                        align="left"
                                                     />
                                                 </label>
                                                 
@@ -1030,13 +1243,13 @@ function AdmSIGovernanca() {
                                                         value={novaTrilha} 
                                                         onChange={e => setNovaTrilha(e.target.value)} 
                                                         placeholder={editandoTrilhaIdx !== null ? "Atualizar atributo do log..." : "Ex: ID único do Usuário (UID)"} 
-                                                        className="flex-1 bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-cyan-500" 
+                                                        className="flex-1 bg-gray-950 border border-gray-700 rounded-lg p-2 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500" 
                                                     />
                                                     {editandoTrilhaIdx !== null && (
                                                         <button 
                                                             type="button" 
                                                             onClick={handleCancelarEditarTrilha}
-                                                            className="bg-gray-750 hover:bg-gray-700 text-white font-semibold px-4 rounded-lg text-xs transition-all"
+                                                            className="bg-gray-750 hover:bg-gray-700 text-white font-semibold px-3 rounded-lg text-[10px] transition-all"
                                                         >
                                                             Cancelar
                                                         </button>
@@ -1044,17 +1257,30 @@ function AdmSIGovernanca() {
                                                     <button 
                                                         type="button" 
                                                         onClick={handleAdicionarTrilha}
-                                                        className="bg-gray-755 hover:bg-gray-700 text-cyan-400 font-bold px-5 rounded-lg text-xs transition-all"
+                                                        className="bg-gray-755 hover:bg-gray-700 text-cyan-400 font-bold px-4 rounded-lg text-[10px] transition-all"
                                                     >
                                                         {editandoTrilhaIdx !== null ? 'Salvar' : 'Inserir'}
                                                     </button>
                                                 </div>
+                                                {/* SUGESTÕES MOBILE RÁPIDAS */}
+                                                <div className="flex gap-1 overflow-x-auto pb-1 mt-1 scrollbar-none max-w-full">
+                                                    {SUGESTOES_LOGS.map(s => (
+                                                        <button
+                                                            key={s}
+                                                            type="button"
+                                                            onClick={() => setNovaTrilha(s)}
+                                                            className="text-[8px] bg-gray-950 hover:bg-gray-900 text-cyan-400 border border-cyan-850 px-2 py-0.5 rounded-full whitespace-nowrap transition-all font-semibold"
+                                                        >
+                                                            + {s}
+                                                        </button>
+                                                    ))}
+                                                </div>
                                                 {trilhaNaoRepudiacao.length > 0 && (
-                                                    <ul className="mt-3 space-y-1.5">
+                                                    <ul className="mt-2 space-y-1">
                                                         {trilhaNaoRepudiacao.map((item, idx) => (
-                                                            <li key={idx} className={`bg-gray-950/60 px-3 py-2 rounded border text-xs text-gray-300 flex justify-between items-center ${editandoTrilhaIdx === idx ? 'border-yellow-500' : 'border-gray-850'}`}>
+                                                            <li key={idx} className={`bg-gray-950/60 px-2.5 py-1.5 rounded border text-[11px] text-gray-300 flex justify-between items-center ${editandoTrilhaIdx === idx ? 'border-yellow-500' : 'border-gray-850'}`}>
                                                                 <span>• {item}</span>
-                                                                <div className="flex gap-2 text-[10px]">
+                                                                <div className="flex gap-2 text-[9px]">
                                                                     <button type="button" onClick={() => handleIniciarEditarTrilha(idx)} className="text-cyan-400 hover:underline">Editar</button>
                                                                     <button type="button" onClick={() => handleRemoverTrilha(idx)} className="text-red-400 hover:underline">Remover</button>
                                                                 </div>
@@ -1064,13 +1290,17 @@ function AdmSIGovernanca() {
                                                 )}
                                             </div>
 
-                                            {/* Protocolo de Falha */}
+                                            {/* Diretriz de Risco na Queda do Sistema */}
                                             <div>
-                                                <label className="block text-xs font-semibold text-gray-400 mb-1">
-                                                    Protocolo de Falha (Failover) *
+                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                    Diretriz de risco na queda do sistema *
                                                     <DidacticInfo 
-                                                        title="Protocolo de Falha" 
-                                                        text="Decisão de projeto de infraestrutura na queda dos servidores primários.\n\n- Bloquear transações: Evita fraudes temporais, mas paralisa a receita.\n- Contingência/Buffer Local: Salva localmente em cache para sincronização tardia, mas abre margem para fraudes sem validação ativa online." 
+                                                        id="falha"
+                                                        title="Diretriz de risco na queda do sistema" 
+                                                        text={"Decisão gerencial sobre o comportamento da operação de negócio caso o sistema central fique indisponível. O analista deve balancear a perda de receita contra o risco de fraudes."} 
+                                                        activeTooltipId={activeTooltipId}
+                                                        setActiveTooltipId={setActiveTooltipId}
+                                                        align="left"
                                                     />
                                                 </label>
                                                 <textarea 
@@ -1079,18 +1309,22 @@ function AdmSIGovernanca() {
                                                     onBlur={handleBlurPersistenciaText}
                                                     required 
                                                     rows="2" 
-                                                    placeholder="Qual o comportamento do sistema se a infraestrutura cair na execução deste commit? (Ex: Bloqueio ou Modo Contingência local)" 
-                                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-cyan-500 resize-none" 
+                                                    placeholder="Como a operação deve proceder se o sistema cair? (Ex: Bloquear transações ou Contingência/Buffer Local)" 
+                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 resize-none" 
                                                 />
                                             </div>
 
-                                            {/* Sobrevivência 2 Horas */}
+                                            {/* Plano de Continuidade Operacional */}
                                             <div>
-                                                <label className="block text-xs font-semibold text-gray-400 mb-1">
-                                                    Protocolo de Sobrevivência (Próximas 2 Horas) *
+                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                    Plano de continuidade operacional *
                                                     <DidacticInfo 
-                                                        title="Sobrevivência nas próximas 2 horas" 
-                                                        text="Mecanismo de contorno técnico e operacional temporário para manter o negócio minimamente operante enquanto o time de SRE/Nuvem restabelece o sinal principal." 
+                                                        id="sobrevivencia"
+                                                        title="Plano de continuidade operacional" 
+                                                        text={"Mecanismo de contorno desenhado pela área de negócios para manter a operação funcionando de forma paliativa (sem o sistema) até que a tecnologia seja restabelecida.\n\nExemplo: 'Emitir recibos em talão de papel e registrar em planilha offline', 'Redirecionar chamadas de vendas para atendimento humano', 'Paralisar esteiras e realizar contagem visual de estoque'."} 
+                                                        activeTooltipId={activeTooltipId}
+                                                        setActiveTooltipId={setActiveTooltipId}
+                                                        align="left"
                                                     />
                                                 </label>
                                                 <textarea 
@@ -1099,8 +1333,8 @@ function AdmSIGovernanca() {
                                                     onBlur={handleBlurPersistenciaText}
                                                     required 
                                                     rows="2" 
-                                                    placeholder="Descreva de que forma o sistema garante a integridade e funcionamento da transação em 2 horas de apagão..." 
-                                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-sm text-white outline-none focus:ring-2 focus:ring-cyan-500 resize-none" 
+                                                    placeholder="Como a operação funcionará de forma paliativa sem o sistema? (Ex: Emitir recibos em talão de papel e registrar em planilha offline)" 
+                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500 resize-none" 
                                                 />
                                             </div>
 
@@ -1116,17 +1350,18 @@ function AdmSIGovernanca() {
                 <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
                     <button 
                         type="button"
+                        id="accordion-resumo-header"
                         onClick={() => toggleAccordion('resumo')}
-                        className={`w-full p-5 flex justify-between items-center transition-all text-left font-bold text-lg text-white outline-none focus:outline-none ${activeAccordion === 'resumo' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
+                        className={`w-full p-4 sm:p-5 flex justify-between items-center transition-all text-left font-bold text-sm sm:text-base text-white outline-none focus:outline-none ${activeAccordion === 'resumo' ? 'bg-cyan-600' : 'bg-gray-750 hover:bg-gray-700'}`}
                     >
                         <span className="flex items-center gap-2">📊 4. Painel de Auditoria DICS</span>
-                        <span className="text-sm font-semibold">{activeAccordion === 'resumo' ? '▲ Recolher' : '▼ Expandir'}</span>
+                        <span className="text-xs font-semibold">{activeAccordion === 'resumo' ? '▲ Recolher' : '▼ Expandir'}</span>
                     </button>
                     {activeAccordion === 'resumo' && (
-                        <div className="p-6 border-t border-gray-700 space-y-6 animate-fade-in">
-                            <div className="border-b border-gray-700 pb-3 flex items-center justify-between">
-                                <h3 className="text-xl font-bold text-white">Painel de Auditoria DICS</h3>
-                                <span className="text-xs text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-1 rounded font-semibold">Resumo Diagnóstico</span>
+                        <div className="p-3 sm:p-6 border-t border-gray-700 space-y-6 animate-fade-in">
+                            <div className="border-b border-gray-700 pb-2 flex items-center justify-between">
+                                <h3 className="text-sm font-bold text-white">Painel de Auditoria DICS</h3>
+                                <span className="text-[10px] text-cyan-400 bg-cyan-950/60 border border-cyan-800 px-2 py-0.5 rounded font-semibold">Resumo Diagnóstico</span>
                             </div>
 
                             {totalTransacoes === 0 ? (
@@ -1134,8 +1369,8 @@ function AdmSIGovernanca() {
                                     <svg className="w-16 h-16 text-yellow-500/50 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                     </svg>
-                                    <p className="text-gray-300 font-bold text-lg">Ainda Não Há Dados para Auditar</p>
-                                    <p className="text-gray-500 text-sm max-w-md mx-auto leading-relaxed">
+                                    <p className="text-gray-300 font-bold text-sm">Ainda Não Há Dados para Auditar</p>
+                                    <p className="text-gray-500 text-xs max-w-md mx-auto leading-relaxed">
                                         Cadastre transações na **Sanfona 1** e configure suas regras na **Sanfona 2** e **Sanfona 3** para gerar a análise de governança de TI do seu Gêmeo Digital.
                                     </p>
                                 </div>
@@ -1143,43 +1378,43 @@ function AdmSIGovernanca() {
                                 <div className="space-y-6">
                                     {/* GRID DE KPIS */}
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div className="bg-gray-900 p-4 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Score Geral</span>
-                                            <span className={`text-3xl font-black mt-2 ${averageGovernanceScore >= 80 ? 'text-emerald-400' : averageGovernanceScore >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                        <div className="bg-gray-900 p-3 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
+                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Score Geral</span>
+                                            <span className={`text-2xl font-black mt-1 ${averageGovernanceScore >= 80 ? 'text-emerald-400' : averageGovernanceScore >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
                                                 {averageGovernanceScore}%
                                             </span>
-                                            <span className="text-[9px] text-gray-400 mt-1 font-semibold">Conformidade Analítica</span>
+                                            <span className="text-[8px] text-gray-400 mt-1 font-semibold">Conformidade Analítica</span>
                                         </div>
-                                        <div className="bg-gray-900 p-4 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Transações</span>
-                                            <span className="text-3xl font-black mt-2 text-white">{totalTransacoes}</span>
-                                            <span className="text-[9px] text-gray-400 mt-1 font-semibold">Eventos Mapeados</span>
+                                        <div className="bg-gray-900 p-3 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
+                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Transações</span>
+                                            <span className="text-2xl font-black mt-1 text-white">{totalTransacoes}</span>
+                                            <span className="text-[8px] text-gray-400 mt-1 font-semibold">Eventos Mapeados</span>
                                         </div>
-                                        <div className="bg-gray-900 p-4 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Regras & SoD</span>
-                                            <span className="text-3xl font-black mt-2 text-cyan-400">{totalRegrasSod}</span>
-                                            <span className="text-[9px] text-gray-400 mt-1 font-semibold">Privilégios Segregados</span>
+                                        <div className="bg-gray-900 p-3 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
+                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Regras & SoD</span>
+                                            <span className="text-2xl font-black mt-1 text-cyan-400">{totalRegrasSod}</span>
+                                            <span className="text-[8px] text-gray-400 mt-1 font-semibold">Privilégios Segregados</span>
                                         </div>
-                                        <div className="bg-gray-900 p-4 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Audit Log</span>
-                                            <span className="text-3xl font-black mt-2 text-purple-400">{totalLogs}</span>
-                                            <span className="text-[9px] text-gray-400 mt-1 font-semibold">Atributos Imutáveis</span>
+                                        <div className="bg-gray-900 p-3 rounded-xl border border-gray-750 flex flex-col items-center justify-center text-center">
+                                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Audit Log</span>
+                                            <span className="text-2xl font-black mt-1 text-purple-400">{totalLogs}</span>
+                                            <span className="text-[8px] text-gray-400 mt-1 font-semibold">Atributos Imutáveis</span>
                                         </div>
                                     </div>
 
                                     {/* SEÇÃO ANALÍTICA */}
                                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                         {/* Distribuição de Riscos */}
-                                        <div className="bg-gray-900 p-5 rounded-xl border border-gray-750 space-y-4">
-                                            <h4 className="text-xs font-bold uppercase text-gray-400 tracking-wider">Criticidades Mapeadas</h4>
+                                        <div className="bg-gray-900 p-4 rounded-xl border border-gray-750 space-y-3">
+                                            <h4 className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Criticidades Mapeadas</h4>
                                             <div className="space-y-3">
                                                 {Object.entries(transacoesPorRisco).map(([risco, transacoes]) => (
-                                                    <div key={risco} className="bg-gray-950/40 p-3 rounded-lg border border-gray-850">
-                                                        <div className="flex justify-between items-center mb-2">
-                                                            <span className="text-xs font-bold text-red-400 uppercase tracking-wider">⚠️ {risco}</span>
-                                                            <span className="text-[10px] bg-red-950 text-red-400 px-2 py-0.5 rounded font-semibold border border-red-900">{transacoes.length}</span>
+                                                    <div key={risco} className="bg-gray-950/40 p-2.5 rounded-lg border border-gray-850">
+                                                        <div className="flex justify-between items-center mb-1.5">
+                                                            <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">⚠️ {risco}</span>
+                                                            <span className="text-[9px] bg-red-950 text-red-400 px-1.5 py-0.5 rounded font-semibold border border-red-900">{transacoes.length}</span>
                                                         </div>
-                                                        <ul className="text-[11px] text-gray-300 space-y-1 list-disc list-inside">
+                                                        <ul className="text-[10px] text-gray-300 space-y-1 list-disc list-inside">
                                                             {transacoes.map((t, idx) => <li key={idx} className="truncate">{t}</li>)}
                                                         </ul>
                                                     </div>
@@ -1188,57 +1423,11 @@ function AdmSIGovernanca() {
                                         </div>
 
                                         {/* Status de Auditoria das Transações */}
-                                        <div className="lg:col-span-2 bg-gray-900 p-5 rounded-xl border border-gray-750 space-y-4">
-                                            <h4 className="text-xs font-bold uppercase text-gray-400 tracking-wider">Relatório de Rastreabilidade & SoD</h4>
-                                            <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
+                                        <div className="lg:col-span-2 bg-gray-900 p-4 rounded-xl border border-gray-750 space-y-3">
+                                            <h4 className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Relatório de Rastreabilidade & SoD</h4>
+                                            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                                                 {checklistGovernanca.map(item => (
-                                                    <div key={item.id} className="bg-gray-950/70 p-3 rounded-lg border border-gray-800 space-y-2">
-                                                        <div className="flex justify-between items-start gap-4">
-                                                            <div>
-                                                                <h5 className="font-bold text-white text-sm">{item.transacaoAtomica}</h5>
-                                                                <span className="text-[9px] bg-gray-850 text-gray-400 px-2 py-0.5 rounded uppercase font-semibold border border-gray-850 mt-1 inline-block">
-                                                                    {item.dominioNegocio}
-                                                                </span>
-                                                            </div>
-                                                            <span className={`text-xs font-black px-2 py-1 rounded ${item.scorePercent === 100 ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-yellow-950 text-yellow-400 border border-yellow-800'}`}>
-                                                                {item.scorePercent}% Completo
-                                                            </span>
-                                                        </div>
-
-                                                        {/* Barrinha de Cobertura */}
-                                                        <div className="w-full bg-gray-900 h-1.5 rounded-full overflow-hidden">
-                                                            <div className={`h-full rounded-full ${item.scorePercent === 100 ? 'bg-emerald-500' : 'bg-yellow-500'}`} style={{ width: `${item.scorePercent}%` }}></div>
-                                                        </div>
-
-                                                        {/* Checkmarks de Governança */}
-                                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] text-gray-400 font-semibold">
-                                                            <span className={item.coberturaSintatica ? "text-emerald-400" : "text-red-400"}>
-                                                                {item.coberturaSintatica ? "✓" : "✗"} Filtros Sintáticos
-                                                            </span>
-                                                            <span className={item.coberturaSod ? "text-emerald-400" : "text-red-400"}>
-                                                                {item.coberturaSod ? "✓" : "✗"} SoD Vinculado
-                                                            </span>
-                                                            <span className={item.coberturaAuditoria ? "text-emerald-400" : "text-red-400"} title={`Atributos de log cadastrados: ${item.qtdLogs}`}>
-                                                                {item.coberturaAuditoria ? "✓" : "✗"} Logs imutáveis ({item.qtdLogs}/4)
-                                                            </span>
-                                                            <span className={item.coberturaSRE ? "text-emerald-400" : "text-red-400"}>
-                                                                {item.coberturaSRE ? "✓" : "✗"} Plano Failover
-                                                            </span>
-                                                        </div>
-
-                                                        {/* Alertas Diagnósticos */}
-                                                        {item.scorePercent < 100 && (
-                                                            <div className="bg-red-950/20 border border-red-900/40 p-2 rounded text-[10px] text-red-400/90 leading-normal">
-                                                                <strong>Recomendações:</strong>
-                                                                <ul className="list-disc list-inside mt-0.5 space-y-0.5 font-medium">
-                                                                    {!item.coberturaSintatica && <li>Configurar validações sintáticas para evitar corrupção de entrada.</li>}
-                                                                    {!item.coberturaSod && <li>Vincular uma regra de alçada a um perfil de aprovação SoD.</li>}
-                                                                    {!item.coberturaAuditoria && <li>Adicionar pelo menos 4 atributos de log de auditoria para fins de não-repudiação.</li>}
-                                                                    {!item.coberturaSRE && <li>Planejar o protocolo de falha (SRE/Contingência de 2 horas).</li>}
-                                                                </ul>
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                    <TransactionAuditCard key={item.id} item={item} />
                                                 ))}
                                             </div>
                                         </div>
