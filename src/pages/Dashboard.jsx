@@ -1,74 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { db, appId, auth } from '../firebase/config.js';
 import useCollection from '../hooks/useCollection.js';
-
-// Componente para o Gráfico de Cursos por Instituição (Métricas Globais)
-function GraficoCursosPorInstituicao() {
-    const { documents: instituicoesData, isLoading: isInstLoading } = useCollection(`/artifacts/${appId}/public/data/instituicoes`);
-    const { documents: cursosData, isLoading: isCursosLoading } = useCollection(`/artifacts/${appId}/public/data/cursos`);
-
-    const instituicoes = instituicoesData || [];
-    const cursos = cursosData || [];
-
-    const dadosGrafico = useMemo(() => {
-        if (!instituicoes.length || !cursos.length) {
-            return [];
-        }
-
-        const mapaInstituicoes = instituicoes.reduce((acc, inst) => {
-            acc[inst.id] = inst.sigla || inst.nome;
-            return acc;
-        }, {});
-
-        const contagemPorInstituicao = cursos.reduce((acc, curso) => {
-            const instId = curso.instituicaoId;
-            if (instId) {
-                acc[instId] = (acc[instId] || 0) + 1;
-            }
-            return acc;
-        }, {});
-
-        return Object.keys(contagemPorInstituicao).map(instId => ({
-            name: mapaInstituicoes[instId] || 'Desconhecida',
-            'Cursos': contagemPorInstituicao[instId],
-        }));
-
-    }, [instituicoes, cursos]);
-
-    if (isInstLoading || isCursosLoading) {
-        return <p className="text-gray-450 text-xs animate-pulse">Carregando dados para o gráfico...</p>;
-    }
-
-    if (instituicoes.length === 0) {
-        return <p className="text-gray-400 text-xs italic">Aguardando dados de instituições para gerar o gráfico...</p>;
-    }
-
-    return (
-        <div style={{ width: '100%', height: 300 }}>
-            <ResponsiveContainer>
-                <BarChart
-                    layout="vertical"
-                    data={dadosGrafico}
-                    margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
-                >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                    <XAxis type="number" stroke="#9ca3af" dataKey="Cursos" allowDecimals={false} style={{ fontSize: 10 }} />
-                    <YAxis dataKey="name" type="category" stroke="#9ca3af" width={100} style={{ fontSize: 10 }} />
-                    <Tooltip
-                        contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '0.5rem' }}
-                        labelStyle={{ color: '#cbd5e1', fontWeight: 'bold' }}
-                        cursor={{ fill: '#374151', opacity: 0.4 }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 10 }} />
-                    <Bar dataKey="Cursos" fill="#06b6d4" radius={[0, 4, 4, 0]} />
-                </BarChart>
-            </ResponsiveContainer>
-        </div>
-    );
-}
 
 function PaginaDashboard({ perfilUsuario }) {
     const usuarioId = auth.currentUser?.uid;
@@ -457,16 +391,7 @@ function PaginaDashboard({ perfilUsuario }) {
                 </div>
             )}
 
-            {/* SEÇÃO INTRADIA OU METRICAS INSTITUCIONAIS (Exclusiva para Administradores e Professores) */}
-            {(perfilUsuario?.papel === 'admin' || perfilUsuario?.papel === 'professor') && (
-                <div className="bg-gray-800 border border-gray-700 shadow-xl rounded-2xl p-4 sm:p-6 space-y-4 animate-fade-in">
-                    <div className="border-b border-gray-700 pb-2">
-                        <h2 className="text-lg sm:text-xl font-black text-cyan-400">📊 Métricas Institucionais Globais</h2>
-                        <p className="text-xs text-gray-400 mt-0.5">Visão consolidada de cursos cadastrados por instituição na plataforma.</p>
-                    </div>
-                    <GraficoCursosPorInstituicao />
-                </div>
-            )}
+
 
         </div>
     );
