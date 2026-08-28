@@ -82,6 +82,7 @@ function Sidebar({ perfilUsuario, aberta, setSidebarAberta }) {
               <div className="pl-8 pt-2 space-y-1">
                 <Link to="/adm-si/organizacao" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Organização</Link>
                 <Link to="/adm-si/governanca" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Matriz Transacional</Link>
+                <Link to="/adm-si/tatica" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Matriz Tática</Link>
               </div>
             )}
           </div>
