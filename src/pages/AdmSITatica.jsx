@@ -101,11 +101,11 @@ function GadAuditCard({ item }) {
     const finalScore = complianceScore > 99 ? 100 : complianceScore;
 
     return (
-        <div className="bg-gray-950/70 p-3 rounded-lg border border-gray-800 space-y-2">
+        <div className="bg-gray-950/75 p-3.5 rounded-xl border border-gray-800 space-y-2.5">
             <div className="flex justify-between items-start gap-4">
-                <div>
+                <div className="space-y-0.5">
                     <h5 className="font-bold text-white text-[12px]">{item.vetorDesvio}</h5>
-                    <span className="text-[8px] bg-cyan-950 text-cyan-400 px-1.5 py-0.5 rounded font-semibold border border-cyan-900 mt-1 inline-block">
+                    <span className="text-[8px] bg-cyan-950/70 text-cyan-400 px-1.5 py-0.5 rounded font-semibold border border-cyan-900 mt-1 inline-block">
                         G.A.D. Ativo
                     </span>
                 </div>
@@ -117,7 +117,7 @@ function GadAuditCard({ item }) {
                         <button
                             type="button"
                             onClick={() => setShowRecommendations(!showRecommendations)}
-                            className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-xs border transition-all focus:outline-none ${showRecommendations ? 'bg-red-500 text-white border-red-400 animate-pulse' : 'bg-red-950/60 text-red-400 border-red-900/50 hover:bg-red-900/30'}`}
+                            className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-xs border transition-all focus:outline-none ${showRecommendations ? 'bg-red-500 text-white border-red-400' : 'bg-red-950/60 text-red-400 border-red-900/50 hover:bg-red-900/30'}`}
                             title="Ver recomendações"
                         >
                             i
@@ -174,6 +174,7 @@ function AdmSITatica() {
         regras: [],
         persistencia: [],
         taticaDiretriz: '',
+        taticaDiretrizes: [],
         taticaVetores: []
     });
 
@@ -196,10 +197,13 @@ function AdmSITatica() {
     // ----------------------------------------------------
     // FORM STATES - SANFONA 1: DIRETRIZ & GAD VETORES
     // ----------------------------------------------------
-    const [diretrizDiretriz, setDiretrizDiretriz] = useState('');
-    
+    // Cadastro de Diretrizes
+    const [novaDiretrizTexto, setNovaDiretrizTexto] = useState('');
+    const [diretrizEditandoId, setDiretrizEditandoId] = useState(null);
+
     // Vetor GAD Form
     const [vetorEditandoId, setVetorEditandoId] = useState(null);
+    const [selectedDiretrizId, setSelectedDiretrizId] = useState('');
     const [vetorDesvio, setVetorDesvio] = useState('');
     
     // G - Gatilho
@@ -260,8 +264,7 @@ function AdmSITatica() {
     // Escutar os dados da governança e tática do Grupo Selecionado
     useEffect(() => {
         if (!selectedGroupId) {
-            setDadosASI({ organizacao: null, eventos: [], regras: [], persistencia: [], taticaDiretriz: '', taticaVetores: [] });
-            setDiretrizDiretriz('');
+            setDadosASI({ organizacao: null, eventos: [], regras: [], persistencia: [], taticaDiretriz: '', taticaDiretrizes: [], taticaVetores: [] });
             return;
         }
 
@@ -269,18 +272,31 @@ function AdmSITatica() {
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
+
+                // Migração de legados: se taticaDiretrizes estiver vazio mas taticaDiretriz tiver texto, criamos o default
+                let listDiretrizes = data.taticaDiretrizes || [];
+                if (listDiretrizes.length === 0 && data.taticaDiretriz) {
+                    listDiretrizes = [{ id: 'default', descricao: data.taticaDiretriz }];
+                }
+
+                // Normalização dos vetores para sempre possuírem diretrizId
+                let listVetores = data.taticaVetores || [];
+                listVetores = listVetores.map(v => ({
+                    ...v,
+                    diretrizId: v.diretrizId || 'default'
+                }));
+
                 setDadosASI({
                     organizacao: data.organizacao || null,
                     eventos: data.eventos || [],
                     regras: data.regras || [],
                     persistencia: data.persistencia || [],
                     taticaDiretriz: data.taticaDiretriz || '',
-                    taticaVetores: data.taticaVetores || []
+                    taticaDiretrizes: listDiretrizes,
+                    taticaVetores: listVetores
                 });
-                setDiretrizDiretriz(data.taticaDiretriz || '');
             } else {
-                setDadosASI({ organizacao: null, eventos: [], regras: [], persistencia: [], taticaDiretriz: '', taticaVetores: [] });
-                setDiretrizDiretriz('');
+                setDadosASI({ organizacao: null, eventos: [], regras: [], persistencia: [], taticaDiretriz: '', taticaDiretrizes: [], taticaVetores: [] });
             }
         }, (error) => {
             console.error("Erro ao escutar dados da Matriz Tática:", error);
@@ -304,21 +320,81 @@ function AdmSITatica() {
     };
 
     // ----------------------------------------------------
-    // ACTIONS - SANFONA 1
+    // ACTIONS - GERENCIAR DIRETRIZES ESTRATÉGICAS
     // ----------------------------------------------------
-    const handleSaveDiretriz = async () => {
-        if (!selectedGroupId) return;
+    const handleSalvarDiretriz = async (e) => {
+        e.preventDefault();
+        if (!selectedGroupId || !novaDiretrizTexto.trim()) return;
+
         setLoading(true);
+        let novasDiretrizes;
+
+        if (diretrizEditandoId) {
+            // Editando existente
+            novasDiretrizes = dadosASI.taticaDiretrizes.map(d => 
+                d.id === diretrizEditandoId ? { ...d, descricao: novaDiretrizTexto.trim() } : d
+            );
+        } else {
+            // Nova diretriz
+            const novaD = {
+                id: `dir-${Date.now()}`,
+                descricao: novaDiretrizTexto.trim()
+            };
+            novasDiretrizes = [...dadosASI.taticaDiretrizes, novaD];
+        }
+
         await salvarDadosFirestore({
             ...dadosASI,
-            taticaDiretriz: diretrizDiretriz.trim()
+            taticaDiretrizes: novasDiretrizes
+        });
+
+        setNovaDiretrizTexto('');
+        setDiretrizEditandoId(null);
+        setSucesso(diretrizEditandoId ? "Diretriz estratégica atualizada!" : "Diretriz estratégica adicionada!");
+        setTimeout(() => setSucesso(''), 3000);
+        setLoading(false);
+    };
+
+    const handleIniciarEditarDiretriz = (diretriz) => {
+        setDiretrizEditandoId(diretriz.id);
+        setNovaDiretrizTexto(diretriz.descricao);
+    };
+
+    const handleCancelarEditarDiretriz = () => {
+        setDiretrizEditandoId(null);
+        setNovaDiretrizTexto('');
+    };
+
+    const handleRemoverDiretriz = async (diretrizId) => {
+        // Verifica se há vetores vinculados a essa diretriz
+        const vetoresVinculados = dadosASI.taticaVetores.filter(v => v.diretrizId === diretrizId);
+        if (vetoresVinculados.length > 0) {
+            alert(`Não é possível remover esta diretriz pois ela possui ${vetoresVinculados.length} vetor(es) de desvio vinculados.`);
+            return;
+        }
+
+        if (!window.confirm("Remover esta diretriz estratégica?")) return;
+
+        setLoading(true);
+        const novasDiretrizes = dadosASI.taticaDiretrizes.filter(d => d.id !== diretrizId);
+        await salvarDadosFirestore({
+            ...dadosASI,
+            taticaDiretrizes: novasDiretrizes
         });
         setLoading(false);
     };
 
+    // ----------------------------------------------------
+    // ACTIONS - VETORES DE DESVIO (G.A.D.)
+    // ----------------------------------------------------
     const handleSalvarVetor = async (e) => {
         e.preventDefault();
         if (!selectedGroupId) return;
+
+        if (!selectedDiretrizId) {
+            setErro("Selecione uma diretriz estratégica associada.");
+            return;
+        }
 
         if (!vetorDesvio.trim() || !gatilhoTransacao.trim() || !gatilhoIndicador.trim() || !gatilhoJanela.trim() || !gatilhoLogica.trim() || !gatilhoBaseline.trim()) {
             setErro("Preencha todos os campos obrigatórios (*) do vetor e do gatilho.");
@@ -346,6 +422,7 @@ function AdmSITatica() {
 
         const novoVetor = {
             id: vetorEditandoId || `vetor-${Date.now()}`,
+            diretrizId: selectedDiretrizId,
             vetorDesvio: vetorDesvio.trim(),
             gatilhoTransacao: gatilhoTransacao.trim(),
             gatilhoIndicador: gatilhoIndicador.trim(),
@@ -373,6 +450,7 @@ function AdmSITatica() {
 
         // Limpar Formulário
         setVetorEditandoId(null);
+        setSelectedDiretrizId('');
         setVetorDesvio('');
         setGatilhoTransacao('');
         setGatilhoIndicador('');
@@ -391,6 +469,7 @@ function AdmSITatica() {
 
     const handleIniciarEditarVetor = (vetor) => {
         setVetorEditandoId(vetor.id);
+        setSelectedDiretrizId(vetor.diretrizId || '');
         setVetorDesvio(vetor.vetorDesvio || '');
         setGatilhoTransacao(vetor.gatilhoTransacao || '');
         setGatilhoIndicador(vetor.gatilhoIndicador || '');
@@ -412,6 +491,7 @@ function AdmSITatica() {
 
     const handleCancelarEditarVetor = () => {
         setVetorEditandoId(null);
+        setSelectedDiretrizId('');
         setVetorDesvio('');
         setGatilhoTransacao('');
         setGatilhoIndicador('');
@@ -461,6 +541,7 @@ function AdmSITatica() {
                             onChange={(e) => {
                                 setSelectedGroupId(e.target.value);
                                 handleCancelarEditarVetor();
+                                handleCancelarEditarDiretriz();
                             }}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white outline-none focus:ring-1 focus:ring-cyan-500"
                         >
@@ -507,374 +588,449 @@ function AdmSITatica() {
                         {activeAccordion === 'cadastro' && (
                             <div className="p-3 sm:p-6 border-t border-gray-700 space-y-6 animate-fade-in">
                                 
-                                {/* DIRETRIZ ESTRATÉGICA (MISSÃO) */}
-                                <div className="space-y-2 bg-gray-900/50 p-4 rounded-xl border border-gray-700/50">
-                                    <label className="block text-[11px] font-bold text-gray-400">
-                                        Diretriz estratégica (missão) *
-                                        <DidacticInfo 
-                                            id="diretriz"
-                                            title="Diretriz estratégica" 
-                                            text={"A missão ou objetivo estratégico de alto nível que a organização deseja alcançar ou defender.\n\nExemplo: 'Defender Market Share com rentabilidade mínima de 15%'."} 
-                                            activeTooltipId={activeTooltipId}
-                                            setActiveTooltipId={setActiveTooltipId}
-                                            align="left"
-                                        />
-                                    </label>
-                                    <textarea 
-                                        value={diretrizDiretriz}
-                                        onChange={e => setDiretrizDiretriz(e.target.value)}
-                                        onBlur={handleSaveDiretriz}
-                                        required
-                                        rows="2"
-                                        placeholder="Ex: Defender Market Share de vendas online com rentabilidade mínima de 15%."
-                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 resize-y outline-none"
-                                    />
-                                    <span className="text-[9px] text-gray-500 block text-right font-medium">Sincronização automática ao clicar fora.</span>
-                                </div>
-
-                                {/* FORMULÁRIO DE VETOR E MÓDULOS G.A.D. */}
-                                <form onSubmit={handleSalvarVetor} className="space-y-4 bg-gray-900/40 p-4 rounded-xl border border-gray-700/60">
-                                    <div className="border-b border-gray-800 pb-2">
-                                        <h3 className="text-sm font-bold text-cyan-400">
-                                            {vetorEditandoId ? 'Editando Vetor de Desvio' : 'Novo Vetor de Desvio (G.A.D.)'}
-                                        </h3>
-                                    </div>
-
-                                    {/* Nome do Vetor */}
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                            Vetor de desvio *
+                                {/* BLOCO 1: GERENCIAR DIRETRIZES ESTRATÉGICAS */}
+                                <div className="space-y-4 bg-gray-900/50 p-4 rounded-xl border border-gray-700/50">
+                                    <div className="border-b border-gray-800 pb-1 flex justify-between items-center">
+                                        <h3 className="text-xs font-extrabold text-cyan-400 uppercase tracking-wider flex items-center">
+                                            📋 Diretrizes Estratégicas (Missões)
                                             <DidacticInfo 
-                                                id="vetordesvio"
-                                                title="Vetor de desvio" 
-                                                text={"O cenário de risco ou anomalia operacional que pode desviar a organização de sua diretriz estratégica.\n\nExemplo: 'Corrosão de margem por Custo de Aquisição (CAC)'."} 
+                                                id="diretriz"
+                                                title="Diretrizes estratégicas" 
+                                                text={"Os objetivos de negócio de alto nível que servem de base para o monitoramento tático. Você pode cadastrar múltiplas diretrizes.\n\nExemplo:\n1. Defender Market Share com rentabilidade mínima de 15%.\n2. Expandir cobertura de atendimento logístico no Nordeste."} 
                                                 activeTooltipId={activeTooltipId}
                                                 setActiveTooltipId={setActiveTooltipId}
                                                 align="left"
                                             />
-                                        </label>
+                                        </h3>
+                                    </div>
+
+                                    {/* Formulário de adicionar diretriz */}
+                                    <form onSubmit={handleSalvarDiretriz} className="flex gap-2">
                                         <input 
-                                            type="text" 
-                                            value={vetorDesvio} 
-                                            onChange={e => setVetorDesvio(e.target.value)} 
-                                            required 
-                                            placeholder="Ex: Corrosão de margem por aumento do Custo de Aquisição de Clientes (CAC)" 
-                                            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                            type="text"
+                                            value={novaDiretrizTexto}
+                                            onChange={e => setNovaDiretrizTexto(e.target.value)}
+                                            required
+                                            placeholder="Ex: Defender Market Share com rentabilidade mínima de 15%."
+                                            className="flex-1 bg-gray-950 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none"
                                         />
-                                    </div>
-
-                                    {/* MÓDULO G: GATILHO */}
-                                    <div className="bg-gray-955/40 p-3 rounded-lg border border-gray-800 space-y-3">
-                                        <h4 className="text-[11px] font-bold text-yellow-500 uppercase tracking-wider">Módulo G - Gatilho (Identificação da Anomalia)</h4>
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Transação de origem *
-                                                    <DidacticInfo 
-                                                        id="g_transacao"
-                                                        title="Transação de origem" 
-                                                        text={"A transação operacional onde o dado é gerado.\n\nExemplo: Faturamento de pedido, Aprovação de crédito."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="left"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={gatilhoTransacao} 
-                                                    onChange={e => setGatilhoTransacao(e.target.value)} 
-                                                    required 
-                                                    placeholder="Ex: Faturamento de pedido" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Indicador monitorado *
-                                                    <DidacticInfo 
-                                                        id="g_indicador"
-                                                        title="Indicador monitorado" 
-                                                        text={"O campo numérico ou financeiro a ser avaliado pelo sistema.\n\nExemplo: Custo Logístico, Quantidade, Custo de Aquisição (CAC)."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="center"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={gatilhoIndicador} 
-                                                    onChange={e => setGatilhoIndicador(e.target.value)} 
-                                                    required 
-                                                    placeholder="Ex: Custo de Aquisição (CAC)" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Janela de avaliação *
-                                                    <DidacticInfo 
-                                                        id="g_janela"
-                                                        title="Janela de avaliação" 
-                                                        text={"O intervalo temporal em que o sistema consolida o dado antes de testar a ruptura da regra.\n\nExemplo: A cada hora (Intraday), Fechamento Diário, Acumulado Semanal."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="right"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={gatilhoJanela} 
-                                                    onChange={e => setGatilhoJanela(e.target.value)} 
-                                                    required 
-                                                    placeholder="Ex: Fechamento Diário" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Lógica de ruptura (operador) *
-                                                    <DidacticInfo 
-                                                        id="g_logica"
-                                                        title="Lógica de ruptura" 
-                                                        text={"Indica ao motor de cálculo o sentido do desvio que representa uma anomalia em relação à linha de base."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="left"
-                                                    />
-                                                </label>
-                                                <select 
-                                                    value={gatilhoLogica} 
-                                                    onChange={e => setGatilhoLogica(e.target.value)} 
-                                                    required 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none"
-                                                >
-                                                    <option value="">Selecione uma lógica...</option>
-                                                    <option value="Desvio Positivo">Desvio Positivo (&gt; que a Baseline)</option>
-                                                    <option value="Desvio Negativo">Desvio Negativo (&lt; que a Baseline)</option>
-                                                    <option value="Igualdade Crítica">Igualdade Crítica (= à Baseline)</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Linha de base (baseline) *
-                                                    <DidacticInfo 
-                                                        id="g_baseline"
-                                                        title="Linha de base (baseline)" 
-                                                        text={"O valor nominal ou percentual que serve como limite crítico de referência.\n\nExemplo: 12%, R$ 350,00."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="right"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={gatilhoBaseline} 
-                                                    onChange={e => setGatilhoBaseline(e.target.value)} 
-                                                    required 
-                                                    placeholder="Ex: 15% ou R$ 350,00" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* MÓDULO A: AGREGAÇÃO OLAP */}
-                                    <div className="bg-gray-955/40 p-3 rounded-lg border border-gray-800 space-y-3">
-                                        <div className="flex items-center justify-between flex-wrap gap-2">
-                                            <h4 className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">Módulo A - Agregação (Visão OLAP)</h4>
-                                            <span className="text-[9px] text-red-400 font-semibold bg-red-955/20 border border-red-900/50 px-2 py-0.5 rounded">Requer no mínimo 2 dimensões</span>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Eixo 1 (Dimensão de tempo)
-                                                    <DidacticInfo 
-                                                        id="a_tempo"
-                                                        title="Dimensão de Tempo" 
-                                                        text={"Periodicidade para agrupamento do indicador.\n\nExemplo: Semana, Mês, Trimestre."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="left"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={agregacaoTempo} 
-                                                    onChange={e => setAgregacaoTempo(e.target.value)} 
-                                                    placeholder="Ex: Semana" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Eixo 2 (Dimensão geográfica / estrutural)
-                                                    <DidacticInfo 
-                                                        id="a_geo"
-                                                        title="Dimensão Geográfica" 
-                                                        text={"Divisão física ou estrutural para agrupamento.\n\nExemplo: Região, Filial, Centro de Distribuição."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="center"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={agregacaoGeografica} 
-                                                    onChange={e => setAgregacaoGeografica(e.target.value)} 
-                                                    placeholder="Ex: Região" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Eixo 3 (Dimensão de negócio)
-                                                    <DidacticInfo 
-                                                        id="a_negocio"
-                                                        title="Dimensão de Negócio" 
-                                                        text={"Atributo do negócio para agrupamento.\n\nExemplo: Categoria de produto, Canal de Venda."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="right"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={agregacaoNegocio} 
-                                                    onChange={e => setAgregacaoNegocio(e.target.value)} 
-                                                    placeholder="Ex: Canal de Venda" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* MÓDULO AÇÕES DECISÃO */}
-                                    <div className="bg-gray-955/40 p-3 rounded-lg border border-gray-800 space-y-3">
-                                        <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Módulo D - Decisão (Ação de Contorno)</h4>
-                                        <div className="grid grid-cols-1 gap-3">
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Área notificada (Área funcional) *
-                                                    <DidacticInfo 
-                                                        id="d_area"
-                                                        title="Área notificada" 
-                                                        text={"O departamento ou responsável direto que receberá o alerta de desvio.\n\nExemplo: Gerência de E-commerce, Diretoria Comercial."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="left"
-                                                    />
-                                                </label>
-                                                <input 
-                                                    type="text" 
-                                                    value={decisaoArea} 
-                                                    onChange={e => setDecisaoArea(e.target.value)} 
-                                                    required 
-                                                    placeholder="Ex: Gerência de E-commerce" 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-[11px] font-bold text-gray-400 mb-1">
-                                                    Protocolo de ação exigida *
-                                                    <DidacticInfo 
-                                                        id="d_protocolo"
-                                                        title="Protocolo de ação exigida" 
-                                                        text={"O fluxo de trabalho objetivo ou protocolo emergencial a ser executado para corrigir o desvio.\n\nExemplo: Suspender imediatamente campanhas no Google Ads para a região afetada e redistribuir orçamento."} 
-                                                        activeTooltipId={activeTooltipId}
-                                                        setActiveTooltipId={setActiveTooltipId}
-                                                        align="left"
-                                                    />
-                                                </label>
-                                                <textarea 
-                                                    value={decisaoProtocolo} 
-                                                    onChange={e => setDecisaoProtocolo(e.target.value)} 
-                                                    required 
-                                                    rows="2" 
-                                                    placeholder="Ex: Suspender imediatamente campanhas no Google Ads para a região afetada e redistribuir orçamento." 
-                                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 resize-y outline-none" 
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Botões de Ação */}
-                                    <div className="flex justify-end gap-2 pt-2">
-                                        {vetorEditandoId && (
+                                        {diretrizEditandoId && (
                                             <button 
                                                 type="button" 
-                                                onClick={handleCancelarEditarVetor} 
-                                                className="bg-gray-750 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg text-[10px] transition-all shadow"
+                                                onClick={handleCancelarEditarDiretriz}
+                                                className="bg-gray-750 hover:bg-gray-700 text-white font-bold px-3 rounded-lg text-[10px] transition-all"
                                             >
-                                                Cancelar Edição
+                                                Cancelar
                                             </button>
                                         )}
                                         <button 
-                                            type="submit" 
-                                            disabled={loading}
-                                            className="bg-cyan-600 hover:bg-cyan-500 text-gray-950 font-bold py-2 px-5 rounded-lg text-[10px] transition-all shadow"
+                                            type="submit"
+                                            className="bg-cyan-900/60 hover:bg-cyan-800 text-cyan-400 font-bold px-4 rounded-lg text-[10px] transition-all border border-cyan-800"
                                         >
-                                            {loading ? 'Sincronizando...' : vetorEditandoId ? 'Salvar G.A.D.' : 'Adicionar Vetor (G.A.D.)'}
+                                            {diretrizEditandoId ? 'Salvar' : 'Adicionar'}
                                         </button>
-                                    </div>
-                                </form>
+                                    </form>
 
-                                {/* LISTA DE VETORES CONFIGURADOS */}
-                                <div className="space-y-2">
-                                    <h4 className="text-xs font-bold text-gray-400 border-b border-gray-800 pb-1">Vetores de Desvio Cadastrados</h4>
-                                    {(!dadosASI.taticaVetores || dadosASI.taticaVetores.length === 0) ? (
-                                        <p className="text-[11px] text-gray-500 italic py-2">Nenhum vetor de desvio mapeado.</p>
-                                    ) : (
-                                        <div className="grid grid-cols-1 gap-2.5">
-                                            {dadosASI.taticaVetores.map((v) => (
-                                                <div 
-                                                    key={v.id} 
-                                                    className={`bg-gray-900 p-3 rounded-xl border flex flex-col sm:flex-row justify-between gap-3 text-[11px] ${vetorEditandoId === v.id ? 'border-cyan-500 bg-gray-850' : 'border-gray-750 bg-gray-900/60'}`}
-                                                >
-                                                    <div className="space-y-1.5 flex-1">
-                                                        <p className="text-white font-bold text-xs">⚠️ {v.vetorDesvio}</p>
-                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-955 p-2 rounded-lg border border-gray-800/40 text-[10px]">
-                                                            <div>
-                                                                <p className="text-yellow-500 font-bold uppercase tracking-wider text-[8px]">Gatilho</p>
-                                                                <p className="text-gray-300"><span className="text-gray-500">Transação:</span> {v.gatilhoTransacao}</p>
-                                                                <p className="text-gray-300"><span className="text-gray-500">Indicador:</span> {v.gatilhoIndicador} ({v.gatilhoLogica === 'Desvio Positivo' ? '>' : v.gatilhoLogica === 'Desvio Negativo' ? '<' : '='} {v.gatilhoBaseline})</p>
-                                                                <p className="text-gray-300"><span className="text-gray-500">Janela:</span> {v.gatilhoJanela}</p>
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-purple-400 font-bold uppercase tracking-wider text-[8px]">Agregação (OLAP)</p>
-                                                                <p className="text-gray-300"><span className="text-gray-500">Tempo:</span> {v.agregacaoTempo || '-'}</p>
-                                                                <p className="text-gray-300"><span className="text-gray-500">Geo:</span> {v.agregacaoGeografica || '-'}</p>
-                                                                <p className="text-gray-300"><span className="text-gray-500">Negócio:</span> {v.agregacaoNegocio || '-'}</p>
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-emerald-400 font-bold uppercase tracking-wider text-[8px]">Decisão</p>
-                                                                <p className="text-gray-300"><span className="text-gray-500">Notificar:</span> {v.decisaoArea}</p>
-                                                                <p className="text-gray-300 truncate" title={v.decisaoProtocolo}><span className="text-gray-500">Ação:</span> {v.decisaoProtocolo}</p>
-                                                            </div>
-                                                        </div>
+                                    {/* Lista de diretrizes cadastradas */}
+                                    {dadosASI.taticaDiretrizes.length > 0 && (
+                                        <ul className="space-y-1.5 pt-1">
+                                            {dadosASI.taticaDiretrizes.map((d) => (
+                                                <li key={d.id} className="bg-gray-950/40 p-2.5 rounded-lg border border-gray-800 flex justify-between items-center text-xs text-gray-300 gap-4">
+                                                    <span className="leading-relaxed"><strong className="text-cyan-400 font-bold">🎯</strong> {d.descricao}</span>
+                                                    <div className="flex gap-2.5 shrink-0 text-[9px] font-bold">
+                                                        <button type="button" onClick={() => handleIniciarEditarDiretriz(d)} className="text-cyan-400 hover:underline">Editar</button>
+                                                        <button type="button" onClick={() => handleRemoverDiretriz(d.id)} className="text-red-400 hover:underline">Remover</button>
                                                     </div>
-                                                    <div className="flex sm:flex-col justify-end gap-2.5 shrink-0 self-end sm:self-start text-[9px] font-bold">
-                                                        <button 
-                                                            type="button" 
-                                                            onClick={() => handleIniciarEditarVetor(v)}
-                                                            className="text-cyan-400 hover:underline text-right"
-                                                        >
-                                                            Editar
-                                                        </button>
-                                                        <button 
-                                                            type="button" 
-                                                            onClick={() => handleRemoverVetor(v.id)}
-                                                            className="text-red-400 hover:underline text-right"
-                                                        >
-                                                            Remover
-                                                        </button>
-                                                    </div>
-                                                </div>
+                                                </li>
                                             ))}
-                                        </div>
+                                        </ul>
                                     )}
                                 </div>
+
+                                {/* BLOCO 2: FORMULÁRIO DE VETOR E MÓDULOS G.A.D. */}
+                                {dadosASI.taticaDiretrizes.length === 0 ? (
+                                    <div className="bg-gray-900/30 p-6 rounded-xl border border-gray-850 text-center space-y-1">
+                                        <p className="text-yellow-500 font-bold text-xs">⚠️ Requisito Prévio</p>
+                                        <p className="text-[11px] text-gray-400">Cadastre pelo menos uma Diretriz Estratégica acima antes de configurar seus Vetores de Desvio (G.A.D.).</p>
+                                    </div>
+                                ) : (
+                                    <form onSubmit={handleSalvarVetor} className="space-y-4 bg-gray-900/40 p-4 rounded-xl border border-gray-700/60 animate-fade-in">
+                                        <div className="border-b border-gray-800 pb-2">
+                                            <h3 className="text-sm font-bold text-cyan-400">
+                                                {vetorEditandoId ? 'Editando Vetor de Desvio' : 'Novo Vetor de Desvio (G.A.D.)'}
+                                            </h3>
+                                        </div>
+
+                                        {/* Selecionar Diretriz */}
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                Diretriz estratégica associada *
+                                                <DidacticInfo 
+                                                    id="selected_diretriz"
+                                                    title="Diretriz associada" 
+                                                    text={"Selecione a qual objetivo/diretriz de negócio este vetor de desvio operacional (G.A.D.) estará monitorando e protegendo."} 
+                                                    activeTooltipId={activeTooltipId}
+                                                    setActiveTooltipId={setActiveTooltipId}
+                                                    align="left"
+                                                />
+                                            </label>
+                                            <select
+                                                value={selectedDiretrizId}
+                                                onChange={e => setSelectedDiretrizId(e.target.value)}
+                                                required
+                                                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none"
+                                            >
+                                                <option value="">Selecione uma diretriz estratégica...</option>
+                                                {dadosASI.taticaDiretrizes.map(d => (
+                                                    <option key={d.id} value={d.id}>{d.descricao}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Nome do Vetor */}
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                Vetor de desvio *
+                                                <DidacticInfo 
+                                                    id="vetordesvio"
+                                                    title="Vetor de desvio" 
+                                                    text={"O cenário de risco ou anomalia operacional que pode desviar a organização de sua diretriz estratégica.\n\nExemplo: 'Corrosão de margem por Custo de Aquisição (CAC)'."} 
+                                                    activeTooltipId={activeTooltipId}
+                                                    setActiveTooltipId={setActiveTooltipId}
+                                                    align="left"
+                                                />
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                value={vetorDesvio} 
+                                                onChange={e => setVetorDesvio(e.target.value)} 
+                                                required 
+                                                placeholder="Ex: Corrosão de margem por aumento do Custo de Aquisição de Clientes (CAC)" 
+                                                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                            />
+                                        </div>
+
+                                        {/* MÓDULO G: GATILHO */}
+                                        <div className="bg-gray-955/40 p-3 rounded-lg border border-gray-800 space-y-3">
+                                            <h4 className="text-[11px] font-bold text-yellow-500 uppercase tracking-wider">Módulo G - Gatilho (Identificação da Anomalia)</h4>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Transação de origem *
+                                                        <DidacticInfo 
+                                                            id="g_transacao"
+                                                            title="Transação de origem" 
+                                                            text={"A transação operacional onde o dado é gerado.\n\nExemplo: Faturamento de pedido, Aprovação de crédito."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="left"
+                                                        />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={gatilhoTransacao} 
+                                                        onChange={e => setGatilhoTransacao(e.target.value)} 
+                                                        required 
+                                                        placeholder="Ex: Faturamento de pedido" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Indicador monitorado *
+                                                        <DidacticInfo 
+                                                            id="g_indicador"
+                                                            title="Indicador monitorado" 
+                                                            text={"O campo numérico ou financeiro a ser avaliado pelo sistema.\n\nExemplo: Custo Logístico, Quantidade, Custo de Aquisição (CAC)."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="center"
+                                                        />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={gatilhoIndicador} 
+                                                        onChange={e => setGatilhoIndicador(e.target.value)} 
+                                                        required 
+                                                        placeholder="Ex: Custo de Aquisição (CAC)" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Janela de avaliação *
+                                                        <DidacticInfo 
+                                                            id="g_janela"
+                                                            title="Janela de avaliação" 
+                                                            text={"O intervalo temporal em que o sistema consolida o dado antes de testar a ruptura da regra.\n\nExemplo: A cada hora (Intraday), Fechamento Diário, Acumulado Semanal."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="right"
+                                                        />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={gatilhoJanela} 
+                                                        onChange={e => setGatilhoJanela(e.target.value)} 
+                                                        required 
+                                                        placeholder="Ex: Fechamento Diário" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Lógica de ruptura (operador) *
+                                                        <DidacticInfo 
+                                                            id="g_logica"
+                                                            title="Lógica de ruptura" 
+                                                            text={"Indica ao motor de cálculo o sentido do desvio que representa uma anomalia em relação à linha de base."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="left"
+                                                        />
+                                                    </label>
+                                                    <select 
+                                                        value={gatilhoLogica} 
+                                                        onChange={e => setGatilhoLogica(e.target.value)} 
+                                                        required 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none"
+                                                    >
+                                                        <option value="">Selecione uma lógica...</option>
+                                                        <option value="Desvio Positivo">Desvio Positivo (&gt; que a Baseline)</option>
+                                                        <option value="Desvio Negativo">Desvio Negativo (&lt; que a Baseline)</option>
+                                                        <option value="Igualdade Crítica">Igualdade Crítica (= à Baseline)</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Linha de base (baseline) *
+                                                        <DidacticInfo 
+                                                            id="g_baseline"
+                                                            title="Linha de base (baseline)" 
+                                                            text={"O valor nominal ou percentual que serve como limite crítico de referência.\n\nExemplo: 12%, R$ 350,00."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="right"
+                                                        />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={gatilhoBaseline} 
+                                                        onChange={e => setGatilhoBaseline(e.target.value)} 
+                                                        required 
+                                                        placeholder="Ex: 15% ou R$ 350,00" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* MÓDULO A: AGREGAÇÃO OLAP */}
+                                        <div className="bg-gray-955/40 p-3 rounded-lg border border-gray-800 space-y-3">
+                                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                                <h4 className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">Módulo A - Agregação (Visão OLAP)</h4>
+                                                <span className="text-[9px] text-red-400 font-semibold bg-red-955/20 border border-red-900/50 px-2 py-0.5 rounded">Requer no mínimo 2 dimensões</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Eixo 1 (Dimensão de tempo)
+                                                        <DidacticInfo 
+                                                            id="a_tempo"
+                                                            title="Dimensão de Tempo" 
+                                                            text={"Periodicidade para agrupamento do indicador.\n\nExemplo: Semana, Mês, Trimestre."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="left"
+                                                        />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={agregacaoTempo} 
+                                                        onChange={e => setAgregacaoTempo(e.target.value)} 
+                                                        placeholder="Ex: Semana" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Eixo 2 (Dimensão geográfica / estrutural)
+                                                        <DidacticInfo 
+                                                            id="a_geo"
+                                                            title="Dimensão Geográfica" 
+                                                            text={"Divisão física ou estrutural para agrupamento.\n\nExemplo: Região, Filial, Centro de Distribuição."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="center"
+                                                    />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={agregacaoGeografica} 
+                                                        onChange={e => setAgregacaoGeografica(e.target.value)} 
+                                                        placeholder="Ex: Região" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Eixo 3 (Dimensão de negócio)
+                                                        <DidacticInfo 
+                                                            id="a_negocio"
+                                                            title="Dimensão de Negócio" 
+                                                            text={"Atributo do negócio para agrupamento.\n\nExemplo: Categoria de produto, Canal de Venda."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="right"
+                                                    />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={agregacaoNegocio} 
+                                                        onChange={e => setAgregacaoNegocio(e.target.value)} 
+                                                        placeholder="Ex: Canal de Venda" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* MÓDULO AÇÕES DECISÃO */}
+                                        <div className="bg-gray-955/40 p-3 rounded-lg border border-gray-800 space-y-3">
+                                            <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Módulo D - Decisão (Ação de Contorno)</h4>
+                                            <div className="grid grid-cols-1 gap-3">
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Área notificada (Área funcional) *
+                                                        <DidacticInfo 
+                                                            id="d_area"
+                                                            title="Área notificada" 
+                                                            text={"O departamento ou responsável direto que receberá o alerta de desvio.\n\nExemplo: Gerência de E-commerce, Diretoria Comercial."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="left"
+                                                        />
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={decisaoArea} 
+                                                        onChange={e => setDecisaoArea(e.target.value)} 
+                                                        required 
+                                                        placeholder="Ex: Gerência de E-commerce" 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                        Protocolo de ação exigida *
+                                                        <DidacticInfo 
+                                                            id="d_protocolo"
+                                                            title="Protocolo de ação exigida" 
+                                                            text={"O fluxo de trabalho objetivo ou protocolo emergencial a ser executado para corrigir o desvio.\n\nExemplo: Suspender imediatamente campanhas no Google Ads para a região afetada e redistribuir orçamento."} 
+                                                            activeTooltipId={activeTooltipId}
+                                                            setActiveTooltipId={setActiveTooltipId}
+                                                            align="left"
+                                                        />
+                                                    </label>
+                                                    <textarea 
+                                                        value={decisaoProtocolo} 
+                                                        onChange={e => setDecisaoProtocolo(e.target.value)} 
+                                                        required 
+                                                        rows="2" 
+                                                        placeholder="Ex: Suspender imediatamente campanhas no Google Ads para a região afetada e redistribuir orçamento." 
+                                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 resize-y outline-none" 
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Botões de Ação */}
+                                        <div className="flex justify-end gap-2 pt-2">
+                                            {vetorEditandoId && (
+                                                <button 
+                                                    type="button" 
+                                                    onClick={handleCancelarEditarVetor} 
+                                                    className="bg-gray-750 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg text-[10px] transition-all shadow"
+                                                >
+                                                    Cancelar Edição
+                                                </button>
+                                            )}
+                                            <button 
+                                                type="submit" 
+                                                disabled={loading}
+                                                className="bg-cyan-600 hover:bg-cyan-500 text-gray-950 font-bold py-2 px-5 rounded-lg text-[10px] transition-all shadow"
+                                            >
+                                                {loading ? 'Sincronizando...' : vetorEditandoId ? 'Salvar G.A.D.' : 'Adicionar Vetor (G.A.D.)'}
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
+
+                                {/* LISTA DE VETORES CONFIGURADOS */}
+                                {dadosASI.taticaDiretrizes.length > 0 && (
+                                    <div className="space-y-3">
+                                        <h4 className="text-xs font-bold text-gray-400 border-b border-gray-800 pb-1">Vetores de Desvio Cadastrados</h4>
+                                        {(!dadosASI.taticaVetores || dadosASI.taticaVetores.length === 0) ? (
+                                            <p className="text-[11px] text-gray-500 italic py-2">Nenhum vetor de desvio mapeado.</p>
+                                        ) : (
+                                            <div className="grid grid-cols-1 gap-2.5">
+                                                {dadosASI.taticaVetores.map((v) => {
+                                                    const dirAssociada = dadosASI.taticaDiretrizes.find(d => d.id === v.diretrizId);
+                                                    return (
+                                                        <div 
+                                                            key={v.id} 
+                                                            className={`bg-gray-900 p-3 rounded-xl border flex flex-col sm:flex-row justify-between gap-3 text-[11px] ${vetorEditandoId === v.id ? 'border-cyan-500 bg-gray-850' : 'border-gray-750 bg-gray-900/60'}`}
+                                                        >
+                                                            <div className="space-y-1.5 flex-1">
+                                                                <div className="space-y-0.5">
+                                                                    <p className="text-[10px] text-cyan-500 font-semibold">🎯 Diretriz: "{dirAssociada?.descricao || 'Sem Diretriz'}"</p>
+                                                                    <p className="text-white font-bold text-xs">⚠️ Vetor: {v.vetorDesvio}</p>
+                                                                </div>
+                                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-955 p-2 rounded-lg border border-gray-800/40 text-[10px]">
+                                                                    <div>
+                                                                        <p className="text-yellow-500 font-bold uppercase tracking-wider text-[8px]">Gatilho</p>
+                                                                        <p className="text-gray-300 truncate" title={v.gatilhoTransacao}><span className="text-gray-500">Transação:</span> {v.gatilhoTransacao}</p>
+                                                                        <p className="text-gray-300"><span className="text-gray-500">Indicador:</span> {v.gatilhoIndicador} ({v.gatilhoLogica === 'Desvio Positivo' ? '>' : v.gatilhoLogica === 'Desvio Negativo' ? '<' : '='} {v.gatilhoBaseline})</p>
+                                                                        <p className="text-gray-300"><span className="text-gray-500">Janela:</span> {v.gatilhoJanela}</p>
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-purple-400 font-bold uppercase tracking-wider text-[8px]">Agregação (OLAP)</p>
+                                                                        <p className="text-gray-300"><span className="text-gray-500">Tempo:</span> {v.agregacaoTempo || '-'}</p>
+                                                                        <p className="text-gray-300"><span className="text-gray-500">Geo:</span> {v.agregacaoGeografica || '-'}</p>
+                                                                        <p className="text-gray-300"><span className="text-gray-500">Negócio:</span> {v.agregacaoNegocio || '-'}</p>
+                                                                    </div>
+                                                                    <div>
+                                                                        <p className="text-emerald-400 font-bold uppercase tracking-wider text-[8px]">Decisão</p>
+                                                                        <p className="text-gray-300"><span className="text-gray-500">Notificar:</span> {v.decisaoArea}</p>
+                                                                        <p className="text-gray-300 truncate" title={v.decisaoProtocolo}><span className="text-gray-500">Ação:</span> {v.decisaoProtocolo}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex sm:flex-col justify-end gap-2.5 shrink-0 self-end sm:self-start text-[9px] font-bold">
+                                                                <button 
+                                                                    type="button" 
+                                                                    onClick={() => handleIniciarEditarVetor(v)}
+                                                                    className="text-cyan-400 hover:underline text-right"
+                                                                >
+                                                                    Editar
+                                                                </button>
+                                                                <button 
+                                                                    type="button" 
+                                                                    onClick={() => handleRemoverVetor(v.id)}
+                                                                    className="text-red-400 hover:underline text-right"
+                                                                >
+                                                                    Remover
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
 
                             </div>
                         )}
@@ -894,26 +1050,33 @@ function AdmSITatica() {
                         {activeAccordion === 'resumo' && (
                             <div className="p-3 sm:p-6 border-t border-gray-700 space-y-6 animate-fade-in">
                                 
-                                {/* CABEÇALHO DA DIRETRIZ */}
-                                <div className="bg-gray-900/60 p-4 rounded-xl border border-gray-750">
-                                    <h4 className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Diretriz Estratégica Mapeada</h4>
-                                    <p className="text-xs text-white font-medium mt-1">
-                                        {dadosASI.taticaDiretriz ? `"${dadosASI.taticaDiretriz}"` : '⚠️ Nenhuma diretriz estratégica cadastrada ainda.'}
-                                    </p>
-                                </div>
-
-                                <div className="space-y-3">
-                                    <h4 className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Rastreabilidade de Conformidade Tática</h4>
-                                    {(!dadosASI.taticaVetores || dadosASI.taticaVetores.length === 0) ? (
+                                <div className="space-y-4">
+                                    <h4 className="text-[10px] font-bold uppercase text-gray-400 tracking-wider">Rastreabilidade por Diretrizes Estratégicas</h4>
+                                    {dadosASI.taticaDiretrizes.length === 0 ? (
                                         <div className="bg-gray-950/40 p-6 rounded-lg text-center border border-gray-850">
-                                            <p className="text-yellow-500 font-bold text-xs">Nenhum vetor de desvio para auditar.</p>
-                                            <p className="text-[10px] text-gray-500 mt-1">Cadastre vetores de desvio e parametrize o modelo G.A.D. na Sanfona 1.</p>
+                                            <p className="text-yellow-500 font-bold text-xs">Nenhuma diretriz estratégica cadastrada.</p>
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            {dadosASI.taticaVetores.map((v) => (
-                                                <GadAuditCard key={v.id} item={v} />
-                                            ))}
+                                        <div className="space-y-5">
+                                            {dadosASI.taticaDiretrizes.map((diretriz) => {
+                                                const vetoresDaDiretriz = dadosASI.taticaVetores.filter(v => v.diretrizId === diretriz.id);
+                                                return (
+                                                    <div key={diretriz.id} className="bg-gray-900/30 p-4 rounded-xl border border-gray-750 space-y-3">
+                                                        <h5 className="text-[11px] font-extrabold text-cyan-400 border-b border-cyan-950 pb-1.5 flex items-center gap-2">
+                                                            🎯 Diretriz: "{diretriz.descricao}"
+                                                        </h5>
+                                                        {vetoresDaDiretriz.length === 0 ? (
+                                                            <p className="text-[10px] text-gray-500 italic">Nenhum vetor de desvio mapeado para esta diretriz.</p>
+                                                        ) : (
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                                                {vetoresDaDiretriz.map(v => (
+                                                                    <GadAuditCard key={v.id} item={v} />
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
