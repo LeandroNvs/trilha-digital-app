@@ -1,4 +1,4 @@
-import { normalizarValor, aplicarRetornosDecrescentes, higienizarPrecosOutliers } from '../utils';
+import { normalizarValor, aplicarRetornosDecrescentes, higienizarPrecosOutliers, calcularFatorRejeicaoPreco } from '../utils';
 
 export function processarMercado(todasEmpresas, simulacao, proximaRodada) {
     // APLICAÇÃO DO EVENTO: Usa o fatorDemanda calculado no módulo de eventos
@@ -15,6 +15,15 @@ export function processarMercado(todasEmpresas, simulacao, proximaRodada) {
     const precosS2 = higienizarPrecosOutliers(todasEmpresas.map(e => e.decisoes.Preco_Segmento_2 || 0));
     const mktS1 = todasEmpresas.map(e => e.decisoes.Marketing_Segmento_1 || 0);
     const mktS2 = todasEmpresas.map(e => e.decisoes.Marketing_Segmento_2 || 0);
+
+    const calcMediana = (arr) => {
+        const sorted = arr.filter(p => p > 0).sort((a, b) => a - b);
+        if (sorted.length === 0) return 0;
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    };
+    const medianaPrecoS1 = calcMediana(todasEmpresas.map(e => e.decisoes.Preco_Segmento_1 || 0));
+    const medianaPrecoS2 = calcMediana(todasEmpresas.map(e => e.decisoes.Preco_Segmento_2 || 0));
 
     let somaAtrS1 = 0;
     let somaAtrS2 = 0;
@@ -43,7 +52,8 @@ export function processarMercado(todasEmpresas, simulacao, proximaRodada) {
         const atratividadeS1 = (scorePDS1 * wPDS1) + (scoreMktS1 * wMktS1) + (scorePrecoS1 * wPrecoS1) + 
                                (estadoNovo.Nivel_Qualidade * wQualS1) + (estadoNovo.Nivel_ESG * wESGS1);
         
-        empresa.atratividadeS1 = Math.max(0, atratividadeS1);
+        const fatorRejeicaoS1 = calcularFatorRejeicaoPreco(decisoes.Preco_Segmento_1 || 0, medianaPrecoS1);
+        empresa.atratividadeS1 = Math.max(0, atratividadeS1) * fatorRejeicaoS1;
         somaAtrS1 += empresa.atratividadeS1;
 
         // S2 (Massa)
@@ -61,12 +71,15 @@ export function processarMercado(todasEmpresas, simulacao, proximaRodada) {
         const atratividadeS2 = (scorePDS2 * wPDS2) + (scoreMktS2 * wMktS2) + (scorePrecoS2 * wPrecoS2) +
                                (estadoNovo.Nivel_Qualidade * wQualS2) + (estadoNovo.Nivel_ESG * wESGS2);
         
-        empresa.atratividadeS2 = Math.max(0, atratividadeS2);
+        const fatorRejeicaoS2 = calcularFatorRejeicaoPreco(decisoes.Preco_Segmento_2 || 0, medianaPrecoS2);
+        empresa.atratividadeS2 = Math.max(0, atratividadeS2) * fatorRejeicaoS2;
         somaAtrS2 += empresa.atratividadeS2;
     });
 
     // Distribuição de Vendas
     let totalVendasSetor = 0;
+    let totalVendasReaisS1 = 0;
+    let totalVendasReaisS2 = 0;
 
     todasEmpresas.forEach(empresa => {
         const { estadoNovo, decisoes } = empresa;
@@ -81,7 +94,7 @@ export function processarMercado(todasEmpresas, simulacao, proximaRodada) {
             estadoNovo.Noticia_Ruptura_Estoque_S1 = `Ruptura S1: Demandou ${demandaS1Empresa}, vendeu ${vendasS1}.`;
         }
         estadoNovo.Vendas_Efetivas_Premium = vendasS1;
-        estadoNovo.Market_Share_Premium = shareS1;
+        estadoNovo.Share_Demanda_Premium = shareS1;
 
         // Vendas S2
         const shareS2 = somaAtrS2 > 0 ? (empresa.atratividadeS2 / somaAtrS2) : (1 / todasEmpresas.length);
@@ -91,9 +104,11 @@ export function processarMercado(todasEmpresas, simulacao, proximaRodada) {
             estadoNovo.Noticia_Ruptura_Estoque_S2 = `Ruptura S2: Demandou ${demandaS2Empresa}, vendeu ${vendasS2}.`;
         }
         estadoNovo.Vendas_Efetivas_Massa = vendasS2;
-        estadoNovo.Market_Share_Massa = shareS2;
+        estadoNovo.Share_Demanda_Massa = shareS2;
 
         totalVendasSetor += (vendasS1 + vendasS2);
+        totalVendasReaisS1 += vendasS1;
+        totalVendasReaisS2 += vendasS2;
 
         const receita = (vendasS1 * (decisoes.Preco_Segmento_1 || 0)) + (vendasS2 * (decisoes.Preco_Segmento_2 || 0));
         estadoNovo.Vendas_Receita = receita;
@@ -105,6 +120,12 @@ export function processarMercado(todasEmpresas, simulacao, proximaRodada) {
         estadoNovo.Custo_Estoque_S2 = estadoNovo.Estoque_S2_Unidades * estadoNovo.Custo_Unitario_S2;
 
         estadoNovo.Custo_Produtos_Vendidos = (vendasS1 * estadoNovo.Custo_Unitario_S1) + (vendasS2 * estadoNovo.Custo_Unitario_S2);
+    });
+
+    // Calcula o Market Share Real (Vendas Efetivas)
+    todasEmpresas.forEach(empresa => {
+        empresa.estadoNovo.Market_Share_Premium = totalVendasReaisS1 > 0 ? (empresa.estadoNovo.Vendas_Efetivas_Premium / totalVendasReaisS1) : 0;
+        empresa.estadoNovo.Market_Share_Massa = totalVendasReaisS2 > 0 ? (empresa.estadoNovo.Vendas_Efetivas_Massa / totalVendasReaisS2) : 0;
     });
 
     return totalVendasSetor;

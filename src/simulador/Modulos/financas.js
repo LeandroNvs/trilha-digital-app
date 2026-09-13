@@ -2,6 +2,15 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
     const { estadoAtual, decisoes, estadoNovo } = empresa;
     let caixa = estadoNovo.Caixa;
     
+    estadoNovo.Extrato = {
+        caixaInicial: estadoAtual.Caixa || 0,
+        pagamentoDividas: 0,
+        novosEmprestimos: 0,
+        investimentos: 0,
+        custoProducao: 0,
+        receitas: 0
+    };
+    
     // Taxas
     const taxaJurosCP = (simulacao.Taxa_Juros_Curto_Prazo || 0) / 100;
     const taxaJurosEmergencia = (simulacao.Taxa_Juros_Emergencia || 0) / 100;
@@ -15,6 +24,7 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
         const jurosEmerg = dividaEmergAnterior * taxaJurosEmergencia;
         caixa -= (dividaEmergAnterior + jurosEmerg);
         estadoNovo.Despesas_Juros_Emergencia += jurosEmerg;
+        estadoNovo.Extrato.pagamentoDividas += (dividaEmergAnterior + jurosEmerg);
     }
 
     const dividaCPAnterior = estadoAtual.Divida_CP || 0;
@@ -26,11 +36,13 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
             const shortfall = pgtoTotal - caixa;
             estadoNovo.Divida_Emergencia = shortfall;
             estadoNovo.Despesas_Juros_Emergencia += (shortfall * taxaJurosEmergencia); 
+            estadoNovo.Extrato.pagamentoDividas += caixa; // Pagou o que tinha
             caixa = 0;
             estadoNovo.Despesas_Juros_CP += jurosCP;
         } else {
             caixa -= pgtoTotal;
             estadoNovo.Despesas_Juros_CP += jurosCP;
+            estadoNovo.Extrato.pagamentoDividas += pgtoTotal;
         }
     }
 
@@ -41,6 +53,7 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
         const juros = saldoLP * taxaJurosLP;
         caixa -= (amortizacao + juros);
         estadoNovo.Despesas_Juros_LP += juros;
+        estadoNovo.Extrato.pagamentoDividas += (amortizacao + juros);
         saldoLP -= amortizacao;
         rodadasLP -= 1;
     } else {
@@ -51,6 +64,7 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
     const amortExtra = Math.max(0, Math.min(decisoes.Amortizar_Divida_LP || 0, saldoLP));
     if (amortExtra > 0 && caixa >= amortExtra) {
         caixa -= amortExtra;
+        estadoNovo.Extrato.pagamentoDividas += amortExtra;
         saldoLP -= amortExtra;
         if (saldoLP <= 0) { saldoLP = 0; rodadasLP = 0; }
     }
@@ -59,12 +73,14 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
     if (novoCP > 0) {
         caixa += novoCP;
         estadoNovo.Divida_CP += novoCP;
+        estadoNovo.Extrato.novosEmprestimos += novoCP;
     }
     const novoLP = decisoes.Tomar_Financiamento_LP || 0;
     if (novoLP > 0) {
         caixa += novoLP;
         saldoLP += novoLP;
         rodadasLP = prazoFixoLP;
+        estadoNovo.Extrato.novosEmprestimos += novoLP;
     }
 
     // 3. Saídas de Caixa (Investimentos)
@@ -76,6 +92,7 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
                      (decisoes.Invest_Organiz_ESG || 0);
 
     caixa -= (totalPD + invExp + totalMkt + totalOrg);
+    estadoNovo.Extrato.investimentos += (totalPD + invExp + totalMkt + totalOrg);
     
     // Registra despesas operacionais iniciais
     estadoNovo.Despesas_Operacionais_Outras += (totalPD + totalMkt);
@@ -93,6 +110,7 @@ export function processarFluxoCaixaInicial(empresa, simulacao, proximaRodada) {
     const custoFixo = custoFixoBase * Math.pow(1 + inflacaoRodada, proximaRodada - 1);
     caixa -= custoFixo;
     estadoNovo.Despesas_Operacionais_Outras += custoFixo;
+    estadoNovo.Extrato.investimentos += custoFixo; // Agrupando custo fixo em investimentos/saídas operacionais
 
     // Atualiza Estado Financeiro Final
     estadoNovo.Caixa = caixa;

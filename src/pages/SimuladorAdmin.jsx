@@ -23,6 +23,12 @@ const IconeSpinner = () => (
     </svg>
 );
 
+const IconeExportar = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+    </svg>
+);
+
 // --- FUNÇÃO ATUALIZADA: Compatível com Segmentação S1/S2 e Nova Estrutura ---
 const gerarRodadaZero = async (simId, simParams, simulacoesCollectionPath) => {
     const batch = writeBatch(db);
@@ -133,6 +139,7 @@ function SimuladorAdmin() {
     const [erroProcessamento, setErroProcessamento] = useState('');
     const [modalConfirmarProcessamento, setModalConfirmarProcessamento] = useState(null);
     const [cloningId, setCloningId] = useState(null); 
+    const [exportingId, setExportingId] = useState(null);
 
     const handleCriarNova = () => navigate('/simulador/novo');
 
@@ -215,6 +222,70 @@ function SimuladorAdmin() {
         }
     };
     
+    const handleExportarDadosIA = async (simId) => {
+        setExportingId(simId);
+        setErroProcessamento('');
+        try {
+            // 1. Busca Simulacao
+            const simRef = doc(db, simulacoesCollectionPath, simId);
+            const simSnap = await getDoc(simRef);
+            if (!simSnap.exists()) throw new Error("Simulação não encontrada para exportação.");
+            const simData = simSnap.data();
+
+            // 2. Busca Empresas
+            const empresasRef = collection(simRef, 'empresas');
+            const empresasSnap = await getDocs(empresasRef);
+            const empresasData = [];
+
+            // 3. Para cada empresa, busca estados e decisoes
+            for (const empresaDoc of empresasSnap.docs) {
+                const empData = { id: empresaDoc.id, ...empresaDoc.data(), rodadas: [] };
+                
+                const rodadaAtual = simData.Rodada_Atual || 0;
+                // Busca rodadas de 0 até Rodada_Atual
+                for (let r = 0; r <= rodadaAtual; r++) {
+                    const rStr = r.toString();
+                    
+                    const estadoSnap = await getDoc(doc(empresaDoc.ref, 'estados', rStr));
+                    const decisaoSnap = r > 0 ? await getDoc(doc(empresaDoc.ref, 'decisoes', rStr)) : null;
+
+                    empData.rodadas.push({
+                        rodada: r,
+                        estado: estadoSnap.exists() ? estadoSnap.data() : null,
+                        decisao: decisaoSnap && decisaoSnap.exists() ? decisaoSnap.data() : null
+                    });
+                }
+                empresasData.push(empData);
+            }
+
+            // 4. Compila tudo
+            const exportData = {
+                id_simulacao: simId,
+                parametros: simData,
+                empresas: empresasData,
+                exportado_em: new Date().toISOString()
+            };
+
+            // 5. Gera Download
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([dataStr], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `simulacao_ia_export_${simId}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+        } catch (error) {
+            console.error("Erro na exportação para IA:", error);
+            setErroProcessamento(`Falha ao exportar dados: ${error.message}`);
+        } finally {
+            setExportingId(null);
+        }
+    };
+    
     return (
         <div className="bg-gray-800 shadow-lg rounded-xl p-8 animate-fade-in">
             <div className="flex justify-between items-center mb-6">
@@ -234,6 +305,7 @@ function SimuladorAdmin() {
                     simulacoes.map(sim => {
                         const isProcessandoEste = processandoId === sim.id;
                         const isClonandoEste = cloningId === sim.id;
+                        const isExportandoEste = exportingId === sim.id;
                         const rodadaAtual = sim.Rodada_Atual ?? 0;
                         const isFinalizada = sim.Status?.startsWith('Finalizada') || rodadaAtual >= (sim.Total_Rodadas || 99);
                         const podeProcessar = (sim.Status?.startsWith('Ativa') || sim.Status?.startsWith('Aguardando')) && !isFinalizada;
@@ -251,7 +323,7 @@ function SimuladorAdmin() {
                                         <button 
                                             onClick={() => setModalConfirmarProcessamento(sim)}
                                             className="bg-green-500 hover:bg-green-600 text-white font-bold py-1 px-3 rounded text-sm disabled:opacity-50"
-                                            disabled={isProcessandoEste || isClonandoEste} 
+                                            disabled={isProcessandoEste || isClonandoEste || isExportandoEste} 
                                         >
                                             {isProcessandoEste ? 'Processando...' : `Processar Rodada ${rodadaAtual + 1}`}
                                         </button>
@@ -261,15 +333,23 @@ function SimuladorAdmin() {
                                     <Link to={`/simulador/editar/${sim.id}`} className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded text-sm">Editar</Link>
                                     <button
                                         onClick={() => handleClonarSimulacao(sim.id)}
-                                        disabled={isClonandoEste || isProcessandoEste}
+                                        disabled={isClonandoEste || isProcessandoEste || isExportandoEste}
                                         className={`p-1 rounded text-sm ${isClonandoEste ? 'opacity-50 cursor-wait' : 'text-blue-400 hover:text-blue-300'} disabled:opacity-50`}
                                         title="Clonar Parâmetros"
                                     >
                                         {isClonandoEste ? <IconeSpinner /> : <IconeClonar />}
                                     </button>
+                                    <button
+                                        onClick={() => handleExportarDadosIA(sim.id)}
+                                        disabled={isClonandoEste || isProcessandoEste || isExportandoEste}
+                                        className={`p-1 rounded text-sm ${isExportandoEste ? 'opacity-50 cursor-wait' : 'text-green-400 hover:text-green-300'} disabled:opacity-50`}
+                                        title="Exportar Dados (IA)"
+                                    >
+                                        {isExportandoEste ? <IconeSpinner /> : <IconeExportar />}
+                                    </button>
                                     <button 
                                         onClick={() => setItemParaExcluir(sim)}
-                                        disabled={isProcessandoEste || isClonandoEste}
+                                        disabled={isProcessandoEste || isClonandoEste || isExportandoEste}
                                         className="bg-red-500 hover:bg-red-600 text-white py-1 px-3 rounded text-sm disabled:opacity-50"
                                     >
                                         Excluir

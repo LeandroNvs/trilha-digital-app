@@ -36,3 +36,18 @@ export function higienizarPrecosOutliers(precos, multiplicadorCap = 5) {
         return p; 
     });
 }
+
+// Aplica um fator de rejeição (0 a 1) para preços muito acima da mediana
+export function calcularFatorRejeicaoPreco(preco, mediana, limiteInicio = 1.3, limiteFim = 1.6) {
+    if (preco <= 0 || mediana <= 0) return 1.0;
+    const ratio = preco / mediana;
+    
+    // Até limiteInicio (ex: 30%) acima da mediana, sem punição de encalhe
+    if (ratio <= limiteInicio) return 1.0;
+    
+    // Acima de limiteFim (ex: 60%) da mediana, produto encalha totalmente
+    if (ratio >= limiteFim) return 0.0;
+    
+    // Entre os limites, a atratividade decai linearmente
+    return 1.0 - ((ratio - limiteInicio) / (limiteFim - limiteInicio));
+}

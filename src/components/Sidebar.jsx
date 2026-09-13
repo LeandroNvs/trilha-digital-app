@@ -18,6 +18,7 @@ const IconeAdmSI = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 
 function Sidebar({ perfilUsuario, aberta, setSidebarAberta }) {
   const [parametrizacaoAberta, setParametrizacaoAberta] = useState(true);
   const [admSIAberta, setAdmSIAberta] = useState(true);
+  const [redeNegociosAberta, setRedeNegociosAberta] = useState(true);
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -70,7 +71,19 @@ function Sidebar({ perfilUsuario, aberta, setSidebarAberta }) {
           
           <NavLink to="/simulador" icon={<IconeSimulador />}>Simulador</NavLink>
           <NavLink to="/inteligencia-competitiva" icon={<IconeIC />}>Inteligência Competitiva</NavLink>
-          <NavLink to="/rede-negocios" icon={<IconeRede />}>Rede de Negócios</NavLink>
+          {/* Menu Rede de Negócios */}
+          <div>
+            <button onClick={() => setRedeNegociosAberta(!redeNegociosAberta)} className="w-full flex items-center justify-between gap-4 px-4 py-2 rounded-lg text-white hover:bg-cyan-400">
+              <div className="flex items-center gap-4"><IconeRede />{aberta && <span>Rede de Negócios</span>}</div>
+              {aberta && <IconeChevron aberto={redeNegociosAberta} />}
+            </button>
+            {redeNegociosAberta && aberta && (
+              <div className="pl-8 pt-2 space-y-1">
+                <Link to="/rede-negocios" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Mapeamento da Rede</Link>
+                <Link to="/rede-negocios/evolucao" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Evolução de Rede</Link>
+              </div>
+            )}
+          </div>
 
           {/* Menu Adm SI (visível para todos) */}
           <div>

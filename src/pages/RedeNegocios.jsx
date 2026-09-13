@@ -4,6 +4,7 @@ import { db, appId, auth } from '../firebase/config.js';
 import useCollection from '../hooks/useCollection.js';
 import Parametrizacao from '../components/RedeNegocios/Parametrizacao.jsx';
 import MatrizPoderInteresse from '../components/RedeNegocios/MatrizPoderInteresse.jsx';
+import * as XLSX from 'xlsx';
 
 function RedeNegocios() {
     const [activeTab, setActiveTab] = useState('parametrizacao');
@@ -68,6 +69,75 @@ function RedeNegocios() {
         return () => unsubscribe();
     }, [selectedGroupId]);
 
+    const handleExportExcel = () => {
+        if (!grupoSelecionado) return;
+
+        // 1. Dados do Nó Central
+        const dadosCentral = [
+            {
+                'Tipo': 'Nó Central (Empresa)',
+                'Nome': grupoSelecionado.identidadeRede?.nome || grupoSelecionado.nome,
+                'Propósito/Missão': grupoSelecionado.identidadeRede?.proposito || 'Não definido',
+                'Categoria': '-',
+                'Essencialidade': '-',
+                'Poder (Influência)': '-',
+                'Interesse na Relação': '-',
+                'Justificativa Interesse': '-',
+                'Legitimidade': '-',
+                'Recursos Aportados': '-',
+                'Força do Vínculo': '-',
+                'Natureza': '-',
+                'Direção': '-',
+                'Fluxo Principal': '-'
+            }
+        ];
+
+        // 2. Dados dos Stakeholders
+        const dadosAtores = atores.map(ator => ({
+            'Tipo': 'Stakeholder',
+            'Nome': ator.nome,
+            'Propósito/Missão': '-',
+            'Categoria': ator.categoria,
+            'Essencialidade': ator.essencialidade,
+            'Poder (Influência)': ator.influencia,
+            'Interesse na Relação': ator.nivelInteresse || '-',
+            'Justificativa Interesse': ator.interesse || '-',
+            'Legitimidade': ator.legitimidade || '-',
+            'Recursos Aportados': ator.recursosAportados || '-',
+            'Força do Vínculo': ator.forcaVinculo,
+            'Natureza': ator.natureza,
+            'Direção': ator.direcao,
+            'Fluxo Principal': ator.fluxoPrincipal
+        }));
+
+        const data = [...dadosCentral, ...dadosAtores];
+
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Rede de Negócios");
+
+        // Ajustar largura das colunas (opcional, mas melhora o visual)
+        const wscols = [
+            { wch: 20 }, // Tipo
+            { wch: 30 }, // Nome
+            { wch: 40 }, // Propósito
+            { wch: 15 }, // Categoria
+            { wch: 15 }, // Essencialidade
+            { wch: 20 }, // Poder
+            { wch: 20 }, // Interesse
+            { wch: 40 }, // Justificativa
+            { wch: 20 }, // Legitimidade
+            { wch: 40 }, // Recursos
+            { wch: 15 }, // Força
+            { wch: 15 }, // Natureza
+            { wch: 15 }, // Direção
+            { wch: 40 }, // Fluxo
+        ];
+        worksheet['!cols'] = wscols;
+
+        XLSX.writeFile(workbook, `Rede_Negocios_${grupoSelecionado.nome.replace(/\s+/g, '_')}.xlsx`);
+    };
+
     if (isLoadingProfile || isGruposLoading) {
         return <div className="p-8 text-center text-gray-400 animate-pulse">Carregando módulo de Rede de Negócios...</div>;
     }
@@ -126,14 +196,24 @@ function RedeNegocios() {
                     </p>
                 </div>
 
-                {meusGrupos.length > 1 && (
-                     <button
-                        onClick={() => setSelectedGroupId('')}
-                        className="bg-gray-800 border border-gray-600 hover:border-cyan-500 text-gray-300 px-4 py-2 rounded-lg text-sm transition-all shadow hover:shadow-cyan-500/20"
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        onClick={handleExportExcel}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all shadow hover:shadow-emerald-500/20 flex items-center gap-2"
                     >
-                        Trocar Grupo / Analisar Outro
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Exportar Relatório (Excel)
                     </button>
-                )}
+
+                    {meusGrupos.length > 1 && (
+                        <button
+                            onClick={() => setSelectedGroupId('')}
+                            className="bg-gray-800 border border-gray-600 hover:border-cyan-500 text-gray-300 px-4 py-2 rounded-lg text-sm transition-all shadow hover:shadow-cyan-500/20"
+                        >
+                            Trocar Grupo / Analisar Outro
+                        </button>
+                    )}
+                </div>
             </header>
 
             <nav className="flex flex-wrap bg-gray-800/80 rounded-lg p-1.5 gap-2 border border-gray-700">

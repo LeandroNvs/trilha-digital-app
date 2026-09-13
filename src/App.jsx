@@ -30,6 +30,7 @@ import SimuladorRelatorio from './pages/SimuladorRelatorio'; // Corrigido
 import SimuladorAnalyticsVendas from './pages/SimuladorAnalyticsVendas'; // Corrigido
 import InteligenciaCompetitiva from './pages/InteligenciaCompetitiva'; // NOVO MÓDULO
 import RedeNegocios from './pages/RedeNegocios';
+import EvolucaoRede from './pages/EvolucaoRede';
 import AdmSIOrganizacao from './pages/AdmSIOrganizacao';
 import AdmSIGovernanca from './pages/AdmSIGovernanca';
 import AdmSITatica from './pages/AdmSITatica';
@@ -53,7 +54,8 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         if (pathname === '/simulador/aluno') { return 'Meus Jogos'; }
         if (pathname.startsWith('/simulador/painel/')) { return 'Painel da Empresa'; }
         if (pathname === '/simulador') { return 'Simulador'; }
-        if (pathname === '/rede-negocios') { return 'Rede de Negócios'; }
+        if (pathname === '/rede-negocios') { return 'Rede de Negócios - Mapeamento'; }
+        if (pathname === '/rede-negocios/evolucao') { return 'Rede de Negócios - Evolução de Rede'; }
         if (pathname === '/adm-si/organizacao') { return 'Adm SI - Organização'; }
         if (pathname === '/adm-si/governanca') { return 'Adm SI - Matriz Transacional'; }
         if (pathname === '/adm-si/tatica') { return 'Adm SI - Matriz Tática'; }
@@ -176,6 +178,7 @@ function App() {
                 <Route path="simulador/painel/:simulacaoId/:empresaId" element={<SimuladorPainel />} />
                 <Route path="inteligencia-competitiva" element={<InteligenciaCompetitiva />} />
                 <Route path="rede-negocios" element={<RedeNegocios perfilUsuario={perfilUsuario} />} />
+                <Route path="rede-negocios/evolucao" element={<EvolucaoRede perfilUsuario={perfilUsuario} />} />
                 <Route path="adm-si/organizacao" element={<AdmSIOrganizacao />} />
                 <Route path="adm-si/governanca" element={<AdmSIGovernanca />} />
                 <Route path="adm-si/tatica" element={<AdmSITatica />} />
