@@ -155,7 +155,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Protege a propriedade intelectual conjunta e aproveita a confiança prévia, mas estica o cronograma pela lenta curva de adaptação do parceiro.',
-                desafioGovernanca: 'Vocês concentraram o suprimento crítico em um único parceiro histórico e aportaram capital em ativos específicos na fábrica dele. Qual mecanismo de governança (auditorias técnicas na linha de produção, marcos de validação com penalidades por atraso, acordos de exclusividade mútua ou salvaguardas contratuais) vocês implementarão para não ficarem reféns dessa dependência?'
+                desafioGovernanca: 'Vocês concentraram o suprimento crítico em um único parceiro histórico e aportaram capital em ativos específicos na fábrica dele. Qual proposta de governança vocês implementarão para mitigar essa dependência e resguardar a empresa?'
             },
             {
                 id: '1B',
@@ -179,7 +179,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Soberania absoluta sobre a tecnologia e eliminação de nós intermediários, impondo atraso relevante no cronograma e alta imobilização de capital.',
-                desafioGovernanca: 'Vocês eliminaram a dependência de fornecedores, mas concentraram pontos de atenção financeiros críticos em ativos específicos dedicados e postergaram o lançamento. Qual mecanismo de governança (comitê executivo de P&D, auditoria contínua de yield fabril, mitigação de custos de transação internos) será estabelecido para evitar o desperdício de capital afundado?'
+                desafioGovernanca: 'Vocês eliminaram a dependência de fornecedores externos, mas imobilizaram capital em ativos específicos dedicados. Qual proposta de governança interna será estabelecida para assegurar a eficiência e evitar o desperdício de capital afundado?'
             },
             {
                 id: '1C',
@@ -203,7 +203,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Aceleração do time-to-market ao alavancar soluções prontas de terceiros, aceitando complexidade de coordenação multilateral e perda de exclusividade.',
-                desafioGovernanca: 'Vocês ganharam velocidade ao quebrar as amarras do H1, mas operam com pontos de atenção expressivos de vazamento de valor e pontos cegos na cadeia subcontratada das startups. Qual governança de aliança (acordos rígidos de propriedade intelectual, direitos de primeira recusa comercial, auditoria de subcontratados Tier 3) vocês exigirão no consórcio?'
+                desafioGovernanca: 'Vocês ganharam velocidade ao quebrar as amarras do H1, mas operam com pontos de atenção de vazamento de valor e pontos cegos na cadeia subcontratada. Qual proposta de governança de aliança vocês estruturarão e exigirão no consórcio?'
             }
         ]
     },
@@ -247,7 +247,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Time-to-market acelerado com modelo plug-and-play imediato, transferindo a captura de valor sobre os dados digitais para o nó dominante.',
-                desafioGovernanca: 'Vocês ganharam 4 meses de velocidade, mas entregaram o controle da experiência e dos dados ao nó dominante da plataforma. Qual governança de relacionamento com o intermediário (acordos bilaterais de SLA, comitês conjuntos de suporte a APIs prioritárias ou diferenciação de marca fora do SO) vocês adotarão para mitigar a comoditização?'
+                desafioGovernanca: 'Vocês aceleraram a entrada no mercado, mas entregaram o controle da experiência e dos dados ao nó dominante da plataforma. Qual proposta de governança de relacionamento com o intermediário vocês adotarão para mitigar a comoditização e a perda de diferenciação?'
             },
             {
                 id: '2B',
@@ -271,7 +271,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Diferenciação de experiência e blindagem no relacionamento com o usuário, exigindo investimento contínuo e suporte a desenvolvedores.',
-                desafioGovernanca: 'Vocês conquistaram soberania sobre os dados e a interface, mas geraram alta especificidade de ativos e atraíram toda a responsabilidade de bugs para dentro de casa. Qual governança de ecossistema digital (gestão do fundo de incentivo a desenvolvedores, SLAs rígidos de suporte e governança de cibersegurança/privacidade de dados) vocês implementarão?'
+                desafioGovernanca: 'Vocês conquistaram soberania sobre os dados e a interface, mas geraram alta especificidade de ativos e atraíram toda a responsabilidade operacional para dentro de casa. Qual proposta de governança de ecossistema digital vocês implementarão?'
             },
             {
                 id: '2C',
@@ -295,7 +295,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Contenção orçamentária e cumprimento de cronograma, com ponto de atenção voltado à potencial rejeição do consumidor pela falta de fluidez da interface.',
-                desafioGovernanca: 'Vocês preservaram caixa e cumpriram o cronograma sem custos extras, mas caíram na rigidez nuclear do H1 e arriscam frustrar o cliente na ponta. Qual governança técnica e de pós-venda (comitê emergencial de correções de firmware, monitoramento de churn e devoluções nos primeiros 30 dias de uso) vocês criarão para sustentar a reputação do produto?'
+                desafioGovernanca: 'Vocês preservaram recursos imediatos sem custos extras, mas mantiveram a rigidez nuclear do H1 e arriscam frustrar o usuário na ponta. Qual proposta de governança técnica e de pós-venda vocês criarão para sustentar a experiência e a reputação do produto?'
             }
         ]
     },
@@ -343,7 +343,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Capilaridade imediata em milhares de pontos de venda sem custo imobiliário próprio, aceitando a perda de margem e a dependência de intermediários.',
-                desafioGovernanca: 'Vocês aceitaram a intermediação do varejo e o vazamento de margem em troca de capilaridade imediata. Qual governança de trade marketing e canais (acordos bilaterais de compartilhamento de dados de sell-out, SLAs de treinamento obrigatório para promotores e auditoria física de destaque de vitrine) vocês implementarão para garantir que o produto seja demonstrado corretamente e não fique esquecido no estoque do lojista?'
+                desafioGovernanca: 'Vocês aceitaram a intermediação do varejo e a divisão de margem em troca de capilaridade imediata. Qual proposta de governança de trade marketing e canais vocês implementarão para garantir o destaque e a demonstração adequada do produto no ponto de venda?'
             },
             {
                 id: '3B',
@@ -371,7 +371,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Maximização da margem e retenção da base de clientes eliminando intermediários, assumindo a complexidade de frete e ponto de atenção sobre conflito de canais com o varejo do H1.',
-                desafioGovernanca: 'Vocês capturaram toda a margem e dados ao vender direto, mas criaram dependência extrema de uma malha logística com pontos de atenção de alta complexidade operacional e potencial atrito com os parceiros do H1. Qual governança de logística, segurança e canais (rastreamento telemétrico e seguro de carga ponta a ponta, auditoria de subcontratados de última milha e política de gestão de conflito de canais com os lojistas do H1) vocês estruturarão?'
+                desafioGovernanca: 'Vocês capturaram toda a margem e dados ao vender direto, mas criaram dependência de uma malha logística com pontos de atenção de alta complexidade operacional e potencial atrito com parceiros do H1. Qual proposta de governança de logística, segurança e canais vocês estruturarão?'
             },
             {
                 id: '3C',
@@ -395,7 +395,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Superação da barreira de experimentação sensorial do dobrável mantendo a reputação sob controle, absorvendo rigidez de custos fixos de locação comercial.',
-                desafioGovernanca: 'Vocês resolveram a barreira da experimentação física mantendo a reputação sob controle, mas imobilizaram capital em ativos específicos de varejo com aluguéis rígidos. Qual governança de operações comerciais (gestão de indicadores de conversão por metro quadrado, auditoria de qualidade no atendimento consultivo e cláusulas de flexibilidade em contratos de locação) vocês adotarão?'
+                desafioGovernanca: 'Vocês resolveram a barreira da experimentação física mantendo a reputação sob controle, mas imobilizaram capital em ativos específicos de varejo com custos fixos elevados. Qual proposta de governança de operações comerciais vocês adotarão para assegurar a sustentabilidade desse modelo?'
             }
         ]
     },
@@ -439,7 +439,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Compra de legitimidade e prestígio instantâneo no segmento de superluxo em troca de royalties pesados e subordinação criativa à matriz da grife.',
-                desafioGovernanca: 'Vocês compraram prestígio instantâneo através da grife, mas cederam margem em royalties e perderam autonomia criativa. Qual governança de co-branding (comitê conjunto de aprovação estética e de marketing, cláusulas de blindagem de marca contra crises de imagem do parceiro e auditoria de repasse de royalties) vocês estabelecerão?'
+                desafioGovernanca: 'Vocês compraram prestígio instantâneo através da grife, mas cederam margem em royalties e perderam autonomia criativa. Qual proposta de governança de aliança e co-branding vocês estabelecerão para coordenar essa parceria?'
             },
             {
                 id: '4B',
@@ -463,7 +463,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Alinhamento corporativo ágil e sem custos de licenciamento, arriscando frustrar a percepção de valor do dobrável pela linguagem de massa.',
-                desafioGovernanca: 'Vocês economizaram tempo e dinheiro mantendo o parceiro histórico, mas arriscam afundar a percepção do dobrável devido à rigidez nuclear da agência do H1. Qual governança de comunicação institucional (metas rígidas de conversão no público de alta renda, auditoria externa de linguagem e comitê criativo de validação) vocês implementarão para forçar a agência a sair da zona de conforto?'
+                desafioGovernanca: 'Vocês preservaram recursos mantendo o parceiro histórico, mas arriscam comprometer o posicionamento do dobrável pela rigidez nuclear da agência do H1. Qual proposta de governança de comunicação institucional vocês implementarão para elevar o padrão da narrativa?'
             },
             {
                 id: '4C',
@@ -487,7 +487,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Legitimação técnica rápida e autêntica perante o público pioneiro, com ponto de atenção centrado na total transparência e sinceridade dos influenciadores.',
-                desafioGovernanca: 'Vocês ganharam velocidade e autoridade técnica ao descentralizar a comunicação, mas abriram mão do controle da mensagem sobre a fragilidade da tela. Qual governança de relações públicas e gestão de crises (sala de guerra de monitoramento de redes em tempo real, protocolo ágil de substituição de aparelhos com defeito para reviewers e suporte técnico direto) vocês criarão para blindar a marca?'
+                desafioGovernanca: 'Vocês ganharam autoridade técnica ao descentralizar a comunicação, mas abriram mão do controle da mensagem perante o público. Qual proposta de governança de relações públicas e gestão de crises vocês criarão para blindar a marca?'
             }
         ]
     }

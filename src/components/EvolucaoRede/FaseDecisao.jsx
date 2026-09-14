@@ -232,7 +232,7 @@ export default function FaseDecisao({
                             disabled={bloqueado}
                             value={acaoGovernancaAtual}
                             onChange={(e) => onAtualizarAcaoGovernanca(e.target.value)}
-                            placeholder="Descreva a ação de governança prática que a empresa implementará (ex: cláusulas de SLA, auditorias técnicas, acordos de propriedade intelectual, comitês de aliança ou salvaguardas contratuais)..."
+                            placeholder="Descreva a proposta de governança prática formulada pela equipe para endereçar as características e mitigar as tensões estruturais desta etapa..."
                             className="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-xs sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition"
                         />
                     </div>

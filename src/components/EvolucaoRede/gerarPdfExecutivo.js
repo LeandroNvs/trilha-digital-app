@@ -159,32 +159,40 @@ export function gerarRelatorioExecutivoPdf({
             const catCarac = carac ? carac.categoria : 'Rede';
             const efeitoTexto = item.efeito || '';
 
-            const efeitoLines = doc.splitTextToSize(efeitoTexto, contentWidth - 45);
-            const blockHeight = Math.max(10, (efeitoLines.length * 3.5) + 5);
+            const efeitoLines = doc.splitTextToSize(efeitoTexto, contentWidth - 8);
+            const cardHeight = 11 + (efeitoLines.length * 3.3);
 
-            checkPageBreak(blockHeight + 2);
+            checkPageBreak(cardHeight + 2);
 
+            // Container do Card
             doc.setFillColor(248, 250, 252);
             doc.setDrawColor(226, 232, 240);
-            doc.roundedRect(margin, y, contentWidth, blockHeight, 1, 1, 'FD');
+            doc.setLineWidth(0.3);
+            doc.roundedRect(margin, y, contentWidth, cardHeight, 1.5, 1.5, 'FD');
 
-            // Coluna 1: Nome da Característica e Categoria
+            // Linha Superior: Nome da Característica (esquerda) e Categoria / Origem (direita)
             doc.setFont('helvetica', 'bold');
-            doc.setFontSize(7.5);
+            doc.setFontSize(7.8);
             doc.setTextColor(15, 23, 42);
-            doc.text(nomeCarac, margin + 3, y + 4.5);
+            doc.text(nomeCarac, margin + 4, y + 4.5);
 
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6);
+            const badgeTexto = `${catCarac.toUpperCase()}  •  ${item.faseTitulo?.split(':')[0] || 'Fase'}`;
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(6.2);
             doc.setTextColor(100, 116, 139);
-            doc.text(`${catCarac.toUpperCase()}  •  ${item.faseTitulo?.split(':')[0] || 'Fase'}`, margin + 3, y + 8);
+            doc.text(badgeTexto, margin + contentWidth - 4, y + 4.5, { align: 'right' });
 
-            // Coluna 2: Efeito Estrutural
-            doc.setFontSize(7);
+            // Divisória horizontal sutil interna
+            doc.setDrawColor(226, 232, 240);
+            doc.line(margin + 4, y + 6.8, margin + contentWidth - 4, y + 6.8);
+
+            // Linha de Efeito Estrutural com largura total livre de sobreposição
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.2);
             doc.setTextColor(51, 65, 85);
-            doc.text(efeitoLines, margin + 45, y + 4.5);
+            doc.text(efeitoLines, margin + 4, y + 10.5);
 
-            y += blockHeight + 2;
+            y += cardHeight + 2.5;
         });
     }
 
