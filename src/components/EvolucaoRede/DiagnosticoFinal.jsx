@@ -11,7 +11,9 @@ export default function DiagnosticoFinal({
     onReiniciarSimulacao,
     onAtualizarAcaoMitigacao,
     onSalvarAcoesMitigacao,
+    onExportarPdf,
     onExportarExcel,
+    isProfessorOuAdmin = false,
     bloqueado = false,
     salvando = false
 }) {
@@ -191,13 +193,13 @@ export default function DiagnosticoFinal({
             {/* 4. RODAPÉ DE AÇÕES FINAIS */}
             <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
                 <div className="flex items-center gap-2">
-                    {!bloqueado && (
+                    {isProfessorOuAdmin && (
                         <button
                             type="button"
                             onClick={onReiniciarSimulacao}
-                            className="bg-gray-800 hover:bg-gray-700 text-red-400 font-bold py-2.5 px-4 rounded-xl text-xs transition border border-gray-750"
+                            className="bg-gray-800 hover:bg-gray-700 text-red-400 font-bold py-2.5 px-4 rounded-xl text-xs transition border border-gray-750 flex items-center gap-1.5"
                         >
-                            🔄 Reiniciar Simulação
+                            <span>🔄</span> Reiniciar Simulação (Acesso Docente)
                         </button>
                     )}
                 </div>
@@ -205,10 +207,10 @@ export default function DiagnosticoFinal({
                 <div className="flex items-center gap-3">
                     <button
                         type="button"
-                        onClick={onExportarExcel}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 px-5 rounded-xl text-xs sm:text-sm transition shadow-lg flex items-center gap-2"
+                        onClick={onExportarPdf}
+                        className="bg-cyan-500 hover:bg-cyan-400 text-gray-950 font-black py-2.5 px-5 rounded-xl text-xs sm:text-sm transition shadow-lg shadow-cyan-500/20 flex items-center gap-2"
                     >
-                        <span>📥</span> Exportar Relatório Executivo em Excel
+                        <span>📄</span> Gerar Relatório Executivo em PDF
                     </button>
                 </div>
             </div>

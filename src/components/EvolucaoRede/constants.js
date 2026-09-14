@@ -35,7 +35,7 @@ export const CARACTERISTICAS_REDE = {
         categoria: 'Gargalo Estrutural',
         icone: '🔒',
         corBadge: 'bg-purple-950/60 text-purple-300 border-purple-700/60',
-        definicao: 'Ocorre quando investimentos feitos para viabilizar a transação (dedicados/conhecimento, local/procedural ou marca/patente) não podem ser reempregados em outra finalidade sem perda significativa de valor produtivo, gerando risco de sequestro de valor.'
+        definicao: 'Ocorre quando investimentos feitos para viabilizar a transação (dedicados/conhecimento, local/procedural ou marca/patente) não podem ser reempregados em outra finalidade sem perda significativa de valor produtivo, gerando ponto de atenção quanto a potencial sequestro de valor.'
     },
     ponto_cego_estrutural: {
         id: 'ponto_cego_estrutural',
@@ -147,7 +147,7 @@ export const FASES = [
                     },
                     {
                         caracteristicaId: 'especificidade_ativo',
-                        efeito: 'Aporte financeiro em maquinário e processos sob medida dentro da fábrica do parceiro. Alto risco de custo afundado se o parceiro falhar.'
+                        efeito: 'Aporte financeiro em maquinário e processos sob medida dentro da fábrica do parceiro. Ponto de atenção crítico: exposição a custo afundado se o parceiro falhar.'
                     },
                     {
                         caracteristicaId: 'rigidez_relacional',
@@ -167,7 +167,7 @@ export const FASES = [
                 caracteristicasAtivadas: [
                     {
                         caracteristicaId: 'especificidade_ativo',
-                        efeito: 'Especificidade de ativos máxima: imobilização massiva de capex e conhecimento fabril que só servem para dobráveis, com alto risco de afundamento.'
+                        efeito: 'Especificidade de ativos máxima: imobilização massiva de capex e conhecimento fabril que só servem para dobráveis, demandando atenção severa ao afundamento de capital.'
                     },
                     {
                         caracteristicaId: 'ponto_cego_estrutural',
@@ -179,7 +179,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Soberania absoluta sobre a tecnologia e eliminação de nós intermediários, impondo atraso relevante no cronograma e alta imobilização de capital.',
-                desafioGovernanca: 'Vocês eliminaram a dependência de fornecedores, mas assumiram um risco financeiro brutal de ativos específicos dedicados e postergaram o lançamento. Qual mecanismo de governança (comitê executivo de P&D, auditoria contínua de yield fabril, mitigação de custos de transação internos) será estabelecido para evitar o desperdício de capital afundado?'
+                desafioGovernanca: 'Vocês eliminaram a dependência de fornecedores, mas concentraram pontos de atenção financeiros críticos em ativos específicos dedicados e postergaram o lançamento. Qual mecanismo de governança (comitê executivo de P&D, auditoria contínua de yield fabril, mitigação de custos de transação internos) será estabelecido para evitar o desperdício de capital afundado?'
             },
             {
                 id: '1C',
@@ -195,7 +195,7 @@ export const FASES = [
                     },
                     {
                         caracteristicaId: 'vazamento_valor',
-                        efeito: 'Risco de vazamento de valor: regime de apropriabilidade fraco. Como as startups detêm a PI e atendem múltiplos clientes, o know-how pode vazar.'
+                        efeito: 'Ponto de atenção em vazamento de valor: regime de apropriabilidade fraco. Como as startups detêm a PI e atendem múltiplos clientes, o know-how pode vazar.'
                     },
                     {
                         caracteristicaId: 'ponto_cego_estrutural',
@@ -203,7 +203,7 @@ export const FASES = [
                     }
                 ],
                 diagnostico: 'Aceleração do time-to-market ao alavancar soluções prontas de terceiros, aceitando complexidade de coordenação multilateral e perda de exclusividade.',
-                desafioGovernanca: 'Vocês ganharam velocidade ao quebrar as amarras do H1, mas operam com alto risco de vazamento de valor e pontos cegos na cadeia subcontratada das startups. Qual governança de aliança (acordos rígidos de propriedade intelectual, direitos de primeira recusa comercial, auditoria de subcontratados Tier 3) vocês exigirão no consórcio?'
+                desafioGovernanca: 'Vocês ganharam velocidade ao quebrar as amarras do H1, mas operam com pontos de atenção expressivos de vazamento de valor e pontos cegos na cadeia subcontratada das startups. Qual governança de aliança (acordos rígidos de propriedade intelectual, direitos de primeira recusa comercial, auditoria de subcontratados Tier 3) vocês exigirão no consórcio?'
             }
         ]
     },
@@ -294,7 +294,7 @@ export const FASES = [
                         efeito: 'Preservação de recursos e baixa especificidade de ativos: aproveita contratos e equipe interna existente sem novos desembolsos.'
                     }
                 ],
-                diagnostico: 'Contenção orçamentária e cumprimento de cronograma, assumindo o risco de rejeição do consumidor pela falta de fluidez da interface.',
+                diagnostico: 'Contenção orçamentária e cumprimento de cronograma, com ponto de atenção voltado à potencial rejeição do consumidor pela falta de fluidez da interface.',
                 desafioGovernanca: 'Vocês preservaram caixa e cumpriram o cronograma sem custos extras, mas caíram na rigidez nuclear do H1 e arriscam frustrar o cliente na ponta. Qual governança técnica e de pós-venda (comitê emergencial de correções de firmware, monitoramento de churn e devoluções nos primeiros 30 dias de uso) vocês criarão para sustentar a reputação do produto?'
             }
         ]
@@ -370,8 +370,8 @@ export const FASES = [
                         efeito: 'Ponto cego estrutural em transporte de última milha: operadores logísticos subcontratam motoristas autônomos sem rastreabilidade direta.'
                     }
                 ],
-                diagnostico: 'Maximização da margem e retenção da base de clientes eliminando intermediários, assumindo a complexidade de frete e risco de conflito com o varejo do H1.',
-                desafioGovernanca: 'Vocês capturaram toda a margem e dados ao vender direto, mas criaram dependência extrema de uma malha logística de alto risco e provocaram a fúria dos parceiros do H1. Qual governança de logística, segurança e canais (rastreamento telemétrico e seguro de carga ponta a ponta, auditoria de subcontratados de última milha e política de gestão de conflito de canais com os lojistas do H1) vocês estruturarão?'
+                diagnostico: 'Maximização da margem e retenção da base de clientes eliminando intermediários, assumindo a complexidade de frete e ponto de atenção sobre conflito de canais com o varejo do H1.',
+                desafioGovernanca: 'Vocês capturaram toda a margem e dados ao vender direto, mas criaram dependência extrema de uma malha logística com pontos de atenção de alta complexidade operacional e potencial atrito com os parceiros do H1. Qual governança de logística, segurança e canais (rastreamento telemétrico e seguro de carga ponta a ponta, auditoria de subcontratados de última milha e política de gestão de conflito de canais com os lojistas do H1) vocês estruturarão?'
             },
             {
                 id: '3C',
@@ -421,8 +421,8 @@ export const FASES = [
                 id: '4A',
                 letra: 'A',
                 arquetipo: 'Aliança Simbólica de Prestígio (Co-branding de Luxo)',
-                titulo: 'Co-branding com Marca de Alto Luxo ou Grife Internacional',
-                resumo: 'Lançar uma edição especial assinada em parceria com uma grife internacional de alta moda ou design de ponta, com estojo nobre e tiragem limitada.',
+                titulo: 'Co-branding com Marca de Alto Luxo ou Grife',
+                resumo: 'Lançar uma edição especial assinada em parceria com uma grife de alta moda ou design de ponta, com estojo nobre e tiragem limitada.',
                 deltaMeses: 3,
                 caracteristicasAtivadas: [
                     {
@@ -483,10 +483,10 @@ export const FASES = [
                     },
                     {
                         caracteristicaId: 'dependencia_operacional',
-                        efeito: 'Risco reputacional descontrolado: ausência de controle sobre a mensagem; eventuais falhas ou quebras de tela serão expostas publicamente sem filtros.'
+                        efeito: 'Ponto de atenção na reputação: ausência de controle sobre a mensagem; eventuais falhas ou quebras de tela serão expostas publicamente sem filtros.'
                     }
                 ],
-                diagnostico: 'Legitimação técnica rápida e autêntica perante o público pioneiro, assumindo o risco da total transparência e sinceridade dos influenciadores.',
+                diagnostico: 'Legitimação técnica rápida e autêntica perante o público pioneiro, com ponto de atenção centrado na total transparência e sinceridade dos influenciadores.',
                 desafioGovernanca: 'Vocês ganharam velocidade e autoridade técnica ao descentralizar a comunicação, mas abriram mão do controle da mensagem sobre a fragilidade da tela. Qual governança de relações públicas e gestão de crises (sala de guerra de monitoramento de redes em tempo real, protocolo ágil de substituição de aparelhos com defeito para reviewers e suporte técnico direto) vocês criarão para blindar a marca?'
             }
         ]

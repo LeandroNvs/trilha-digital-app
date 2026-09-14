@@ -103,14 +103,13 @@ export default function FaseDecisao({
                         Selecione a Estratégia da Empresa para esta Etapa:
                     </span>
                     <span className="text-[11px] text-gray-400">
-                        Cada opção reconfigura a rede e impacta o cronograma
+                        Cada opção reconfigura a dinâmica e as características estruturais da rede
                     </span>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                     {fase.opcoes.map((opcao) => {
                         const isSelecionada = decisaoAtual === opcao.id;
-                        const deltaSinal = opcao.deltaMeses > 0 ? `+${opcao.deltaMeses}` : `${opcao.deltaMeses}`;
 
                         return (
                             <div
@@ -156,22 +155,6 @@ export default function FaseDecisao({
                                     <p className="text-xs text-gray-400 mb-3 leading-relaxed">
                                         {opcao.resumo}
                                     </p>
-
-                                    {/* Impacto no Tempo de Lançamento */}
-                                    <div className="bg-gray-900 p-2.5 rounded-xl border border-gray-750 mb-3 flex items-center justify-between">
-                                        <span className="text-[11px] font-bold text-gray-300 flex items-center gap-1.5">
-                                            <span>⏱️</span> Impacto no Time-to-Market:
-                                        </span>
-                                        <span className={`text-xs font-black px-2 py-0.5 rounded ${
-                                            opcao.deltaMeses < 0
-                                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
-                                                : opcao.deltaMeses > 0
-                                                ? 'bg-amber-950 text-amber-300 border border-amber-700'
-                                                : 'bg-gray-800 text-gray-300 border border-gray-700'
-                                        }`}>
-                                            {deltaSinal} meses
-                                        </span>
-                                    </div>
 
                                     {/* Características Estruturais Ativadas na Rede */}
                                     <div className="space-y-1.5 mb-3">
@@ -264,7 +247,7 @@ export default function FaseDecisao({
                             disabled={bloqueado}
                             value={justificativaAtual}
                             onChange={(e) => onAtualizarJustificativa(e.target.value)}
-                            placeholder="Por que a equipe escolheu este caminho? Quais trade-offs de cronograma, custos e posicionamento estratégico vocês aceitaram assumir nesta fase?"
+                            placeholder="Por que a equipe escolheu este caminho? Quais trade-offs estruturais, operacionais e de posicionamento vocês aceitaram assumir nesta fase?"
                             className="w-full bg-gray-900 border border-gray-700 rounded-xl p-3 text-xs sm:text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition"
                         />
                     </div>

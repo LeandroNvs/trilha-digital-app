@@ -7,6 +7,7 @@ import CardIndicadores from '../components/EvolucaoRede/CardIndicadores';
 import FaseDecisao from '../components/EvolucaoRede/FaseDecisao';
 import DiagnosticoFinal from '../components/EvolucaoRede/DiagnosticoFinal';
 import VisaoGeralTurma from '../components/EvolucaoRede/VisaoGeralTurma';
+import { gerarRelatorioExecutivoPdf } from '../components/EvolucaoRede/gerarPdfExecutivo';
 import * as XLSX from 'xlsx';
 
 export default function EvolucaoRede({ perfilUsuario }) {
@@ -190,7 +191,12 @@ export default function EvolucaoRede({ perfilUsuario }) {
     };
 
     const handleReiniciarSimulacao = async () => {
-        if (!window.confirm("Atenção: deseja reiniciar todas as 4 decisões deste grupo? As respostas e planos de governança serão redefinidos.")) {
+        if (!isProfessorOuAdmin) {
+            alert("Apenas o professor ou administrador possui permissão para reiniciar a simulação.");
+            return;
+        }
+
+        if (!window.confirm("Atenção (Acesso Docente): deseja reiniciar todas as 4 decisões deste grupo? As respostas e planos de governança serão redefinidos.")) {
             return;
         }
 
@@ -200,6 +206,18 @@ export default function EvolucaoRede({ perfilUsuario }) {
         setDadosSimulacao({ decisoes: decisoesLimpas, justificativas: justificativasLimpas, acoesMitigacao: acoesLimpas, status: 'em_andamento' });
         await salvarDados(decisoesLimpas, justificativasLimpas, 'em_andamento', acoesLimpas);
         setFaseAtualIdx(0);
+    };
+
+    const handleExportarPdfGrupo = () => {
+        if (!grupoSelecionado) return;
+
+        gerarRelatorioExecutivoPdf({
+            grupoNome: grupoSelecionado.nome,
+            pontuacoes,
+            decisoes: dadosSimulacao.decisoes,
+            justificativas: dadosSimulacao.justificativas,
+            acoesMitigacao: dadosSimulacao.acoesMitigacao || {}
+        });
     };
 
     const handleExportarExcelGrupo = () => {
@@ -374,7 +392,7 @@ export default function EvolucaoRede({ perfilUsuario }) {
                                     <div className="flex items-center gap-2.5 text-xs text-gray-300">
                                         <span className="text-base">🎯</span>
                                         <span>
-                                            <strong>Foco do Comitê:</strong> Avaliem os vetores conceituais de cada arquétipo e justifiquem a decisão. Os impactos consolidados nos vetores de rede serão auditados no <strong>Dashboard Executivo</strong> ao final da jornada.
+                                            <strong>Foco do Comitê:</strong> Avaliem as características estruturais e os trade-offs de cada arquétipo, formulando a respectiva governança. O resultado do tempo de lançamento (Time-to-Market) e a configuração consolidada da rede serão revelados no <strong>Dashboard Executivo</strong> ao final das 4 etapas.
                                         </span>
                                     </div>
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-950/60 px-2.5 py-1 rounded-lg border border-cyan-800 flex-shrink-0">
@@ -455,7 +473,10 @@ export default function EvolucaoRede({ perfilUsuario }) {
                                     onReiniciarSimulacao={handleReiniciarSimulacao}
                                     onAtualizarAcaoMitigacao={handleAtualizarAcaoMitigacao}
                                     onSalvarAcoesMitigacao={handleSalvarAcoesMitigacao}
+                                    onExportarPdf={handleExportarPdfGrupo}
                                     onExportarExcel={handleExportarExcelGrupo}
+                                    isProfessorOuAdmin={isProfessorOuAdmin}
+                                    bloqueado={dadosSimulacao.status === 'finalizado' && !isProfessorOuAdmin}
                                     salvando={salvando}
                                 />
                             )}
