@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db, appId } from '../../firebase/config.js';
-import { calcularPontuacoes, classificarPerfilRede, FASES, PONTOS_INICIAIS } from './constants';
+import { calcularPontuacoes, classificarPerfilRede, FASES, CARACTERISTICAS_REDE } from './constants';
 import * as XLSX from 'xlsx';
 
 export default function VisaoGeralTurma({ todosGrupos, onSelecionarGrupo }) {
@@ -36,23 +36,23 @@ export default function VisaoGeralTurma({ todosGrupos, onSelecionarGrupo }) {
 
             return {
                 'Grupo': grupo.nome,
-                'Status de Governança': perfil.badge,
-                'Diagnóstico Estratégico': perfil.titulo,
-                'Captura de Valor (Financeiro)': pontuacoes.caixa,
-                'Soberania Relacional': pontuacoes.controle,
-                'Dinâmica de Resposta': pontuacoes.agilidade,
-                'Efeitos Cascata Ativados': pontuacoes.cascatasAtivadas?.length || 0,
+                'Time-to-Market (Meses)': pontuacoes.tempoTotalMeses,
+                'Janela Competitiva': pontuacoes.janela?.badge || '-',
+                'Total Gargalos Estruturais': pontuacoes.totalGargalos,
+                'Total Assimetrias': pontuacoes.totalAssimetrias,
+                'Total Rigidezes': pontuacoes.totalRigidezes,
                 'Fase 1 (Hardware)': decisoes.fase1 || 'Pendente',
+                'Governança F1': acoes.fase1 || '-',
                 'Justificativa F1': justificativas.fase1 || '-',
                 'Fase 2 (Software)': decisoes.fase2 || 'Pendente',
+                'Governança F2': acoes.fase2 || '-',
                 'Justificativa F2': justificativas.fase2 || '-',
                 'Fase 3 (Distribuição)': decisoes.fase3 || 'Pendente',
+                'Governança F3': acoes.fase3 || '-',
                 'Justificativa F3': justificativas.fase3 || '-',
                 'Fase 4 (Go-to-Market)': decisoes.fase4 || 'Pendente',
+                'Governança F4': acoes.fase4 || '-',
                 'Justificativa F4': justificativas.fase4 || '-',
-                'Mitigação Valor': acoes.valor || '-',
-                'Mitigação Soberania': acoes.soberania || '-',
-                'Mitigação Dinâmica': acoes.dinamica || '-',
                 'Última Atualização': dados.dataAtualizacao || '-'
             };
         });
@@ -72,10 +72,10 @@ export default function VisaoGeralTurma({ todosGrupos, onSelecionarGrupo }) {
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700 pb-4">
                 <div>
                     <h3 className="text-xl font-black text-white flex items-center gap-2">
-                        <span>👨‍🏫</span> Painel do Professor: Evolução de Rede H1 vs H2
+                        <span>👨‍🏫</span> Painel do Professor: Evolução de Rede (H1 vs H2)
                     </h3>
                     <p className="text-xs text-gray-400 mt-1">
-                        Acompanhamento em tempo real de decisões, trade-offs e alertas de colapso de cada equipe.
+                        Acompanhamento em tempo real de decisões, cronogramas de lançamento, gargalos ativados e planos de governança de cada equipe.
                     </p>
                 </div>
 
@@ -84,7 +84,7 @@ export default function VisaoGeralTurma({ todosGrupos, onSelecionarGrupo }) {
                     onClick={handleExportarConsolidado}
                     className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition flex items-center gap-2 shadow"
                 >
-                    <span>📥</span> Exportar Planilha Consolidada
+                    <span>📥</span> Exportar Planilha Consolidada da Turma
                 </button>
             </div>
 
@@ -95,19 +95,18 @@ export default function VisaoGeralTurma({ todosGrupos, onSelecionarGrupo }) {
                         <tr>
                             <th className="p-3">Grupo</th>
                             <th className="p-3 text-center">Progresso</th>
-                            <th className="p-3 text-center">Valor (Fin.)</th>
-                            <th className="p-3 text-center">Soberania</th>
-                            <th className="p-3 text-center">Dinâmica</th>
-                            <th className="p-3">Diagnóstico de Governança</th>
-                            <th className="p-3 text-center">Mitigações</th>
-                            <th className="p-3 text-center">Decisões (1 a 4)</th>
+                            <th className="p-3 text-center">Time-to-Market</th>
+                            <th className="p-3 text-center">Janela de Entrada</th>
+                            <th className="p-3 text-center">Gargalos</th>
+                            <th className="p-3 text-center">Assimetrias</th>
+                            <th className="p-3 text-center">Planos de Governança</th>
                             <th className="p-3 text-right">Ação</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-700/60">
                         {todosGrupos.length === 0 ? (
                             <tr>
-                                <td colSpan={9} className="p-4 text-center text-gray-500">
+                                <td colSpan={8} className="p-4 text-center text-gray-500">
                                     Nenhum grupo cadastrado nesta turma.
                                 </td>
                             </tr>
@@ -117,9 +116,8 @@ export default function VisaoGeralTurma({ todosGrupos, onSelecionarGrupo }) {
                                 const decisoes = dados.decisoes || {};
                                 const acoes = dados.acoesMitigacao || {};
                                 const pontuacoes = calcularPontuacoes(decisoes);
-                                const perfil = classificarPerfilRede(pontuacoes, decisoes);
                                 const qtdConcluida = Object.keys(decisoes).filter(k => !!decisoes[k]).length;
-                                const temMitigacao = !!(acoes.valor || acoes.soberania || acoes.dinamica);
+                                const totalAcoesPreenchidas = ['fase1', 'fase2', 'fase3', 'fase4'].filter(k => !!acoes[k]?.trim()).length;
 
                                 return (
                                     <tr key={grupo.id} className="hover:bg-gray-750 transition">
@@ -131,45 +129,38 @@ export default function VisaoGeralTurma({ todosGrupos, onSelecionarGrupo }) {
                                                 {qtdConcluida} / 4
                                             </span>
                                         </td>
-                                        <td className="p-3 text-center font-black">
-                                            <span className={pontuacoes.altaExposicaoCaixa ? 'text-amber-400 font-extrabold' : 'text-gray-200'}>
-                                                {pontuacoes.caixa}
-                                            </span>
-                                        </td>
-                                        <td className="p-3 text-center font-black">
-                                            <span className={pontuacoes.altaExposicaoControle ? 'text-amber-400 font-extrabold' : 'text-gray-200'}>
-                                                {pontuacoes.controle}
-                                            </span>
-                                        </td>
-                                        <td className="p-3 text-center font-black">
-                                            <span className={pontuacoes.altaExposicaoAgilidade ? 'text-amber-400 font-extrabold' : 'text-gray-200'}>
-                                                {pontuacoes.agilidade}
-                                            </span>
-                                        </td>
-                                        <td className="p-3">
-                                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${perfil.cor}`}>
-                                                {perfil.badge}
-                                            </span>
+                                        <td className="p-3 text-center font-black text-white whitespace-nowrap">
+                                            {pontuacoes.tempoTotalMeses} meses
                                         </td>
                                         <td className="p-3 text-center whitespace-nowrap">
-                                            {temMitigacao ? (
-                                                <span className="text-emerald-400 font-bold text-[11px]">✓ Cadastrado</span>
-                                            ) : (
-                                                <span className="text-gray-500 text-[11px]">-</span>
-                                            )}
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pontuacoes.janela?.corBg || 'bg-gray-900 text-gray-300'}`}>
+                                                {pontuacoes.janela?.badge}
+                                            </span>
                                         </td>
-                                        <td className="p-3 text-center whitespace-nowrap font-mono text-[11px]">
-                                            <span className="text-gray-400">
-                                                {decisoes.fase1 || '-'} | {decisoes.fase2 || '-'} | {decisoes.fase3 || '-'} | {decisoes.fase4 || '-'}
+                                        <td className="p-3 text-center font-bold text-blue-400 whitespace-nowrap">
+                                            {pontuacoes.totalGargalos}
+                                        </td>
+                                        <td className="p-3 text-center font-bold text-purple-400 whitespace-nowrap">
+                                            {pontuacoes.totalAssimetrias + pontuacoes.totalRigidezes}
+                                        </td>
+                                        <td className="p-3 text-center whitespace-nowrap">
+                                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                                totalAcoesPreenchidas === 4
+                                                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                                                    : totalAcoesPreenchidas > 0
+                                                    ? 'bg-amber-950 text-amber-300 border border-amber-700'
+                                                    : 'bg-gray-900 text-gray-500 border border-gray-700'
+                                            }`}>
+                                                {totalAcoesPreenchidas} / 4 registradas
                                             </span>
                                         </td>
                                         <td className="p-3 text-right whitespace-nowrap">
                                             <button
                                                 type="button"
                                                 onClick={() => onSelecionarGrupo(grupo.id)}
-                                                className="bg-cyan-600 hover:bg-cyan-500 text-gray-950 font-bold px-3 py-1 rounded-lg text-xs transition"
+                                                className="bg-cyan-900/60 hover:bg-cyan-800 text-cyan-400 font-bold px-3 py-1.5 rounded-lg text-xs transition border border-cyan-700/50"
                                             >
-                                                Auditar
+                                                Auditar Grupo →
                                             </button>
                                         </td>
                                     </tr>

@@ -168,8 +168,13 @@ export default function EvolucaoRede({ perfilUsuario }) {
 
     const handleAvancarFase = () => {
         const faseAtual = FASES[faseAtualIdx];
-        // Persistir justificativa atual ao avançar
-        salvarDados(dadosSimulacao.decisoes, dadosSimulacao.justificativas, faseAtualIdx === 3 ? 'finalizado' : 'em_andamento');
+        // Persistir justificativa e ação de governança ao avançar
+        salvarDados(
+            dadosSimulacao.decisoes, 
+            dadosSimulacao.justificativas, 
+            faseAtualIdx === 3 ? 'finalizado' : 'em_andamento', 
+            dadosSimulacao.acoesMitigacao
+        );
 
         if (faseAtualIdx < 4) {
             setFaseAtualIdx(faseAtualIdx + 1);
@@ -205,44 +210,42 @@ export default function EvolucaoRede({ perfilUsuario }) {
         const dadosFases = FASES.map(fase => {
             const escolhaId = dadosSimulacao.decisoes[fase.chave];
             const opcao = fase.opcoes.find(o => o.id === escolhaId);
-            const calculo = opcao ? calcularImpactoOpcao(opcao, dadosSimulacao.decisoes) : null;
             return {
                 'Fase': fase.titulo,
                 'Decisão Escolhida': opcao ? `${opcao.letra} - ${opcao.titulo}` : 'Pendente',
                 'Arquétipo': opcao ? opcao.arquetipo : '-',
-                'Impacto Valor (Financeiro)': calculo ? calculo.deltaFinal.caixa : 0,
-                'Impacto Soberania': calculo ? calculo.deltaFinal.controle : 0,
-                'Impacto Dinâmica': calculo ? calculo.deltaFinal.agilidade : 0,
-                'Dependência de Trajetória (Cascata)': calculo?.temCascata ? calculo.efeitoCascata.descricao : 'Nenhuma',
+                'Impacto Time-to-Market': opcao ? `${opcao.deltaMeses > 0 ? '+' : ''}${opcao.deltaMeses} meses` : '-',
                 'Parecer Técnico': opcao ? opcao.diagnostico : '-',
+                'Ação de Governança da Rede': dadosSimulacao.acoesMitigacao[fase.chave] || 'Não preenchido',
                 'Justificativa do Grupo': dadosSimulacao.justificativas[fase.chave] || '-'
             };
         });
 
         const resumo = [
             { 'Item': 'Grupo', 'Valor': grupoSelecionado.nome },
-            { 'Item': 'Status de Governança', 'Valor': perfil.badge },
+            { 'Item': 'Time-to-Market Total', 'Valor': `${pontuacoes.tempoTotalMeses} meses` },
+            { 'Item': 'Janela de Entrada no Mercado', 'Valor': pontuacoes.janela?.badge || '-' },
             { 'Item': 'Diagnóstico Estratégico', 'Valor': perfil.titulo },
-            { 'Item': 'Captura de Valor (Inicial: 60)', 'Valor': pontuacoes.caixa },
-            { 'Item': 'Soberania Relacional (Inicial: 60)', 'Valor': pontuacoes.controle },
-            { 'Item': 'Dinâmica de Resposta (Inicial: 60)', 'Valor': pontuacoes.agilidade },
-            { 'Item': 'Efeitos Cascata Ativados', 'Valor': pontuacoes.cascatasAtivadas?.length || 0 }
+            { 'Item': 'Total de Gargalos Estruturais Ativados', 'Valor': pontuacoes.totalGargalos },
+            { 'Item': 'Total de Assimetrias de Rede Ativadas', 'Valor': pontuacoes.totalAssimetrias },
+            { 'Item': 'Total de Rigidezes Relacionais Ativadas', 'Valor': pontuacoes.totalRigidezes }
         ];
 
-        const dadosMitigacao = [
-            { 'Vetor de Rede': 'Captura e Retenção de Valor', 'Ação de Governança Mitigadora': dadosSimulacao.acoesMitigacao?.valor || 'Não preenchido' },
-            { 'Vetor de Rede': 'Soberania e Autonomia Relacional', 'Ação de Governança Mitigadora': dadosSimulacao.acoesMitigacao?.soberania || 'Não preenchido' },
-            { 'Vetor de Rede': 'Dinâmica e Tempo de Resposta', 'Ação de Governança Mitigadora': dadosSimulacao.acoesMitigacao?.dinamica || 'Não preenchido' }
-        ];
+        const dadosCaracteristicas = (pontuacoes.caracteristicasConsolidadas || []).map(item => ({
+            'Fase de Origem': item.faseTitulo,
+            'Opção': item.opcaoId,
+            'Característica': item.caracteristicaId,
+            'Efeito Estrutural': item.efeito
+        }));
 
         const wb = XLSX.utils.book_new();
         const wsResumo = XLSX.utils.json_to_sheet(resumo);
         const wsFases = XLSX.utils.json_to_sheet(dadosFases);
-        const wsMitigacao = XLSX.utils.json_to_sheet(dadosMitigacao);
+        const wsCaracteristicas = XLSX.utils.json_to_sheet(dadosCaracteristicas);
 
         XLSX.utils.book_append_sheet(wb, wsResumo, "Dossiê Executivo");
-        XLSX.utils.book_append_sheet(wb, wsFases, "Decisões e Justificativas");
-        XLSX.utils.book_append_sheet(wb, wsMitigacao, "Ações de Governança");
+        XLSX.utils.book_append_sheet(wb, wsFases, "Decisões e Governança");
+        XLSX.utils.book_append_sheet(wb, wsCaracteristicas, "Mapa Estrutural da Rede");
 
         XLSX.writeFile(wb, `Evolucao_Rede_${grupoSelecionado.nome.replace(/\s+/g, '_')}.xlsx`);
     };
@@ -432,8 +435,10 @@ export default function EvolucaoRede({ perfilUsuario }) {
                                     decisaoAtual={dadosSimulacao.decisoes[FASES[faseAtualIdx].chave]}
                                     todasDecisoes={dadosSimulacao.decisoes}
                                     justificativaAtual={dadosSimulacao.justificativas[FASES[faseAtualIdx].chave] || ''}
+                                    acaoGovernancaAtual={dadosSimulacao.acoesMitigacao[FASES[faseAtualIdx].chave] || ''}
                                     onEscolherDecisao={handleEscolherDecisao}
                                     onAtualizarJustificativa={handleAtualizarJustificativa}
+                                    onAtualizarAcaoGovernanca={(texto) => handleAtualizarAcaoMitigacao(FASES[faseAtualIdx].chave, texto)}
                                     onAvancar={handleAvancarFase}
                                     onVoltar={handleVoltarFase}
                                     isPrimeiraFase={faseAtualIdx === 0}

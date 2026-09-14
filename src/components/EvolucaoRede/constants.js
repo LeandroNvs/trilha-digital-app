@@ -1,49 +1,118 @@
 // ============================================================================
 // CONSTANTES E REGRAS: EVOLUÇÃO DE REDE (SMARTPHONES DOBRÁVEIS H1 vs H2)
-// Modelo Pedagógico: Análise Estratégica, Exposição a Riscos e Ações de Governança
+// Modelo Pedagógico: Características Estruturais da Rede e Ações de Governança
 // ============================================================================
 
-export const PONTOS_INICIAIS = {
-    caixa: 60,
-    controle: 60,
-    agilidade: 60
-};
+export const TEMPO_BASE_MESES = 18; // Linha de base média da indústria mobile (18 meses)
+export const PONTOS_INICIAIS = { caixa: 60, controle: 60, agilidade: 60 };
 
-export const DESCRICAO_INDICADORES = {
-    caixa: {
-        id: 'caixa',
-        nome: 'Captura e Retenção de Valor',
-        subtitulo: 'Eficiência Financeira e Custos de Transação',
-        descricao: 'Reflete a retenção de margem, liquidez do projeto, custos de transação e vazamento de valor para terceiros (royalties, capex fabril e margens de canais). Quando tensionada, exige ações de captação de recursos ou renegociação de alianças.',
-        corTexto: 'text-amber-400',
-        corBg: 'bg-amber-500/20',
-        corBorda: 'border-amber-500/50',
-        corBarra: 'bg-amber-500',
-        alertaExposicao: 'Alta Exposição em Captura de Valor: O projeto demandará aporte financeiro externo, captação de venture capital ou renegociação de custos de transação.'
+// ============================================================================
+// DICIONÁRIO DE CARACTERÍSTICAS DA REDE DE NEGÓCIOS
+// Conceitos: Gargalos Estruturais, Assimetrias e Rigidez
+// ============================================================================
+
+export const CARACTERISTICAS_REDE = {
+    // 1. Gargalos Estruturais
+    dependencia_operacional: {
+        id: 'dependencia_operacional',
+        nome: 'Dependência Operacional Extrema',
+        categoria: 'Gargalo Estrutural',
+        icone: '⛓️',
+        corBadge: 'bg-amber-950/60 text-amber-300 border-amber-700/60',
+        definicao: 'Condição de vulnerabilidade estrutural caracterizada por uma cadeia linear, na qual a organização concentra o fluxo de um recurso, serviço ou insumo crítico em um único fornecedor externo, sem rotas alternativas viáveis (zero redundância) e sob altos custos de troca.'
     },
-    controle: {
-        id: 'controle',
-        nome: 'Soberania e Autonomia Relacional',
-        subtitulo: 'Centralidade e Poder de Barganha',
-        descricao: 'Reflete a propriedade sobre patentes essenciais, controle da experiência do usuário, dados de telemetria e blindagem contra comoditização. Quando tensionada, exige salvaguardas contratuais contra dependência de nós dominantes.',
-        corTexto: 'text-blue-400',
-        corBg: 'bg-blue-500/20',
-        corBorda: 'border-blue-500/50',
-        corBarra: 'bg-blue-500',
-        alertaExposicao: 'Alta Exposição em Soberania: A empresa operará com forte dependência de nós externos, exigindo governança de blindagem contratual e multas anti-oportunismo.'
+    centralidade_intermediacao: {
+        id: 'centralidade_intermediacao',
+        nome: 'Centralidade de Intermediação',
+        categoria: 'Gargalo Estrutural',
+        icone: '🚪',
+        corBadge: 'bg-blue-950/60 text-blue-300 border-blue-700/60',
+        definicao: 'Nós com alta intermediação operam como guardiões de passagem, detendo o poder de filtrar, distorcer, precificar ou bloquear fluxos críticos de informação, insumos e inovação. A ausência de rotas alternativas gera dependência de agenciamento e eleva custos de transação.'
     },
-    agilidade: {
-        id: 'agilidade',
-        nome: 'Dinâmica e Tempo de Resposta',
-        subtitulo: 'Flexibilidade Relacional e Time-to-Market',
-        descricao: 'Reflete a velocidade de prototipagem, adaptabilidade da cadeia e capacidade de acompanhar os ciclos da concorrência. Quando tensionada, exige comitês ágeis e fast-track de homologação para não gerar obsolescência.',
-        corTexto: 'text-emerald-400',
-        corBg: 'bg-emerald-500/20',
-        corBorda: 'border-emerald-500/50',
-        corBarra: 'bg-emerald-500',
-        alertaExposicao: 'Alta Exposição em Dinâmica de Resposta: A rigidez dos parceiros históricos pode retardar o lançamento, exigindo forças-tarefa dedicadas e governança ágil.'
+    especificidade_ativo: {
+        id: 'especificidade_ativo',
+        nome: 'Especificidade de Ativo',
+        categoria: 'Gargalo Estrutural',
+        icone: '🔒',
+        corBadge: 'bg-purple-950/60 text-purple-300 border-purple-700/60',
+        definicao: 'Ocorre quando investimentos feitos para viabilizar a transação (dedicados/conhecimento, local/procedural ou marca/patente) não podem ser reempregados em outra finalidade sem perda significativa de valor produtivo, gerando risco de sequestro de valor.'
+    },
+    ponto_cego_estrutural: {
+        id: 'ponto_cego_estrutural',
+        nome: 'Ponto Cego Estrutural (Baixa Visibilidade)',
+        categoria: 'Gargalo Estrutural',
+        icone: '👁️‍🗨️',
+        corBadge: 'bg-red-950/60 text-red-300 border-red-700/60',
+        definicao: 'Grau reduzido de transparência e rastreabilidade que a organização detém sobre os fluxos, dependências e atores posicionados além da sua fronteira contratual direta (camadas 2 e 3 e nós de infraestrutura básica).'
+    },
+
+    // 2. Assimetria de Rede
+    assimetria_fluxo_dados: {
+        id: 'assimetria_fluxo_dados',
+        nome: 'Assimetria de Fluxo e Captura de Valor',
+        categoria: 'Assimetria de Rede',
+        icone: '📊',
+        corBadge: 'bg-cyan-950/60 text-cyan-300 border-cyan-700/60',
+        definicao: 'Ocorre quando o vínculo com o mercado é mediado por um intermediário que retém dados transacionais e de comportamento de consumo, repassando apenas a ordem de produção e impedindo que a empresa conheça as dores reais do cliente final.'
+    },
+    vazamento_valor: {
+        id: 'vazamento_valor',
+        nome: 'Vazamento de Valor (Ativos Complementares)',
+        categoria: 'Assimetria de Rede',
+        icone: '💸',
+        corBadge: 'bg-orange-950/60 text-orange-300 border-orange-700/60',
+        definicao: 'A empresa desenvolve a inovação, mas não possui os Ativos Complementares Especializados (canais de distribuição, capacidade fabril de ponta ou marca de luxo). O parceiro detentor desses ativos apropria-se da maior fatia do lucro econômico da inovação.'
+    },
+
+    // 3. Rigidez
+    rigidez_relacional: {
+        id: 'rigidez_relacional',
+        nome: 'Rigidez Relacional e Nuclear',
+        categoria: 'Rigidez',
+        icone: '⚓',
+        corBadge: 'bg-stone-900 text-stone-300 border-stone-700',
+        definicao: 'O paradoxo do enraizamento excessivo: redes baseadas exclusivamente em laços fortes e confiança mútua do H1 tornam-se prisões relacionais. As capacidades históricas de sucesso no passado viram o principal obstáculo para inovar no H2.'
     }
 };
+
+// ============================================================================
+// JANELAS DE MERCADO (TIME-TO-MARKET)
+// ============================================================================
+
+export function classificarJanelaMercado(meses) {
+    if (meses <= 13) {
+        return {
+            tipo: 'pioneira',
+            badge: 'Janela Pioneira (First-Mover)',
+            corTexto: 'text-cyan-400',
+            corBg: 'bg-cyan-950/40 border-cyan-500/60',
+            titulo: 'Entrada Pioneira no Mercado (First-Mover)',
+            resumo: `Lançamento estimado em ${meses} meses. A empresa dita a categoria, conquista cobertura espontânea e define a referência na mente do consumidor. Como trade-off, opera com componentes e fornecedores em estágio inicial de maturação, exigindo governança preventiva de qualidade.`
+        };
+    }
+    if (meses <= 19) {
+        return {
+            tipo: 'seguidor_rapido',
+            badge: 'Janela de Seguidor Rápido (Fast-Follower)',
+            corTexto: 'text-emerald-400',
+            corBg: 'bg-emerald-950/40 border-emerald-500/60',
+            titulo: 'Entrada Equilibrada de Mercado (Fast-Follower)',
+            resumo: `Lançamento estimado em ${meses} meses (ciclo padrão de P&D mobile). A empresa aproveita o aprendizado das falhas dos pioneiros e negocia com fornecedores mais estabilizados, mantendo boa competitividade temporal perante a concorrência.`
+        };
+    }
+    return {
+        tipo: 'maturidade',
+        badge: 'Janela de Maturidade e Robustez (Entrada Tardia)',
+        corTexto: 'text-amber-400',
+        corBg: 'bg-amber-950/40 border-amber-500/60',
+        titulo: 'Entrada Tardia com Foco em Robustez (Maturidade)',
+        resumo: `Lançamento estimado em ${meses} meses. O produto chega com engenharia madura, processos fabris de alta precisão e solidez estrutural, mas entra quando concorrentes já consolidaram market share, exigindo governança comercial agressiva para disputar vitrines.`
+    };
+}
+
+// ============================================================================
+// AS 4 FASES DA SIMULAÇÃO: CARACTERÍSTICAS DA REDE E GOVERNANÇA
+// ============================================================================
 
 export const FASES = [
     {
@@ -51,49 +120,90 @@ export const FASES = [
         chave: 'fase1',
         titulo: 'Fase 1: Domínio da Tecnologia de Hardware',
         subtitulo: 'Telas Flexíveis e Mecânica de Dobradiça',
-        contexto: 'O time de engenharia precisa viabilizar o hardware central do smartphone dobrável. A escolha definirá se a empresa se apoia na herança fabril tradicional, verticaliza em Deep Tech própria ou orquestra uma rede aberta de inovação.',
+        contexto: 'O dobrável H2 herda a rede de suprimentos do H1 (smartphones planos convencionais). A empresa precisa viabilizar o fornecimento do componente mais crítico (telas flexíveis e dobradiças mecânicas). A escolha reconfigura os nós de suprimento e define a velocidade de prototipagem.',
+        diagnosticoInicialRede: [
+            {
+                caracteristicaId: 'rigidez_relacional',
+                detalhe: 'Laços históricos e contratuais consolidados com fornecedores tradicionais do H1 (telas rígidas e chassis).'
+            },
+            {
+                caracteristicaId: 'ponto_cego_estrutural',
+                detalhe: 'Ausência de visibilidade sobre os fornecedores de camadas 2 e 3 (nanopolímeros, filmes ultra-finos UTG e ligas metálicas micrométricas).'
+            }
+        ],
+        dossiePesquisa: 'Para debater em grupo antes de escolher: Pesquisem as falhas nas primeiras unidades do primeiro Galaxy Fold em 2019 (rompimento de tela por poeira na dobradiça e descolamento do filme plástico protetor). Por que a física dos materiais dobráveis impõe um desafio de rede completamente diferente das telas planas do H1? Vale a pena co-desenvolver, verticalizar ou abrir consórcio?',
         opcoes: [
             {
                 id: '1A',
                 letra: 'A',
-                arquetipo: 'Inércia H1 (Conservador)',
-                titulo: 'Co-desenvolvimento com parceiro histórico Tier 2',
-                resumo: 'Investir em parceria de longo prazo com o fornecedor tradicional do H1, co-financiando a adaptação da linha de produção fabril.',
-                impactosBase: { caixa: -20, controle: 15, agilidade: -25 },
-                vetoresConceituais: {
-                    valor: 'Alto custo afundado de P&D em parceiro em aprendizado',
-                    soberania: 'Retenção da propriedade intelectual e centralidade fabril',
-                    dinamica: 'Curva longa de aprendizado e alta rigidez contratual'
-                },
-                diagnostico: 'Protege a governança interna e a propriedade intelectual, mas aceita uma curva de aprendizado prolongada.'
+                arquetipo: 'Co-desenvolvimento Relacional (Tier 2)',
+                titulo: 'Co-desenvolvimento com Parceiro Histórico do H1',
+                resumo: 'Investir em parceria de longo prazo com o fornecedor tradicional do H1, co-financiando a adaptação da linha de produção fabril e ferramental mecânico.',
+                deltaMeses: 4, // 18 + 4 = 22 meses
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'dependencia_operacional',
+                        efeito: 'Concentração total do componente mais crítico do dobrável em um único parceiro externo, sem rotas redundantes de suprimento.'
+                    },
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Aporte financeiro em maquinário e processos sob medida dentro da fábrica do parceiro. Alto risco de custo afundado se o parceiro falhar.'
+                    },
+                    {
+                        caracteristicaId: 'rigidez_relacional',
+                        efeito: 'Paradoxo do enraizamento: a empresa tenta viabilizar uma tecnologia de ruptura (H2) apoiando-se nos laços confortáveis do H1.'
+                    }
+                ],
+                diagnostico: 'Protege a propriedade intelectual conjunta e aproveita a confiança prévia, mas estica o cronograma pela lenta curva de adaptação do parceiro.',
+                desafioGovernanca: 'Vocês concentraram o suprimento crítico em um único parceiro histórico e aportaram capital em ativos específicos na fábrica dele. Qual mecanismo de governança (auditorias técnicas na linha de produção, marcos de validação com penalidades por atraso, acordos de exclusividade mútua ou salvaguardas contratuais) vocês implementarão para não ficarem reféns dessa dependência?'
             },
             {
                 id: '1B',
                 letra: 'B',
-                arquetipo: 'Ruptura Autárquica (Vertical)',
-                titulo: 'Fábrica e P&D proprietário de telas (Deep Tech)',
-                resumo: 'Construir linha fabril e laboratório próprio de nanotecnologia para não depender de nenhum fornecedor de telas flexíveis.',
-                impactosBase: { caixa: -35, controle: 30, agilidade: -10 },
-                vetoresConceituais: {
-                    valor: 'Capex massivo e necessidade de absorção de risco financeiro',
-                    soberania: 'Soberania absoluta sobre patentes, segredos industriais e design',
-                    dinamica: 'Execução sob controle estrito da empresa, com setup fabril demorado'
-                },
-                diagnostico: 'Soberania máxima sobre a tecnologia crítica, impondo alta demanda de sustentação financeira.'
+                arquetipo: 'Verticalização Deep Tech (Autárquica)',
+                titulo: 'Fábrica e P&D Proprietário de Telas e Dobradiças',
+                resumo: 'Construir linha fabril e laboratório próprio de nanotecnologia para dominar 100% da fabricação das telas flexíveis sem depender de terceiros.',
+                deltaMeses: 8, // 18 + 8 = 26 meses
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Especificidade de ativos máxima: imobilização massiva de capex e conhecimento fabril que só servem para dobráveis, com alto risco de afundamento.'
+                    },
+                    {
+                        caracteristicaId: 'ponto_cego_estrutural',
+                        efeito: 'Eliminação do ponto cego estrutural no componente central: visibilidade e rastreabilidade total do chão de fábrica e da matéria-prima.'
+                    },
+                    {
+                        caracteristicaId: 'vazamento_valor',
+                        efeito: 'Blindagem total contra vazamento de valor: patentes e segredos industriais retidos 100% sob regime de apropriabilidade forte.'
+                    }
+                ],
+                diagnostico: 'Soberania absoluta sobre a tecnologia e eliminação de nós intermediários, impondo atraso relevante no cronograma e alta imobilização de capital.',
+                desafioGovernanca: 'Vocês eliminaram a dependência de fornecedores, mas assumiram um risco financeiro brutal de ativos específicos dedicados e postergaram o lançamento. Qual mecanismo de governança (comitê executivo de P&D, auditoria contínua de yield fabril, mitigação de custos de transação internos) será estabelecido para evitar o desperdício de capital afundado?'
             },
             {
                 id: '1C',
                 letra: 'C',
-                arquetipo: 'Orquestração Aberta (Ecossistema)',
-                titulo: 'Consórcio de inovação aberta com startups e licenças',
-                resumo: 'Montar uma aliança multilateral com startups especialistas em polímeros flexíveis com patentes compartilhadas.',
-                impactosBase: { caixa: -10, controle: -25, agilidade: 25 },
-                vetoresConceituais: {
-                    valor: 'Custo inicial diluído entre os parceiros da aliança',
-                    soberania: 'Gestão fragmentada e perda de exclusividade de patentes',
-                    dinamica: 'Velocidade acelerada de absorção tecnológica e prototipagem'
-                },
-                diagnostico: 'Time-to-market acelerado com baixo desembolso inicial, aceitando o risco de dependência de nós externos.'
+                arquetipo: 'Consórcio de Inovação Aberta (Ecossistema)',
+                titulo: 'Consórcio Aberto com Startups de Polímeros e Patentes Compartilhadas',
+                resumo: 'Montar uma aliança multilateral com startups especializadas em novos materiais e engenharia micromecânica, articulando protótipos já testados.',
+                deltaMeses: -4, // 18 - 4 = 14 meses
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'rigidez_relacional',
+                        efeito: 'Ruptura com a rigidez relacional do H1: quebra da inércia dos parceiros tradicionais e conexão com laços fracos altamente dinâmicos.'
+                    },
+                    {
+                        caracteristicaId: 'vazamento_valor',
+                        efeito: 'Risco de vazamento de valor: regime de apropriabilidade fraco. Como as startups detêm a PI e atendem múltiplos clientes, o know-how pode vazar.'
+                    },
+                    {
+                        caracteristicaId: 'ponto_cego_estrutural',
+                        efeito: 'Ponto cego estrutural em camadas 2 e 3: as startups dependem de fundições e químicas terceirizadas, sobre as quais a empresa não tem rastreabilidade.'
+                    }
+                ],
+                diagnostico: 'Aceleração do time-to-market ao alavancar soluções prontas de terceiros, aceitando complexidade de coordenação multilateral e perda de exclusividade.',
+                desafioGovernanca: 'Vocês ganharam velocidade ao quebrar as amarras do H1, mas operam com alto risco de vazamento de valor e pontos cegos na cadeia subcontratada das startups. Qual governança de aliança (acordos rígidos de propriedade intelectual, direitos de primeira recusa comercial, auditoria de subcontratados Tier 3) vocês exigirão no consórcio?'
             }
         ]
     },
@@ -102,68 +212,90 @@ export const FASES = [
         chave: 'fase2',
         titulo: 'Fase 2: Arquitetura de Software e Interface',
         subtitulo: 'Adaptação do Sistema Operacional e Multitelas',
-        contexto: 'O aparelho exige uma nova camada de interface (multitarefas, continuidade entre telas e fluidez de dobra). Quem governará o ecossistema de software e reterá os dados dos usuários?',
+        contexto: 'O dobrável exige continuidade fluida entre a tela externa compacta e a tela interna expandida, além de suporte a multitarefas com 3 janelas simultâneas. O ecossistema global é arbitrado pelo guardião da plataforma de sistema operacional.',
+        diagnosticoInicialRede: [
+            {
+                caracteristicaId: 'centralidade_intermediacao',
+                detalhe: 'O dono da plataforma global de SO atua como guardião de passagem, ditando padrões de APIs, aprovando aplicativos e cobrando taxas na loja digital.'
+            },
+            {
+                caracteristicaId: 'assimetria_fluxo_dados',
+                detalhe: 'Na herança do H1, os dados de telemetria, navegação e hábitos de uso fluem para o dono do SO, deixando a fabricante restrita à produção física.'
+            }
+        ],
+        dossiePesquisa: 'Para debater em grupo antes de escolher: Pesquisem a estratégia da Samsung com a interface proprietária One UI e a iniciativa da Huawei com o HarmonyOS após as sanções internacionais de 2019. Por que marcas líderes investem bilhões para controlar a camada visual de software em vez de usarem o Android genérico puro?',
         opcoes: [
             {
                 id: '2A',
                 letra: 'A',
-                arquetipo: 'Subordinação de Plataforma',
-                titulo: 'Subordinação a Nó Dominante (Android/Google Padrão)',
-                resumo: 'Adotar a API genérica do sistema operacional de mercado dominante com licenciamento convencional e sem customizações.',
-                impactosBase: { caixa: -5, controle: -30, agilidade: 25 },
-                cascataRegra: (decisoes) => {
-                    if (decisoes.fase1 === '1C') {
-                        return {
-                            descricao: 'Efeito Dupla Comoditização: A ausência de patentes de hardware (1C) somada à subordinação de software (2A) reduz a diferenciação da empresa perante o mercado.',
-                            deltaExtra: { caixa: 0, controle: -10, agilidade: 0 }
-                        };
+                arquetipo: 'Subordinação a Nó Dominante (Plataforma Padrão)',
+                titulo: 'Subordinação ao SO Padrão da Plataforma Global (Android AOSP/GMS)',
+                resumo: 'Adotar a API genérica e o ecossistema pronto fornecido pela dona do sistema operacional, sem desenvolver customizações proprietárias.',
+                deltaMeses: -4,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'centralidade_intermediacao',
+                        efeito: 'Centralidade de intermediação consolidada: a plataforma dita as regras e o ritmo de evolução das funções de dobra no código global.'
+                    },
+                    {
+                        caracteristicaId: 'assimetria_fluxo_dados',
+                        efeito: 'Assimetria de fluxo e perda de dados: a dona do SO retém a telemetria comportamental e a monetização de serviços digitais dos apps.'
+                    },
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Baixa especificidade de ativo de software: custo quase nulo em equipes dedicadas de arquitetura de SO e desenvolvimento de APIs sob medida.'
                     }
-                    return null;
-                },
-                vetoresConceituais: {
-                    valor: 'Baixo custo de licenciamento e adaptação simplificada',
-                    soberania: 'Dependência severa da plataforma dominante para futuras atualizações',
-                    dinamica: 'Ecossistema de aplicativos pronto em modelo plug-and-play imediato'
-                },
-                diagnostico: 'Máxima eficiência relacional e velocidade, transferindo a captura de valor de dados para o nó dominante.'
+                ],
+                diagnostico: 'Time-to-market acelerado com modelo plug-and-play imediato, transferindo a captura de valor sobre os dados digitais para o nó dominante.',
+                desafioGovernanca: 'Vocês ganharam 4 meses de velocidade, mas entregaram o controle da experiência e dos dados ao nó dominante da plataforma. Qual governança de relacionamento com o intermediário (acordos bilaterais de SLA, comitês conjuntos de suporte a APIs prioritárias ou diferenciação de marca fora do SO) vocês adotarão para mitigar a comoditização?'
             },
             {
                 id: '2B',
                 letra: 'B',
-                arquetipo: 'Ruptura Autárquica (Vertical)',
-                titulo: 'UI/UX Proprietária com Comunidade de Desenvolvedores',
-                resumo: 'Criar camada de interface exclusiva e financiar comunidade própria de desenvolvedores para monetização de serviços.',
-                impactosBase: { caixa: -30, controle: 25, agilidade: -15 },
-                cascataRegra: (decisoes) => {
-                    if (decisoes.fase1 === '1A') {
-                        return {
-                            descricao: 'Efeito Atrito Fabril-Software: O fornecedor tradicional (1A) tem tolerâncias mecânicas descalibradas, demandando retrabalho de calibração na UI proprietária.',
-                            deltaExtra: { caixa: 0, controle: 0, agilidade: -10 }
-                        };
+                arquetipo: 'Ecossistema Digital Proprietário (Diferenciação)',
+                titulo: 'UI/UX Proprietária com Comunidade Dedicada de Desenvolvedores',
+                resumo: 'Desenvolver uma camada de interface exclusiva (SDK proprietário, loja de temas e suporte avançado a multitelas), subsidiando desenvolvedores parceiros.',
+                deltaMeses: 5,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'assimetria_fluxo_dados',
+                        efeito: 'Atenuação da assimetria de fluxo: a empresa passa a reter dados diretos de telemetria e cria canais próprios de monetização de serviços.'
+                    },
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Especificidade de ativos de software e capital humano: desenvolvimento de SDKs e código sob medida com alto investimento dedicado.'
+                    },
+                    {
+                        caracteristicaId: 'dependencia_operacional',
+                        efeito: 'Dependência operacional interna: a empresa assume a responsabilidade direta por bugs de multitarefa e estabilidade de apps de terceiros.'
                     }
-                    return null;
-                },
-                vetoresConceituais: {
-                    valor: 'Investimento pesado em subsídios para desenvolvedores e equipe de TI',
-                    soberania: 'Domínio total dos dados de telemetria, loja própria e monetização',
-                    dinamica: 'Gargalos de homologação contínua e resolução de bugs de multitarefa'
-                },
-                diagnostico: 'Criação de ecossistema digital próprio que blinda o relacionamento com o cliente, exigindo suporte financeiro contínuo.'
+                ],
+                diagnostico: 'Diferenciação de experiência e blindagem no relacionamento com o usuário, exigindo investimento contínuo e suporte a desenvolvedores.',
+                desafioGovernanca: 'Vocês conquistaram soberania sobre os dados e a interface, mas geraram alta especificidade de ativos e atraíram toda a responsabilidade de bugs para dentro de casa. Qual governança de ecossistema digital (gestão do fundo de incentivo a desenvolvedores, SLAs rígidos de suporte e governança de cibersegurança/privacidade de dados) vocês implementarão?'
             },
             {
                 id: '2C',
                 letra: 'C',
-                arquetipo: 'Inércia H1 (Conservador)',
-                titulo: 'Adaptação Interna do Sistema Existente do H1',
-                resumo: 'Fazer uma evolução pontual no firmware que a empresa já utiliza nos smartphones convencionais de linha plana.',
-                impactosBase: { caixa: -15, controle: 10, agilidade: -25 },
-                cascataRegra: () => null,
-                vetoresConceituais: {
-                    valor: 'Aproveitamento de contratos legados e equipe interna de software',
-                    soberania: 'Código-fonte mantido sob tutela direta e exclusiva da empresa',
-                    dinamica: 'Interface com limitações de fluidez e transição de dobra travada'
-                },
-                diagnostico: 'Contenção orçamentária que resulta em experiência de uso conservadora para um produto inovador.'
+                arquetipo: 'Inércia Nuclear do H1 (Adaptação Mínima)',
+                titulo: 'Adaptação Interna do Firmware Legado do H1',
+                resumo: 'Fazer uma evolução básica no firmware já utilizado nos celulares planos do H1, forçando o estiramento das janelas sem refazer a arquitetura.',
+                deltaMeses: 0,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'rigidez_relacional',
+                        efeito: 'Rigidezes nucleares: a empresa reproduz no dobrável H2 as rotinas e ferramentas que deram certo no passado, gerando uma experiência de uso truncada.'
+                    },
+                    {
+                        caracteristicaId: 'vazamento_valor',
+                        efeito: 'Assimetria de percepção de valor: o cliente paga tíquete premium, mas recebe interface engessada com apps deformados, reduzindo o valor percebido.'
+                    },
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Preservação de recursos e baixa especificidade de ativos: aproveita contratos e equipe interna existente sem novos desembolsos.'
+                    }
+                ],
+                diagnostico: 'Contenção orçamentária e cumprimento de cronograma, assumindo o risco de rejeição do consumidor pela falta de fluidez da interface.',
+                desafioGovernanca: 'Vocês preservaram caixa e cumpriram o cronograma sem custos extras, mas caíram na rigidez nuclear do H1 e arriscam frustrar o cliente na ponta. Qual governança técnica e de pós-venda (comitê emergencial de correções de firmware, monitoramento de churn e devoluções nos primeiros 30 dias de uso) vocês criarão para sustentar a reputação do produto?'
             }
         ]
     },
@@ -172,68 +304,98 @@ export const FASES = [
         chave: 'fase3',
         titulo: 'Fase 3: Escoamento e Canais de Distribuição',
         subtitulo: 'Logística de Valor e Conflito de Canais',
-        contexto: 'Smartphones dobráveis são itens de alto tíquete e necessitam de demonstração presencial e cuidados logísticos. Qual canal utilizar para alcançar o público-alvo?',
+        contexto: 'O dobrável é um produto de altíssimo tíquete (> R$ 8.000) que o cliente prefere experimentar antes de comprar. A empresa herda contratos tradicionais com o grande varejo físico e grandes operadoras de telecomunicações.',
+        diagnosticoInicialRede: [
+            {
+                caracteristicaId: 'centralidade_intermediacao',
+                detalhe: 'Grandes redes de varejo e operadoras controlam as vitrines físicas e impõem prazos de pagamento de até 120 dias.'
+            },
+            {
+                caracteristicaId: 'vazamento_valor',
+                detalhe: 'O varejo físico detém os Ativos Complementares Especializados (capilaridade, balcão de experimentação e crediário), retendo até 40% da margem do produto.'
+            }
+        ],
+        dossiePesquisa: 'Para debater em grupo antes de escolher: Analisem a estratégia de distribuição da Apple (lojas próprias com atendimento consultivo x parcerias com grandes operadoras). O que acontece com as vendas dos smartphones convencionais do H1 da sua empresa se o grande varejo se sentir ameaçado pela sua decisão de vender o dobrável direto pela internet (conflito de canais)?',
         opcoes: [
             {
                 id: '3A',
                 letra: 'A',
-                arquetipo: 'Inércia H1 (Conservador)',
-                titulo: 'Canais de Varejo Tradicionais e Grandes Operadoras (H1)',
-                resumo: 'Distribuir maciçamente através das grandes redes de lojas e operadoras com as quais a empresa já possui contratos consolidados.',
-                impactosBase: { caixa: 15, controle: -15, agilidade: -20 },
-                cascataRegra: (decisoes) => {
-                    if (decisoes.fase2 === '2A') {
-                        return {
-                            descricao: 'Efeito Comoditização no Canal: Como a interface de software é padronizada (2A), o grande varejo exige margens maiores para promover o aparelho.',
-                            deltaExtra: { caixa: -10, controle: -5, agilidade: 0 }
-                        };
+                arquetipo: 'Canal Tradicional de Massa (Varejo e Operadoras H1)',
+                titulo: 'Canais de Varejo Tradicionais e Grandes Operadoras (Herança do H1)',
+                resumo: 'Distribuir maciçamente através das redes de lojas físicas e operadoras com as quais a empresa já tem contratos e logística amortizada.',
+                deltaMeses: 3,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'centralidade_intermediacao',
+                        efeito: 'Centralidade de intermediação consolidada: o grande varejo arbitra o destaque de vitrine e a exposição do dobrável perante concorrentes.'
+                    },
+                    {
+                        caracteristicaId: 'vazamento_valor',
+                        efeito: 'Vazamento de valor comercial: a empresa cede até 40% da margem bruta para remunerar a infraestrutura e a força de vendas do lojista.'
+                    },
+                    {
+                        caracteristicaId: 'assimetria_fluxo_dados',
+                        efeito: 'Assimetria de fluxo: a fabricante não tem acesso ao perfil de quem comprou o produto no balcão, recebendo apenas pedidos consolidados de reposição.'
+                    },
+                    {
+                        caracteristicaId: 'rigidez_relacional',
+                        efeito: 'Preservação da rigidez relacional: estabilidade dos laços fortes com os parceiros comerciais tradicionais, sem atritos com o legado do H1.'
                     }
-                    return null;
-                },
-                vetoresConceituais: {
-                    valor: 'Aproveitamento de crédito comercial e logística já amortizada',
-                    soberania: 'Varejistas com alto poder de barganha sobre precificação e margem',
-                    dinamica: 'Rigidez contratual e ciclos lentos de renovação de vitrines'
-                },
-                diagnostico: 'Alavancagem da capilaridade instalada, compartilhando parte da margem com os intermediários comerciais.'
+                ],
+                diagnostico: 'Capilaridade imediata em milhares de pontos de venda sem custo imobiliário próprio, aceitando a perda de margem e a dependência de intermediários.',
+                desafioGovernanca: 'Vocês aceitaram a intermediação do varejo e o vazamento de margem em troca de capilaridade imediata. Qual governança de trade marketing e canais (acordos bilaterais de compartilhamento de dados de sell-out, SLAs de treinamento obrigatório para promotores e auditoria física de destaque de vitrine) vocês implementarão para garantir que o produto seja demonstrado corretamente e não fique esquecido no estoque do lojista?'
             },
             {
                 id: '3B',
                 letra: 'B',
-                arquetipo: 'Ruptura Autárquica (Vertical / D2C)',
-                titulo: 'Estratégia D2C Exclusiva via E-commerce e Logtechs',
-                resumo: 'Venda direta ao consumidor com entrega expressa, personalização online e dark stores em grandes capitais.',
-                impactosBase: { caixa: -25, controle: 20, agilidade: 20 },
-                cascataRegra: (decisoes) => {
-                    if (decisoes.fase1 === '1B') {
-                        return {
-                            descricao: 'Efeito Acúmulo de Capex: Somar o setup do canal D2C com a fábrica própria (1B) intensifica a necessidade de capital de giro.',
-                            deltaExtra: { caixa: -10, controle: 0, agilidade: 0 }
-                        };
+                arquetipo: 'Desintermediação Digital (D2C e Logtechs)',
+                titulo: 'Estratégia D2C Exclusiva via E-commerce e Logtechs Integradas',
+                resumo: 'Eliminar os intermediários comerciais e vender 100% direto ao consumidor final pela internet, com entrega expressa blindada e dark stores.',
+                deltaMeses: -3,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'centralidade_intermediacao',
+                        efeito: 'Eliminação da centralidade de intermediação comercial: a empresa estabelece relação e faturamento direto com o mercado final.'
+                    },
+                    {
+                        caracteristicaId: 'assimetria_fluxo_dados',
+                        efeito: 'Captura de valor integral e telemetria: apropriação total da margem comercial e dos dados transacionais/comportamentais de cada comprador.'
+                    },
+                    {
+                        caracteristicaId: 'dependencia_operacional',
+                        efeito: 'Dependência operacional extrema da malha logística: vulnerabilidade crítica a extravios, roubos de carga de alto valor e fraudes de pagamento.'
+                    },
+                    {
+                        caracteristicaId: 'ponto_cego_estrutural',
+                        efeito: 'Ponto cego estrutural em transporte de última milha: operadores logísticos subcontratam motoristas autônomos sem rastreabilidade direta.'
                     }
-                    return null;
-                },
-                vetoresConceituais: {
-                    valor: 'Custo elevado de aquisição de tráfego (CAC) e setup logístico dedicado',
-                    soberania: 'Controle absoluto da base de dados, precificação e experiência premium',
-                    dinamica: 'Feedback imediato do consumidor e velocidade para promoções dinâmicas'
-                },
-                diagnostico: 'Aproximação direta do cliente final eliminando intermediários, assumindo a complexidade de distribuição.'
+                ],
+                diagnostico: 'Maximização da margem e retenção da base de clientes eliminando intermediários, assumindo a complexidade de frete e risco de conflito com o varejo do H1.',
+                desafioGovernanca: 'Vocês capturaram toda a margem e dados ao vender direto, mas criaram dependência extrema de uma malha logística de alto risco e provocaram a fúria dos parceiros do H1. Qual governança de logística, segurança e canais (rastreamento telemétrico e seguro de carga ponta a ponta, auditoria de subcontratados de última milha e política de gestão de conflito de canais com os lojistas do H1) vocês estruturarão?'
             },
             {
                 id: '3C',
                 letra: 'C',
-                arquetipo: 'Orquestração Seletiva (Flagship)',
-                titulo: 'Quiosques Conceito e Lojas Flagship em Shoppings Premium',
-                resumo: 'Implantar espaços conceito de experimentação sensorial e atendimento consultivo nos principais centros de consumo.',
-                impactosBase: { caixa: -20, controle: 10, agilidade: -5 },
-                cascataRegra: () => null,
-                vetoresConceituais: {
-                    valor: 'Custos de locação em pontos nobres e equipe especializada',
-                    soberania: 'Ambiente controlado de marca sem atrito direto com o varejo massivo',
-                    dinamica: 'Expansão geográfica modular e pontual'
-                },
-                diagnostico: 'Foco na experiência tátil do consumidor sem canibalizar os acordos comerciais de grande escala.'
+                arquetipo: 'Modelo Híbrido Sensorial (Quiosques Flagship)',
+                titulo: 'Quiosques Conceito e Lojas Flagship em Shoppings de Alto Padrão',
+                resumo: 'Implantar espaços físicos próprios de experimentação tátil nos principais shoppings, combinando experimentação presencial com venda assistida.',
+                deltaMeses: 4,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'ponto_cego_estrutural',
+                        efeito: 'Alta visibilidade da experiência do consumidor: contato direto com as reações táteis e dúvidas de manuseio do cliente com o mecanismo de dobra.'
+                    },
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Especificidade de ativos físicos e procedurais: investimentos imobilizados em reformas de quiosques, luvas de ponto e sistemas sob medida de PDV.'
+                    },
+                    {
+                        caracteristicaId: 'centralidade_intermediacao',
+                        efeito: 'Equilíbrio de intermediação (modelo híbrido): constrói autoridade de marca sem romper de forma agressiva com o grande varejo multimarca.'
+                    }
+                ],
+                diagnostico: 'Superação da barreira de experimentação sensorial do dobrável mantendo a reputação sob controle, absorvendo rigidez de custos fixos de locação comercial.',
+                desafioGovernanca: 'Vocês resolveram a barreira da experimentação física mantendo a reputação sob controle, mas imobilizaram capital em ativos específicos de varejo com aluguéis rígidos. Qual governança de operações comerciais (gestão de indicadores de conversão por metro quadrado, auditoria de qualidade no atendimento consultivo e cláusulas de flexibilidade em contratos de locação) vocês adotarão?'
             }
         ]
     },
@@ -242,148 +404,164 @@ export const FASES = [
         chave: 'fase4',
         titulo: 'Fase 4: Go-to-Market, Narrativa e Posicionamento',
         subtitulo: 'Construção da Marca e Percepção de Valor',
-        contexto: 'Para justificar o valor premium de um smartphone inovador, qual posicionamento de marca e estratégia de comunicação adotar?',
+        contexto: 'O dobrável está pronto para chegar ao mercado. A empresa herda do H1 a imagem de fabricante de smartphones funcionais convencionais, enquanto o consumidor desconfia da durabilidade e robustez da tela flexível.',
+        diagnosticoInicialRede: [
+            {
+                caracteristicaId: 'vazamento_valor',
+                detalhe: 'Ausência de Ativos Complementares de Reputação de Superluxo para legitimar a cobrança de um tíquete acima de R$ 8.000.'
+            },
+            {
+                caracteristicaId: 'rigidez_relacional',
+                detalhe: 'Contrato vigente e rotinas cristalizadas com a agência de publicidade tradicional do H1, especializada em comunicação de massa popular.'
+            }
+        ],
+        dossiePesquisa: 'Para debater em grupo antes de escolher: Pesquisem o caso da edição especial Samsung Galaxy Z Flip Thom Browne (com preços superiores a US$ 2.500 esgotados rapidamente) versus as campanhas institucionais tradicionais de smartphones. Por que marcas de alta tecnologia buscam co-branding com grifes de alta costura ou criadores independentes para transformar sua percepção de valor?',
         opcoes: [
             {
                 id: '4A',
                 letra: 'A',
-                arquetipo: 'Orquestração de Prestígio (VBR)',
-                titulo: 'Co-branding com Marca de Luxo ou Grife Internacional',
-                resumo: 'Lançar uma edição especial assinada em aliança com grife internacional de alta moda ou design de ponta.',
-                impactosBase: { caixa: -20, controle: -15, agilidade: 20 },
-                cascataRegra: () => null,
-                vetoresConceituais: {
-                    valor: 'Divisão de receitas e pagamento de royalties expressivos à marca parceira',
-                    soberania: 'Decisões de comunicação e aprovações estéticas compartilhadas',
-                    dinamica: 'Acesso instantâneo a prestígio, cobertura espontânea e formadores de opinião'
-                },
-                diagnostico: 'Acesso a recursos intangíveis de reputação em troca de margens compartilhadas e governança conjunta.'
+                arquetipo: 'Aliança Simbólica de Prestígio (Co-branding de Luxo)',
+                titulo: 'Co-branding com Marca de Alto Luxo ou Grife Internacional',
+                resumo: 'Lançar uma edição especial assinada em parceria com uma grife internacional de alta moda ou design de ponta, com estojo nobre e tiragem limitada.',
+                deltaMeses: 3,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'vazamento_valor',
+                        efeito: 'Vazamento de valor financeiro: pagamento de royalties expressivos sobre cada unidade e perda parcial de autonomia criativa e estética.'
+                    },
+                    {
+                        caracteristicaId: 'assimetria_fluxo_dados',
+                        efeito: 'Acesso a Ativos Complementares de Reputação: captura de valor simbólico imediato, legitimando a cobrança de preços ultra-premium.'
+                    },
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Especificidade de ativos de marca: embalagens, acabamentos e campanhas desenhadas sob medida que só têm valor associadas à grife parceira.'
+                    }
+                ],
+                diagnostico: 'Compra de legitimidade e prestígio instantâneo no segmento de superluxo em troca de royalties pesados e subordinação criativa à matriz da grife.',
+                desafioGovernanca: 'Vocês compraram prestígio instantâneo através da grife, mas cederam margem em royalties e perderam autonomia criativa. Qual governança de co-branding (comitê conjunto de aprovação estética e de marketing, cláusulas de blindagem de marca contra crises de imagem do parceiro e auditoria de repasse de royalties) vocês estabelecerão?'
             },
             {
                 id: '4B',
                 letra: 'B',
-                arquetipo: 'Inércia H1 (Conservador)',
-                titulo: 'Campanha Institucional com a Agência Histórica do H1',
-                resumo: 'Manter a mesma agência de publicidade do dia a dia da empresa para conduzir toda a narrativa do produto dobrável.',
-                impactosBase: { caixa: -5, controle: 15, agilidade: -20 },
-                cascataRegra: (decisoes) => {
-                    if (decisoes.fase3 === '3B') {
-                        return {
-                            descricao: 'Efeito Descompasso de Linguagem: A agência tradicional do H1 tem pouca vivência com performance e conversão em canais D2C (3B).',
-                            deltaExtra: { caixa: 0, controle: 0, agilidade: -10 }
-                        };
+                arquetipo: 'Continuidade Institucional (Agência Histórica H1)',
+                titulo: 'Campanha Institucional de Massa com a Agência Tradicional do H1',
+                resumo: 'Manter a mesma agência de publicidade do dia a dia da empresa para conduzir toda a narrativa do dobrável em grandes campanhas de TV e outdoors.',
+                deltaMeses: -1,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'rigidez_relacional',
+                        efeito: 'Rigidezes nucleares na comunicação: a agência repete as rotinas de massa do H1, gerando uma narrativa genérica que não traduz a sofisticação da dobra.'
+                    },
+                    {
+                        caracteristicaId: 'vazamento_valor',
+                        efeito: 'Ausência de vazamento de valor financeiro: sem pagamento de royalties a terceiros, retendo 100% da receita da inovação na empresa.'
+                    },
+                    {
+                        caracteristicaId: 'especificidade_ativo',
+                        efeito: 'Baixa especificidade de ativos de comunicação: aproveitamento de ferramentas de mídia e equipe já amortizadas.'
                     }
-                    return null;
-                },
-                vetoresConceituais: {
-                    valor: 'Contrato vigente com fee mensal já contratado e baixo custo incremental',
-                    soberania: 'Narrativa 100% alinhada à matriz sem interferências externas',
-                    dinamica: 'Linguagem publicitária tradicional com tempo de resposta mais lento'
-                },
-                diagnostico: 'Alinhamento corporativo seguro com baixo desembolso, confiando no repertório já conhecido da agência.'
+                ],
+                diagnostico: 'Alinhamento corporativo ágil e sem custos de licenciamento, arriscando frustrar a percepção de valor do dobrável pela linguagem de massa.',
+                desafioGovernanca: 'Vocês economizaram tempo e dinheiro mantendo o parceiro histórico, mas arriscam afundar a percepção do dobrável devido à rigidez nuclear da agência do H1. Qual governança de comunicação institucional (metas rígidas de conversão no público de alta renda, auditoria externa de linguagem e comitê criativo de validação) vocês implementarão para forçar a agência a sair da zona de conforto?'
             },
             {
                 id: '4C',
                 letra: 'C',
-                arquetipo: 'Ruptura Comunitária (Influência)',
-                titulo: 'Comunidade Tech e Marketing de Influência com Early Adopters',
-                resumo: 'Enviar lotes de pré-série para grandes criadores de conteúdo tech e promover fóruns de co-criação com a comunidade.',
-                impactosBase: { caixa: -10, controle: -10, agilidade: 15 },
-                cascataRegra: (decisoes) => {
-                    if (decisoes.fase1 === '1A') {
-                        return {
-                            descricao: 'Efeito Exposição Crítica: Reviewers independentes de tecnologia apontaram limitações na dobradiça tradicional (1A), exigindo respostas rápidas de RP.',
-                            deltaExtra: { caixa: -5, controle: -10, agilidade: 0 }
-                        };
+                arquetipo: 'Descentralização da Narrativa (Comunidade & Early Adopters)',
+                titulo: 'Comunidade Tech, Early Adopters e Reviewers Independentes',
+                resumo: 'Enviar lotes de pré-série para criadores de conteúdo tech e fomentar fóruns colaborativos de co-criação com entusiastas da tecnologia.',
+                deltaMeses: -2,
+                caracteristicasAtivadas: [
+                    {
+                        caracteristicaId: 'ponto_cego_estrutural',
+                        efeito: 'Visibilidade orgânica de rede: validação técnica autêntica perante os compradores pioneiros que influenciam as decisões do mercado.'
+                    },
+                    {
+                        caracteristicaId: 'rigidez_relacional',
+                        efeito: 'Ruptura com a rigidez de mídia tradicional: migração dos recursos publicitários de intermediários consolidados para uma rede descentralizada.'
+                    },
+                    {
+                        caracteristicaId: 'dependencia_operacional',
+                        efeito: 'Risco reputacional descontrolado: ausência de controle sobre a mensagem; eventuais falhas ou quebras de tela serão expostas publicamente sem filtros.'
                     }
-                    return null;
-                },
-                vetoresConceituais: {
-                    valor: 'Investimento moderado em amostras técnicas e eventos de nicho',
-                    soberania: 'A narrativa fica na mão de terceiros e criadores independentes',
-                    dinamica: 'Engajamento rápido e credibilidade técnica perante os early adopters'
-                },
-                diagnostico: 'Validação técnica imediata perante entusiastas, assumindo o risco da sinceridade dos influenciadores.'
+                ],
+                diagnostico: 'Legitimação técnica rápida e autêntica perante o público pioneiro, assumindo o risco da total transparência e sinceridade dos influenciadores.',
+                desafioGovernanca: 'Vocês ganharam velocidade e autoridade técnica ao descentralizar a comunicação, mas abriram mão do controle da mensagem sobre a fragilidade da tela. Qual governança de relações públicas e gestão de crises (sala de guerra de monitoramento de redes em tempo real, protocolo ágil de substituição de aparelhos com defeito para reviewers e suporte técnico direto) vocês criarão para blindar a marca?'
             }
         ]
     }
 ];
 
 // ============================================================================
-// FUNÇÕES DE CÁLCULO E AUDITORIA DE EXPOSIÇÃO
+// FUNÇÕES DE CÁLCULO E ANÁLISE DE REDE
 // ============================================================================
 
-export function calcularImpactoOpcao(opcao, decisoesAnteriores = {}) {
-    let delta = { ...opcao.impactosBase };
-    let efeitoCascata = null;
-
-    if (opcao.cascataRegra) {
-        const resultadoCascata = opcao.cascataRegra(decisoesAnteriores);
-        if (resultadoCascata) {
-            efeitoCascata = resultadoCascata;
-            delta.caixa += resultadoCascata.deltaExtra.caixa || 0;
-            delta.controle += resultadoCascata.deltaExtra.controle || 0;
-            delta.agilidade += resultadoCascata.deltaExtra.agilidade || 0;
-        }
-    }
-
+export function calcularImpactoOpcao(opcao) {
     return {
-        deltaFinal: delta,
-        efeitoCascata,
-        temCascata: !!efeitoCascata
+        deltaMeses: opcao.deltaMeses || 0,
+        caracteristicasAtivadas: opcao.caracteristicasAtivadas || []
     };
 }
 
 export function calcularPontuacoes(decisoes = {}) {
-    let caixa = PONTOS_INICIAIS.caixa;
-    let controle = PONTOS_INICIAIS.controle;
-    let agilidade = PONTOS_INICIAIS.agilidade;
-
+    let tempoTotalMeses = TEMPO_BASE_MESES;
+    const caracteristicasConsolidadas = [];
     const deltasPorFase = {};
-    const cascatasAtivadas = [];
 
     FASES.forEach((fase) => {
-        const opcaoEscolhidaId = decisoes[fase.chave];
-        if (opcaoEscolhidaId) {
-            const opcao = fase.opcoes.find(o => o.id === opcaoEscolhidaId);
+        const opcaoId = decisoes[fase.chave];
+        if (opcaoId) {
+            const opcao = fase.opcoes.find(o => o.id === opcaoId);
             if (opcao) {
-                const impacto = calcularImpactoOpcao(opcao, decisoes);
-                caixa += impacto.deltaFinal.caixa;
-                controle += impacto.deltaFinal.controle;
-                agilidade += impacto.deltaFinal.agilidade;
-                deltasPorFase[fase.chave] = impacto.deltaFinal;
+                tempoTotalMeses += opcao.deltaMeses;
+                deltasPorFase[fase.chave] = opcao.deltaMeses;
 
-                if (impacto.temCascata) {
-                    cascatasAtivadas.push({
+                opcao.caracteristicasAtivadas.forEach(c => {
+                    caracteristicasConsolidadas.push({
                         faseId: fase.faseId,
                         faseTitulo: fase.titulo,
                         opcaoId: opcao.id,
-                        descricao: impacto.efeitoCascata.descricao,
-                        deltaExtra: impacto.efeitoCascata.deltaExtra
+                        ...c
                     });
-                }
+                });
             }
         }
     });
 
-    // Identificação de Alta Exposição Estratégica (Exige Ação de Governança Mitigadora)
-    const altaExposicaoCaixa = caixa <= 10;
-    const altaExposicaoAgilidade = agilidade <= 10;
-    const altaExposicaoControle = controle <= 25;
+    const janela = classificarJanelaMercado(tempoTotalMeses);
 
+    // Contadores por categoria
+    let totalGargalos = 0;
+    let totalAssimetrias = 0;
+    let totalRigidezes = 0;
+
+    caracteristicasConsolidadas.forEach(item => {
+        const info = CARACTERISTICAS_REDE[item.caracteristicaId];
+        if (info) {
+            if (info.categoria === 'Gargalo Estrutural') totalGargalos++;
+            if (info.categoria === 'Assimetria de Rede') totalAssimetrias++;
+            if (info.categoria === 'Rigidez') totalRigidezes++;
+        }
+    });
+
+    // Compatibilidade reversa com pontuações do motor antigo para não quebrar componentes existentes
     return {
-        caixa: Math.max(0, caixa),
-        caixaBruto: caixa,
-        controle: Math.max(0, controle),
-        controleBruto: controle,
-        agilidade: Math.max(0, agilidade),
-        agilidadeBruto: agilidade,
+        tempoTotalMeses,
+        janela,
         deltasPorFase,
-        cascatasAtivadas,
-        altaExposicaoCaixa,
-        altaExposicaoAgilidade,
-        altaExposicaoControle,
-        temAltaExposicao: altaExposicaoCaixa || altaExposicaoAgilidade || altaExposicaoControle
+        caracteristicasConsolidadas,
+        totalGargalos,
+        totalAssimetrias,
+        totalRigidezes,
+        // Mocking de variáveis legadas para compatibilidade de visualização
+        caixa: Math.max(10, 100 - (tempoTotalMeses * 2)),
+        controle: Math.max(10, 100 - (totalGargalos * 10)),
+        agilidade: Math.max(10, 100 - (totalRigidezes * 15)),
+        altaExposicaoCaixa: false,
+        altaExposicaoControle: false,
+        altaExposicaoAgilidade: false,
+        cascatasAtivadas: []
     };
 }
 
@@ -395,65 +573,18 @@ export function classificarPerfilRede(pontuacoes, decisoes = {}) {
             badge: 'Em Construção',
             tipo: 'em_andamento',
             cor: 'text-cyan-400 bg-cyan-900/30 border-cyan-700',
-            resumo: `A equipe concluiu ${qtdDecisoes} de 4 decisões. Finalize a jornada para auditar a rede no Dashboard Executivo.`
+            resumo: `A equipe concluiu ${qtdDecisoes} de 4 decisões. Finalize a jornada para auditar a configuração da rede e o tempo final de lançamento.`
         };
     }
 
-    const tensoes = [];
-    if (pontuacoes.altaExposicaoCaixa) tensoes.push('Captura de Valor (Financeiro)');
-    if (pontuacoes.altaExposicaoAgilidade) tensoes.push('Dinâmica de Resposta (Time-to-Market)');
-    if (pontuacoes.altaExposicaoControle) tensoes.push('Soberania e Autonomia Relacional');
-
-    if (tensoes.length >= 2) {
-        return {
-            titulo: 'Estratégia de Alta Tensão em Múltiplas Dimensões',
-            badge: 'Alta Exposição Múltipla',
-            tipo: 'alerta_multiplo',
-            cor: 'text-amber-400 bg-amber-950/40 border-amber-600',
-            resumo: `A equipe assumiu uma postura estratégica com alta exposição em ${tensoes.join(' e ')}. Essa rota exige um plano de governança robusto para assegurar sustentabilidade perante o Conselho.`,
-            recomendacao: 'Elabore ações mitigadoras específicas para cada dimensão exposta para justificar a viabilidade da estratégia.'
-        };
-    }
-
-    if (pontuacoes.altaExposicaoCaixa) {
-        return {
-            titulo: 'Estratégia de Ruptura Autárquica (Demanda de Capitalização Externa)',
-            badge: 'Alta Exposição Financeira',
-            tipo: 'exposicao_caixa',
-            cor: 'text-amber-400 bg-amber-950/30 border-amber-500/70',
-            resumo: 'A equipe priorizou a construção de ativos próprios, fábrica dedicada e canal direto. A estratégia blinda a empresa a longo prazo, mas exige atração de financiamento, venture capital ou subsídios para sustentar o fluxo de caixa.',
-            recomendacao: 'O grupo deve registrar a Ação de Governança Financeira que viabilizará a sustentação do capex assumido.'
-        };
-    }
-
-    if (pontuacoes.altaExposicaoAgilidade) {
-        return {
-            titulo: 'Estratégia de Inércia H1 (Alta Exposição a Rigidez Relacional)',
-            badge: 'Alta Exposição de Time-to-Market',
-            tipo: 'exposicao_agilidade',
-            cor: 'text-amber-400 bg-amber-950/30 border-amber-500/70',
-            resumo: 'A equipe priorizou parceiros tradicionais e processos já conhecidos do H1. Os custos foram preservados, mas a curva de aprendizado lenta exige salvaguardas para não perder o timing de mercado.',
-            recomendacao: 'O grupo deve formular Ações de Governança Ágil (comitês de crise, fast-track contratual) para acelerar os parceiros históricos.'
-        };
-    }
-
-    if (pontuacoes.altaExposicaoControle) {
-        return {
-            titulo: 'Estratégia de Orquestração Aberta (Demanda de Salvaguardas de Soberania)',
-            badge: 'Alta Exposição de Soberania',
-            tipo: 'exposicao_controle',
-            cor: 'text-amber-400 bg-amber-950/30 border-amber-500/70',
-            resumo: 'A equipe alcançou rapidez e eficiência ao apoiar-se em gigantes de software e alianças de inovação aberta, mas tornou a empresa dependente de regras e margens de terceiros.',
-            recomendacao: 'O grupo deve registrar Ações de Governança Contratual (cláusulas de blindagem, multas de rescisão e retenção de base de clientes) para assegurar o poder de barganha.'
-        };
-    }
+    const { tempoTotalMeses, janela } = pontuacoes;
 
     return {
-        titulo: 'Ecossistema Equilibrado e Resiliente',
-        badge: 'Rede Balanceada',
-        tipo: 'sucesso',
-        cor: 'text-emerald-400 bg-emerald-950/40 border-emerald-600',
-        resumo: 'A equipe realizou uma arbitragem estratégica equilibrada: dosou investimentos próprios com parcerias externas, mantendo indicadores sustentáveis em todas as três dimensões.',
-        recomendacao: 'Apresente ao Conselho a sustentabilidade do modelo e como os trade-offs foram harmonizados.'
+        titulo: `${janela.titulo} — Lançamento em ${tempoTotalMeses} meses`,
+        badge: janela.badge,
+        tipo: janela.tipo,
+        cor: janela.corBg,
+        resumo: janela.resumo,
+        recomendacao: 'Analise o mapa estrutural da sua rede e certifique-se de que as ações de governança formuladas pelo grupo cobrem adequadamente cada gargalo, assimetria e rigidez ativada.'
     };
 }
