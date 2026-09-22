@@ -12,8 +12,10 @@ Enquanto a **Matriz Transacional** foca na execução diária, integridade e con
 graph TD
     subgraph "Nível Estratégico"
         M["Diretriz Estratégica (Missão)"]
+        Acao["Ação a ser Desenvolvida<br/>(Iniciativa Prática)"]
         V["Vetor de Desvio (Anomalia Crítica)"]
-        M --> V
+        M --> Acao
+        Acao --> V
     end
 
     subgraph "Nível Tático: Modelo G.A.D."
@@ -42,7 +44,7 @@ graph TD
 
 ---
 
-### 🎯 Nível 1: Diretrizes Estratégicas e Vetores de Desvio
+### 🎯 Nível 1: Diretrizes Estratégicas, Ações e Vetores de Desvio
 
 #### 1. Diretriz Estratégica (Missão)
 * **Conceito:** O objetivo de alto nível, meta macro ou vetor de sobrevivência definido pela alta administração da empresa.
@@ -53,13 +55,22 @@ graph TD
   * `Reduzir a taxa de evasão de clientes (Churn Rate) para menos de 2% ao mês`.
 * **Evitar:** Metas vagas como `Vender mais` ou `Melhorar a empresa`.
 
-#### 2. Vetor de Desvio
-* **Conceito:** O evento específico de risco, falha ou anomalia operacional capaz de comprometer diretamente a diretriz estratégica.
-* **O que o aluno deve pensar:** *"Qual problema prático na operação tem potencial de destruir a diretriz estratégica?"*
+#### 2. Ação a ser Desenvolvida
+* **Conceito:** A iniciativa prática, projeto ou plano de ação operacional que a organização executará para buscar a diretriz estratégica. Funciona como uma **ponte didática e cognitiva**: antes de pensar no risco de desvio, o aluno materializa *o que a empresa fará na prática*.
+* **O que o aluno deve pensar:** *"Para alcançar essa diretriz, qual projeto, operação ou ação concreta a empresa colocará na rua?"*
 * **Exemplos Corretos:**
-  * `Corrosão de margem líquida por explosão do Custo de Aquisição de Clientes (CAC)`.
-  * `Ruptura de estoque em centro de distribuição regional`.
-  * `Atraso na liberação de crédito para grandes contas corporativas`.
+  * `Lançar campanha agressiva de tráfego pago (Google Ads e Meta Ads) para captação de novos clientes`.
+  * `Implantar operação própria de expedição expressa e fulfillment em centros de distribuição urbanos`.
+  * `Automatizar a análise de crédito de grandes contas PJ via motor de inteligência artificial e birôs de crédito`.
+* **Evitar:** Repetir a própria diretriz estratégica sem especificar a execução (ex: `Aumentar o market share`).
+
+#### 3. Vetor de Desvio
+* **Conceito:** O evento específico de risco, falha ou anomalia operacional decorrente da execução da ação que é capaz de comprometer a diretriz estratégica.
+* **O que o aluno deve pensar:** *"Ao executar a ação prática acima, o que pode dar errado na operação que destruirá nossa meta?"*
+* **Exemplos Corretos (conectados às ações):**
+  * *Ação:* Campanha de tráfego pago $\rightarrow$ *Vetor:* `Corrosão de margem líquida por explosão do Custo de Aquisição de Clientes (CAC) sem conversão equivalente`.
+  * *Ação:* Expedição expressa e fulfillment $\rightarrow$ *Vetor:* `Ruptura de estoque e atraso no tempo de separação (Picking Time) em centro de distribuição regional`.
+  * *Ação:* Análise automatizada de crédito PJ $\rightarrow$ *Vetor:* `Falso-positivo em massa ou atraso na liberação de limites de crédito para contas estratégicas corporativas`.
 
 ---
 

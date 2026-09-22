@@ -104,6 +104,11 @@ function GadAuditCard({ item }) {
         <div className="bg-gray-950/75 p-3.5 rounded-xl border border-gray-800 space-y-2.5">
             <div className="flex justify-between items-start gap-4">
                 <div className="space-y-0.5">
+                    {item.acaoDesenvolvida && (
+                        <p className="text-[10px] text-blue-300 font-medium flex items-center gap-1">
+                            <span>🚀</span> <span className="text-gray-400 font-normal">Ação:</span> {item.acaoDesenvolvida}
+                        </p>
+                    )}
                     <h5 className="font-bold text-white text-[12px]">{item.vetorDesvio}</h5>
                     <span className="text-[8px] bg-cyan-950/70 text-cyan-400 px-1.5 py-0.5 rounded font-semibold border border-cyan-900 mt-1 inline-block">
                         G.A.D. Ativo
@@ -204,6 +209,7 @@ function AdmSITatica() {
     // Vetor GAD Form
     const [vetorEditandoId, setVetorEditandoId] = useState(null);
     const [selectedDiretrizId, setSelectedDiretrizId] = useState('');
+    const [acaoDesenvolvida, setAcaoDesenvolvida] = useState('');
     const [vetorDesvio, setVetorDesvio] = useState('');
     
     // G - Gatilho
@@ -396,6 +402,11 @@ function AdmSITatica() {
             return;
         }
 
+        if (!acaoDesenvolvida.trim()) {
+            setErro("Preencha a ação a ser desenvolvida associada à diretriz.");
+            return;
+        }
+
         if (!vetorDesvio.trim() || !gatilhoTransacao.trim() || !gatilhoIndicador.trim() || !gatilhoJanela.trim() || !gatilhoLogica.trim() || !gatilhoBaseline.trim()) {
             setErro("Preencha todos os campos obrigatórios (*) do vetor e do gatilho.");
             return;
@@ -423,6 +434,7 @@ function AdmSITatica() {
         const novoVetor = {
             id: vetorEditandoId || `vetor-${Date.now()}`,
             diretrizId: selectedDiretrizId,
+            acaoDesenvolvida: acaoDesenvolvida.trim(),
             vetorDesvio: vetorDesvio.trim(),
             gatilhoTransacao: gatilhoTransacao.trim(),
             gatilhoIndicador: gatilhoIndicador.trim(),
@@ -451,6 +463,7 @@ function AdmSITatica() {
         // Limpar Formulário
         setVetorEditandoId(null);
         setSelectedDiretrizId('');
+        setAcaoDesenvolvida('');
         setVetorDesvio('');
         setGatilhoTransacao('');
         setGatilhoIndicador('');
@@ -470,6 +483,7 @@ function AdmSITatica() {
     const handleIniciarEditarVetor = (vetor) => {
         setVetorEditandoId(vetor.id);
         setSelectedDiretrizId(vetor.diretrizId || '');
+        setAcaoDesenvolvida(vetor.acaoDesenvolvida || '');
         setVetorDesvio(vetor.vetorDesvio || '');
         setGatilhoTransacao(vetor.gatilhoTransacao || '');
         setGatilhoIndicador(vetor.gatilhoIndicador || '');
@@ -492,6 +506,7 @@ function AdmSITatica() {
     const handleCancelarEditarVetor = () => {
         setVetorEditandoId(null);
         setSelectedDiretrizId('');
+        setAcaoDesenvolvida('');
         setVetorDesvio('');
         setGatilhoTransacao('');
         setGatilhoIndicador('');
@@ -685,6 +700,29 @@ function AdmSITatica() {
                                                     <option key={d.id} value={d.id}>{d.descricao}</option>
                                                 ))}
                                             </select>
+                                        </div>
+
+                                        {/* Ação a ser desenvolvida */}
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-400 mb-1">
+                                                Ação a ser desenvolvida *
+                                                <DidacticInfo 
+                                                    id="acao_desenvolvida"
+                                                    title="Ação a ser desenvolvida" 
+                                                    text={"A iniciativa prática, projeto ou operação planejada para buscar a diretriz estratégica.\n\nEla serve como ponte prática para conectar o objetivo de negócio àquilo que pode falhar na operação (o vetor de desvio).\n\nExemplo: 'Lançar campanha agressiva de tráfego pago nas redes sociais'."} 
+                                                    activeTooltipId={activeTooltipId}
+                                                    setActiveTooltipId={setActiveTooltipId}
+                                                    align="left"
+                                                />
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                value={acaoDesenvolvida} 
+                                                onChange={e => setAcaoDesenvolvida(e.target.value)} 
+                                                required 
+                                                placeholder="Ex: Lançar campanha de tráfego pago no Google e redes sociais para captação de novos clientes" 
+                                                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-xs text-white focus:ring-1 focus:ring-cyan-500 outline-none" 
+                                            />
                                         </div>
 
                                         {/* Nome do Vetor */}
@@ -986,6 +1024,9 @@ function AdmSITatica() {
                                                             <div className="space-y-1.5 flex-1">
                                                                 <div className="space-y-0.5">
                                                                     <p className="text-[10px] text-cyan-500 font-semibold">🎯 Diretriz: "{dirAssociada?.descricao || 'Sem Diretriz'}"</p>
+                                                                    {v.acaoDesenvolvida && (
+                                                                        <p className="text-[10px] text-blue-300 font-medium">🚀 Ação a ser desenvolvida: {v.acaoDesenvolvida}</p>
+                                                                    )}
                                                                     <p className="text-white font-bold text-xs">⚠️ Vetor: {v.vetorDesvio}</p>
                                                                 </div>
                                                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-gray-955 p-2 rounded-lg border border-gray-800/40 text-[10px]">
