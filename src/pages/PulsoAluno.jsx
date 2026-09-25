@@ -23,6 +23,10 @@ export default function PulsoAluno() {
   const [modalAvataresAberto, setModalAvataresAberto] = useState(false);
   const [alunoConectado, setAlunoConectado] = useState(null); // { id, apelido, avatarId }
 
+  // Controle de Navegação do Aluno (Autonomia Móvel)
+  const [abaAtivaAluno, setAbaAtivaAluno] = useState('quiz'); // 'quiz' | 'duvidas' | 'energia'
+  const [mostrarAlertaQuiz, setMostrarAlertaQuiz] = useState(false);
+
   // Estados das Dinâmicas
   const [sentimentoVotado, setSentimentoVotado] = useState(null);
   const [textoDuvida, setTextoDuvida] = useState('');
@@ -30,6 +34,9 @@ export default function PulsoAluno() {
   const [duvidasLista, setDuvidasLista] = useState([]);
   const [opcaoQuizEscolhida, setOpcaoQuizEscolhida] = useState(null);
   const [pontuacaoAluno, setPontuacaoAluno] = useState(0);
+
+  // Timer Regressivo do Quiz
+  const [tempoRestante, setTempoRestante] = useState(null);
 
   // Estados da Micro-Avaliação Final (Encerramento)
   const [avaliacaoEstrelas, setAvaliacaoEstrelas] = useState(5);
@@ -97,14 +104,13 @@ export default function PulsoAluno() {
     const unsubscribe = onSnapshot(duvidasRef, (snap) => {
       const lista = [];
       snap.forEach(d => lista.push({ id: d.id, ...d.data() }));
-      // Ordenar por número de votos decrescente
       lista.sort((a, b) => (b.votos || 0) - (a.votos || 0));
       setDuvidasLista(lista);
     });
     return () => unsubscribe();
   }, [sessao?.id]);
 
-  // Escutar pontuação do aluno conectado
+  // Escutar pontuação e estado do aluno conectado (trata inclusive reset da aula)
   useEffect(() => {
     if (!sessao?.id || !alunoConectado?.id) return;
     const alunoRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoConectado.id);
@@ -115,6 +121,7 @@ export default function PulsoAluno() {
         if (data.sentimento) setSentimentoVotado(data.sentimento);
         if (data.avaliacaoEnviada) setAvaliacaoEnviada(true);
       } else {
+        // Sessão foi resetada pelo professor: zera o estado local
         setPontuacaoAluno(0);
         setSentimentoVotado(null);
         setAvaliacaoEnviada(false);
@@ -123,12 +130,44 @@ export default function PulsoAluno() {
     return () => unsubscribe();
   }, [sessao?.id, alunoConectado?.id]);
 
-  // Redefinir opção de quiz quando uma nova pergunta for ativada
+  // Efeito quando o professor lança uma nova pergunta de Quiz
   useEffect(() => {
-    if (sessao?.quizAtivo?.id) {
+    if (sessao?.quizAtivo?.id && !sessao?.quizAtivo?.revelada) {
       setOpcaoQuizEscolhida(null);
+      // Se o aluno não estiver na aba de quiz, aciona alerta para ir ao quiz
+      if (abaAtivaAluno !== 'quiz') {
+        setMostrarAlertaQuiz(true);
+      }
     }
   }, [sessao?.quizAtivo?.id]);
+
+  // Timer Regressivo Sincronizado do Quiz
+  useEffect(() => {
+    if (!sessao?.quizAtivo || sessao.quizAtivo.revelada || !sessao.quizAtivo.abertaParaResposta) {
+      setTempoRestante(null);
+      return;
+    }
+
+    const tempoTotal = Number(sessao.quizAtivo.tempoSegundos) || 30;
+    const lancadaEm = sessao.quizAtivo.lancadaEm ? new Date(sessao.quizAtivo.lancadaEm).getTime() : Date.now();
+
+    const calcularRestante = () => {
+      const segundosPassados = Math.floor((Date.now() - lancadaEm) / 1000);
+      return Math.max(0, tempoTotal - segundosPassados);
+    };
+
+    setTempoRestante(calcularRestante());
+
+    const interval = setInterval(() => {
+      const r = calcularRestante();
+      setTempoRestante(r);
+      if (r <= 0) {
+        clearInterval(interval);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sessao?.quizAtivo?.id, sessao?.quizAtivo?.revelada, sessao?.quizAtivo?.abertaParaResposta, sessao?.quizAtivo?.lancadaEm]);
 
   // Entrar na Aula (Criar participante)
   const handleEntrarNaAula = async (e) => {
@@ -235,13 +274,12 @@ export default function PulsoAluno() {
     if (!sessao?.id || !alunoConectado?.id || !sessao.quizAtivo) return;
     if (opcaoQuizEscolhida !== null) return; // Já respondeu
     if (!sessao.quizAtivo.abertaParaResposta) return;
+    if (tempoRestante === 0) return; // Tempo esgotado
 
     setOpcaoQuizEscolhida(indiceOpcao);
     const acertou = indiceOpcao === sessao.quizAtivo.respostaCorretaIndex;
-    const pontosGanhos = acertou ? 100 : 0;
 
     try {
-      // Registrar resposta individual
       const respostaRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_quiz`, `${sessao.quizAtivo.id}_${alunoConectado.id}`);
       await setDoc(respostaRef, {
         alunoId: alunoConectado.id,
@@ -249,11 +287,10 @@ export default function PulsoAluno() {
         avatarEmoji: alunoConectado.avatarEmoji,
         opcaoEscolhida: indiceOpcao,
         acertou,
-        pontosGanhos,
+        pontosGanhos: acertou ? 100 : 0,
         respondidoEm: serverTimestamp()
       });
 
-      // Atualizar pontos do aluno
       if (acertou) {
         const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoConectado.id);
         await updateDoc(alunoDocRef, {
@@ -286,7 +323,6 @@ export default function PulsoAluno() {
       const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoConectado.id);
       await updateDoc(alunoDocRef, { avaliacaoEnviada: true });
 
-      // Atualizar contadores na sessão
       const sessaoRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessao.id);
       await updateDoc(sessaoRef, {
         totalFeedbacks: increment(1),
@@ -368,7 +404,7 @@ export default function PulsoAluno() {
               Escolha seu Avatar
             </h2>
             <p className="text-gray-400 text-xs mt-1">
-              Como você quer aparecer no telão da aula?
+              Como você quer aparecer no telão e dinâmicas da aula?
             </p>
           </div>
 
@@ -477,7 +513,7 @@ export default function PulsoAluno() {
   }
 
   // ==========================================
-  // RENDERIZAÇÃO: SESSÃO NO ESTADO "PREPARADA" (SALA DE ESPERA)
+  // RENDERIZAÇÃO: SESSÃO NO ESTADO "PREPARADA" (SALA DE ESPERA PRÉ-AULA)
   // ==========================================
   if (sessao.status === 'preparada') {
     return (
@@ -641,51 +677,327 @@ export default function PulsoAluno() {
   }
 
   // ==========================================
-  // RENDERIZAÇÃO: SESSÃO "AO VIVO" (DINÂMICAS)
+  // RENDERIZAÇÃO: AULA AO VIVO (COM AUTONOMIA DO ALUNO)
   // ==========================================
+  const quizAtivoAberto = sessao.quizAtivo && !sessao.quizAtivo.revelada && sessao.quizAtivo.abertaParaResposta;
+  const tempoTotal = Number(sessao.quizAtivo?.tempoSegundos) || 30;
+  const porcentagemTempo = tempoRestante !== null ? Math.min(100, Math.max(0, (tempoRestante / tempoTotal) * 100)) : 100;
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-indigo-950 text-white flex flex-col">
-      {/* Barra Superior Compacta Mobile */}
-      <header className="bg-gray-900/90 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
+    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-indigo-950 text-white flex flex-col pb-20">
+      
+      {/* BARRA SUPERIOR MOBILE */}
+      <header className="bg-gray-900/95 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${avatarSelecionado.corBg} flex items-center justify-center text-2xl shadow`}>
+          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${avatarSelecionado.corBg} flex items-center justify-center text-2xl shadow border border-gray-700`}>
             {avatarSelecionado.emoji}
           </div>
           <div>
             <div className="font-bold text-sm text-white flex items-center gap-1.5">
               <span>{alunoConectado.apelido}</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono font-bold">
                 PIN {sessao.pin}
               </span>
             </div>
-            <div className="text-[11px] text-gray-400 truncate max-w-[180px]">
+            <div className="text-[11px] text-gray-400 truncate max-w-[170px]">
               {sessao.titulo}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-xl flex items-center gap-1">
+          <div className="bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-xl flex items-center gap-1 shadow-sm">
             <span className="text-xs">🏆</span>
             <span className="text-xs font-black text-amber-300 font-mono">{pontuacaoAluno}</span>
           </div>
         </div>
       </header>
 
-      {/* Conteúdo Dinâmico com Base no Modo Ativo do Professor */}
-      <main className="flex-1 max-w-lg w-full mx-auto p-4 flex flex-col justify-center">
-        {/* MODO 1: SENTIMENTO / TERMÔMETRO DE ENERGIA */}
-        {sessao.modoAtivo === 'sentimento' && (
+      {/* NOTIFICAÇÃO FLUTUANTE DE NOVA PERGUNTA (CASO O ALUNO ESTEJA EM DÚVIDAS OU ENERGIA) */}
+      {mostrarAlertaQuiz && abaAtivaAluno !== 'quiz' && (
+        <div className="mx-4 mt-3 p-3 bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl shadow-xl flex items-center justify-between text-gray-950 animate-bounce">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🎯</span>
+            <span className="text-xs font-black leading-tight">
+              Nova Pergunta Lançada no Telão!
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setAbaAtivaAluno('quiz');
+              setMostrarAlertaQuiz(false);
+            }}
+            className="px-3 py-1.5 bg-gray-950 text-white rounded-xl text-xs font-bold shadow active:scale-95"
+          >
+            Responder Agora →
+          </button>
+        </div>
+      )}
+
+      {/* CONTEÚDO PRINCIPAL BASEADO NA ABA ESCOLHIDA PELO ALUNO */}
+      <main className="flex-1 max-w-lg w-full mx-auto p-4 flex flex-col justify-start">
+        
+        {/* ============================================================== */}
+        {/* ABA 1: QUIZ / PERGUNTA DA AULA */}
+        {/* ============================================================== */}
+        {abaAtivaAluno === 'quiz' && (
           <div className="space-y-4">
-            <div className="text-center mb-6">
+            {!sessao.quizAtivo ? (
+              <div className="text-center py-12 px-4 bg-gray-900/60 rounded-3xl border border-gray-800">
+                <span className="text-5xl animate-bounce inline-block mb-3">👀</span>
+                <h3 className="text-xl font-black text-white">Atenção ao Telão!</h3>
+                <p className="text-xs text-gray-400 mt-2 max-w-xs mx-auto leading-relaxed">
+                  O professor está apresentando os conteúdos. Assim que uma pergunta for lançada, o enunciado completo e as alternativas aparecerão aqui.
+                </p>
+                <div className="mt-6">
+                  <button
+                    onClick={() => setAbaAtivaAluno('duvidas')}
+                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-cyan-300 font-bold rounded-xl text-xs border border-gray-700 flex items-center gap-1.5 mx-auto"
+                  >
+                    <span>💬</span> Enviar uma Dúvida Anônima enquanto aguarda
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* CABEÇALHO DA PERGUNTA: ENUNCIADO COMPLETO & TIMER */}
+                <div className="bg-gray-900/90 border border-gray-700 rounded-3xl p-5 shadow-xl">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] uppercase font-mono font-bold px-2.5 py-0.5 bg-cyan-500/20 text-cyan-300 rounded-full border border-cyan-500/30">
+                      QUIZ DA AULA
+                    </span>
+
+                    {/* TIMER REGRESSIVO */}
+                    {tempoRestante !== null && !sessao.quizAtivo.revelada && (
+                      <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-mono text-xs font-black border ${
+                        tempoRestante <= 5
+                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                          : tempoRestante <= 10
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                      }`}>
+                        <span>⏱️</span>
+                        <span>{tempoRestante}s</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* BARRA DE PROGRESSO DO TEMPO */}
+                  {tempoRestante !== null && !sessao.quizAtivo.revelada && (
+                    <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden my-3">
+                      <div
+                        className={`h-2 rounded-full transition-all duration-1000 ${
+                          tempoRestante <= 5 ? 'bg-rose-500' : tempoRestante <= 10 ? 'bg-amber-400' : 'bg-cyan-400'
+                        }`}
+                        style={{ width: `${porcentagemTempo}%` }}
+                      />
+                    </div>
+                  )}
+
+                  {/* ENUNCIADO COMPLETO E LEGÍVEL */}
+                  <h3 className="text-base sm:text-lg font-black text-white leading-relaxed mt-2">
+                    {sessao.quizAtivo.pergunta}
+                  </h3>
+                </div>
+
+                {/* 4 ALTERNATIVAS COM TEXTO INTEGRAL E FORMAS VISUAIS */}
+                <div className="space-y-2.5">
+                  {(sessao.quizAtivo.opcoes || []).map((opcao, idx) => {
+                    const icones = ['▲', '◆', '●', '■'];
+                    const cores = [
+                      'bg-rose-600/90 hover:bg-rose-500 border-rose-500/60',
+                      'bg-blue-600/90 hover:bg-blue-500 border-blue-500/60',
+                      'bg-amber-600/90 hover:bg-amber-500 border-amber-500/60',
+                      'bg-emerald-600/90 hover:bg-emerald-500 border-emerald-500/60'
+                    ];
+                    const selecionada = opcaoQuizEscolhida === idx;
+                    const revelada = sessao.quizAtivo.revelada;
+                    const ehCorreta = idx === sessao.quizAtivo.respostaCorretaIndex;
+                    const textoOp = typeof opcao === 'string' ? opcao : opcao.texto || '';
+
+                    return (
+                      <button
+                        key={idx}
+                        disabled={opcaoQuizEscolhida !== null || !sessao.quizAtivo.abertaParaResposta || tempoRestante === 0}
+                        onClick={() => handleResponderQuiz(idx)}
+                        className={`w-full p-4 rounded-2xl border-2 text-left transition-all transform active:scale-98 flex items-start gap-3.5 shadow-lg ${cores[idx % cores.length]} ${
+                          selecionada ? 'ring-4 ring-white border-white scale-[1.01]' : ''
+                        } ${
+                          revelada && ehCorreta ? 'ring-4 ring-emerald-300 border-white bg-emerald-600' : ''
+                        } ${
+                          revelada && selecionada && !ehCorreta ? 'opacity-60 line-through' : ''
+                        } ${
+                          opcaoQuizEscolhida !== null && !selecionada && !revelada ? 'opacity-40' : ''
+                        }`}
+                      >
+                        {/* Ícone geométrico */}
+                        <span className="w-8 h-8 rounded-xl bg-black/30 flex items-center justify-center text-lg font-bold flex-shrink-0 mt-0.5">
+                          {icones[idx % icones.length]}
+                        </span>
+
+                        {/* Texto Integral da Alternativa */}
+                        <div className="flex-1">
+                          <span className="text-sm sm:text-base font-bold text-white leading-snug block">
+                            {textoOp}
+                          </span>
+
+                          {selecionada && (
+                            <span className="inline-block mt-1.5 text-[10px] bg-white text-gray-950 font-black px-2 py-0.5 rounded-full uppercase">
+                              Sua Escolha
+                            </span>
+                          )}
+
+                          {revelada && ehCorreta && (
+                            <span className="inline-block mt-1.5 text-[10px] bg-emerald-300 text-gray-950 font-black px-2 py-0.5 rounded-full uppercase">
+                              ✓ Resposta Correta
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* FEEDBACK DEPOIS DE RESPONDER OU TEMPO ESGOTADO */}
+                <div className="text-center">
+                  {tempoRestante === 0 && opcaoQuizEscolhida === null && !sessao.quizAtivo.revelada && (
+                    <div className="p-3.5 bg-rose-500/20 border border-rose-500/40 rounded-2xl text-xs text-rose-300 font-bold">
+                      ⏱️ Tempo esgotado! Aguarde o professor revelar o gabarito.
+                    </div>
+                  )}
+
+                  {opcaoQuizEscolhida !== null && !sessao.quizAtivo.revelada && (
+                    <div className="p-3.5 bg-gray-900 border border-cyan-500/40 rounded-2xl text-xs text-cyan-300 font-bold animate-pulse">
+                      ✓ Resposta enviada! Aguarde a revelação do gabarito no telão.
+                    </div>
+                  )}
+
+                  {sessao.quizAtivo.revelada && (
+                    <div className={`p-4 rounded-2xl text-xs font-bold shadow-xl ${
+                      opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex
+                        ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300'
+                        : 'bg-rose-500/20 border border-rose-400 text-rose-300'
+                    }`}>
+                      <div className="text-sm font-black mb-1">
+                        {opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex
+                          ? '🎉 Parabéns! Você acertou e somou +100 pontos!'
+                          : '❌ Não foi desta vez! Veja o gabarito destacado acima.'}
+                      </div>
+
+                      {sessao.quizAtivo.explicacao && (
+                        <p className="mt-2 text-gray-200 font-normal text-xs leading-relaxed bg-black/30 p-2.5 rounded-xl text-left border border-white/10">
+                          <strong>💡 Fundamentação:</strong> {sessao.quizAtivo.explicacao}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* ABA 2: MURAL DE DÚVIDAS ANÔNIMAS (SEMPRE ACESSÍVEL PELO ALUNO) */}
+        {/* ============================================================== */}
+        {abaAtivaAluno === 'duvidas' && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <span className="text-xs uppercase font-extrabold tracking-widest text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
+                Mural Interativo
+              </span>
+              <h2 className="text-xl font-black text-white mt-2">
+                Dúvidas Anônimas
+              </h2>
+              <p className="text-xs text-gray-400">
+                Pergunte a qualquer momento. Suas dúvidas aparecem de forma 100% anônima para o professor!
+              </p>
+            </div>
+
+            {/* Formulário de Envio de Dúvida */}
+            <form onSubmit={handleEnviarDuvida} className="flex gap-2">
+              <input
+                type="text"
+                required
+                maxLength={160}
+                value={textoDuvida}
+                onChange={(e) => setTextoDuvida(e.target.value)}
+                placeholder="Qual sua dúvida sobre a aula agora?"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-2xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400"
+              />
+              <button
+                type="submit"
+                disabled={enviandoDuvida}
+                className="px-4 py-3 bg-cyan-500 hover:bg-cyan-400 text-gray-950 font-bold rounded-2xl text-xs sm:text-sm transition-transform active:scale-95 disabled:opacity-50"
+              >
+                {enviandoDuvida ? '...' : 'Enviar'}
+              </button>
+            </form>
+
+            {/* Lista de Dúvidas Postadas com Botão de Apoio */}
+            <div className="space-y-2.5 overflow-y-auto max-h-[60vh] pr-1">
+              {duvidasLista.length === 0 ? (
+                <div className="text-center py-10 bg-gray-900/40 rounded-2xl border border-gray-800 text-gray-400 text-xs">
+                  Nenhuma dúvida enviada ainda. Aproveite para perguntar!
+                </div>
+              ) : (
+                duvidasLista.map((d) => {
+                  const jaVotei = d.votantes?.includes(alunoConectado.id);
+                  return (
+                    <div
+                      key={d.id}
+                      className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${
+                        d.respondida
+                          ? 'bg-gray-900/40 border-gray-800 opacity-60'
+                          : 'bg-gray-900 border-gray-700/80 shadow-md'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2.5 flex-1">
+                        <span className="text-xl">{d.autorAvatar || '❓'}</span>
+                        <div>
+                          <p className="text-xs sm:text-sm text-gray-200 leading-snug">{d.texto}</p>
+                          {d.respondida && (
+                            <span className="text-[10px] text-emerald-400 font-bold mt-1 inline-block">
+                              ✓ Respondida pelo professor
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleApoiarDuvida(d)}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+                          jaVotei
+                            ? 'bg-indigo-600 border-indigo-400 text-white'
+                            : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+                        }`}
+                        title="Também tenho essa dúvida"
+                      >
+                        <span>👍</span>
+                        <span>{d.votos || 0}</span>
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* ABA 3: TERMÔMETRO DE ENERGIA & SENTIMENTO */}
+        {/* ============================================================== */}
+        {abaAtivaAluno === 'energia' && (
+          <div className="space-y-4">
+            <div className="text-center">
               <span className="text-xs uppercase font-extrabold tracking-widest text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">
                 Termômetro de Energia
               </span>
-              <h2 className="text-2xl font-black text-white mt-3">
-                Como está sua energia agora?
+              <h2 className="text-xl font-black text-white mt-2">
+                Como está seu ritmo agora?
               </h2>
-              <p className="text-xs text-gray-400 mt-1">
-                Toque no sentimento que melhor descreve seu momento na aula:
+              <p className="text-xs text-gray-400">
+                Atualize como você está se sentindo na aula a qualquer momento:
               </p>
             </div>
 
@@ -712,7 +1024,7 @@ export default function PulsoAluno() {
                     <p className="text-xs text-gray-400">{item.desc}</p>
                   </div>
                   {sentimentoVotado === item.id && (
-                    <span className="text-cyan-400 text-lg">✓</span>
+                    <span className="text-cyan-400 text-lg font-bold">✓</span>
                   )}
                 </button>
               ))}
@@ -720,194 +1032,60 @@ export default function PulsoAluno() {
           </div>
         )}
 
-        {/* MODO 2: DÚVIDAS ANÔNIMAS & APOIO */}
-        {sessao.modoAtivo === 'duvidas' && (
-          <div className="space-y-5 flex-1 flex flex-col">
-            <div className="text-center">
-              <span className="text-xs uppercase font-extrabold tracking-widest text-indigo-400 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
-                Mural de Dúvidas
-              </span>
-              <h2 className="text-2xl font-black text-white mt-2">
-                Dúvidas Anônimas
-              </h2>
-              <p className="text-xs text-gray-400">
-                Envie sem vergonha ou vote nas dúvidas mais importantes para o telão!
-              </p>
-            </div>
-
-            {/* Formulário de Envio */}
-            <form onSubmit={handleEnviarDuvida} className="flex gap-2">
-              <input
-                type="text"
-                required
-                maxLength={160}
-                value={textoDuvida}
-                onChange={(e) => setTextoDuvida(e.target.value)}
-                placeholder="Qual sua dúvida sobre o tema da aula?"
-                className="flex-1 bg-gray-900 border border-gray-700 rounded-2xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-400"
-              />
-              <button
-                type="submit"
-                disabled={enviandoDuvida}
-                className="px-5 py-3 bg-cyan-500 hover:bg-cyan-400 text-gray-950 font-bold rounded-2xl text-sm transition-transform active:scale-95 disabled:opacity-50"
-              >
-                {enviandoDuvida ? '...' : 'Enviar'}
-              </button>
-            </form>
-
-            {/* Lista de Dúvidas da Turma com Apoio */}
-            <div className="flex-1 space-y-2 overflow-y-auto max-h-[55vh] pr-1">
-              {duvidasLista.length === 0 ? (
-                <div className="text-center py-10 text-gray-500 text-xs">
-                  Nenhuma dúvida enviada ainda. Seja o primeiro a perguntar!
-                </div>
-              ) : (
-                duvidasLista.map((d) => {
-                  const jaVotei = d.votantes?.includes(alunoConectado.id);
-                  return (
-                    <div
-                      key={d.id}
-                      className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${
-                        d.respondida
-                          ? 'bg-gray-900/40 border-gray-800 opacity-60'
-                          : 'bg-gray-800/80 border-gray-700/80'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2.5 flex-1">
-                        <span className="text-xl">{d.autorAvatar || '❓'}</span>
-                        <div>
-                          <p className="text-xs text-gray-200 leading-snug">{d.texto}</p>
-                          {d.respondida && (
-                            <span className="text-[10px] text-emerald-400 font-bold">
-                              ✓ Respondida pelo professor
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => handleApoiarDuvida(d)}
-                        className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
-                          jaVotei
-                            ? 'bg-indigo-600 border-indigo-400 text-white'
-                            : 'bg-gray-700/80 border-gray-600 text-gray-300 hover:bg-gray-600'
-                        }`}
-                        title="Também tenho essa dúvida"
-                      >
-                        <span>👍</span>
-                        <span>{d.votos || 0}</span>
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* MODO 3: QUIZ GAMIFICADO (ESTILO KAHOOT) */}
-        {sessao.modoAtivo === 'quiz' && (
-          <div className="space-y-4">
-            {!sessao.quizAtivo ? (
-              <div className="text-center py-12">
-                <span className="text-4xl animate-bounce inline-block">🎯</span>
-                <h3 className="text-xl font-bold text-white mt-3">Aguardando Pergunta</h3>
-                <p className="text-xs text-gray-400 mt-1">O professor vai lançar a questão no telão a qualquer instante!</p>
-              </div>
-            ) : (
-              <div>
-                <div className="text-center mb-4">
-                  <span className="text-[11px] uppercase font-mono font-bold px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full border border-amber-500/30">
-                    {sessao.quizAtivo.modulo || 'Quiz da Trilha'}
-                  </span>
-                  <h3 className="text-lg font-black text-white mt-2 leading-tight">
-                    {sessao.quizAtivo.pergunta}
-                  </h3>
-                </div>
-
-                {/* 4 Botões Grandes Coloridos de Resposta */}
-                <div className="grid grid-cols-2 gap-3">
-                  {(sessao.quizAtivo.opcoes || []).map((opcao, idx) => {
-                    const cores = [
-                      'bg-rose-600 hover:bg-rose-500 active:bg-rose-700',
-                      'bg-blue-600 hover:bg-blue-500 active:bg-blue-700',
-                      'bg-amber-600 hover:bg-amber-500 active:bg-amber-700',
-                      'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700'
-                    ];
-                    const icones = ['▲', '◆', '●', '■'];
-                    const selecionada = opcaoQuizEscolhida === idx;
-                    const revelada = sessao.quizAtivo.revelada;
-                    const ehCorreta = idx === sessao.quizAtivo.respostaCorretaIndex;
-
-                    return (
-                      <button
-                        key={idx}
-                        disabled={opcaoQuizEscolhida !== null || !sessao.quizAtivo.abertaParaResposta}
-                        onClick={() => handleResponderQuiz(idx)}
-                        className={`h-32 sm:h-36 rounded-3xl p-3 flex flex-col justify-between text-left font-bold transition-all transform active:scale-95 border-2 ${cores[idx % cores.length]} ${
-                          selecionada ? 'ring-4 ring-white border-white scale-[1.02]' : 'border-transparent'
-                        } ${
-                          revelada && ehCorreta ? 'ring-4 ring-emerald-300 border-white animate-pulse' : ''
-                        } ${
-                          opcaoQuizEscolhida !== null && !selecionada && !revelada ? 'opacity-40' : ''
-                        }`}
-                      >
-                        <div className="flex justify-between items-center w-full">
-                          <span className="text-2xl drop-shadow">{icones[idx % icones.length]}</span>
-                          {selecionada && <span className="text-xs bg-white text-gray-900 px-2 py-0.5 rounded-full font-black">SUA ESCOLHA</span>}
-                          {revelada && ehCorreta && <span className="text-xs bg-emerald-400 text-gray-950 px-2 py-0.5 rounded-full font-black">CORRETA!</span>}
-                        </div>
-                        <span className="text-xs sm:text-sm text-white line-clamp-3 leading-snug drop-shadow">
-                          {opcao.texto || opcao}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Feedback Após Resposta / Revelação */}
-                <div className="mt-4 text-center">
-                  {opcaoQuizEscolhida !== null && !sessao.quizAtivo.revelada && (
-                    <div className="p-3 bg-gray-800 border border-gray-700 rounded-2xl text-xs text-cyan-300 animate-pulse font-medium">
-                      ✓ Resposta registrada! Aguarde o professor revelar o gabarito no telão.
-                    </div>
-                  )}
-
-                  {sessao.quizAtivo.revelada && (
-                    <div className={`p-4 rounded-2xl text-xs font-bold ${
-                      opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex
-                        ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300'
-                        : 'bg-rose-500/20 border border-rose-400 text-rose-300'
-                    }`}>
-                      {opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex
-                        ? '🎉 Parabéns! Você acertou e ganhou +100 pontos!'
-                        : '❌ Não foi dessa vez! A resposta correta está destacada.'}
-                      {sessao.quizAtivo.explicacao && (
-                        <p className="mt-2 text-gray-300 font-normal text-[11px] leading-relaxed">
-                          💡 {sessao.quizAtivo.explicacao}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* MODO 0: ESPERA / INTERVALO */}
-        {(!sessao.modoAtivo || sessao.modoAtivo === 'espera') && (
-          <div className="text-center py-12">
-            <div className="inline-block p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 mb-3">
-              <span className="text-3xl">👀</span>
-            </div>
-            <h3 className="text-lg font-bold text-white">Atenção ao Telão!</h3>
-            <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">
-              O professor está apresentando os tópicos. Novas interações surgirão aqui em tempo real.
-            </p>
-          </div>
-        )}
       </main>
+
+      {/* ============================================================== */}
+      {/* BARRA DE NAVEGAÇÃO INFERIOR DO ALUNO (CONTROLE TOTAL NO CELULAR) */}
+      {/* ============================================================== */}
+      <nav className="fixed bottom-0 inset-x-0 bg-gray-900/95 backdrop-blur-xl border-t border-gray-800 py-2 px-4 z-40 flex justify-around items-center max-w-lg mx-auto">
+        <button
+          onClick={() => {
+            setAbaAtivaAluno('quiz');
+            setMostrarAlertaQuiz(false);
+          }}
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all relative ${
+            abaAtivaAluno === 'quiz'
+              ? 'text-cyan-400 font-bold scale-105'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <span className="text-xl">🎯</span>
+          <span className="text-[11px]">Quiz</span>
+          {quizAtivoAberto && (
+            <span className="absolute top-1 right-2 w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping" />
+          )}
+        </button>
+
+        <button
+          onClick={() => setAbaAtivaAluno('duvidas')}
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all relative ${
+            abaAtivaAluno === 'duvidas'
+              ? 'text-indigo-400 font-bold scale-105'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <span className="text-xl">💬</span>
+          <span className="text-[11px]">Dúvidas</span>
+          {duvidasLista.length > 0 && (
+            <span className="absolute top-0.5 right-1 px-1.5 py-0.2 bg-indigo-500 text-white rounded-full text-[9px] font-mono font-bold">
+              {duvidasLista.length}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setAbaAtivaAluno('energia')}
+          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all ${
+            abaAtivaAluno === 'energia'
+              ? 'text-amber-400 font-bold scale-105'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <span className="text-xl">⚡</span>
+          <span className="text-[11px]">Energia</span>
+        </button>
+      </nav>
+
     </div>
   );
 }
