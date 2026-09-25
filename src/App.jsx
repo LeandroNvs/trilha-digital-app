@@ -34,6 +34,8 @@ import EvolucaoRede from './pages/EvolucaoRede';
 import AdmSIOrganizacao from './pages/AdmSIOrganizacao';
 import AdmSIGovernanca from './pages/AdmSIGovernanca';
 import AdmSITatica from './pages/AdmSITatica';
+import PulsoDigital from './pages/PulsoDigital';
+import PulsoAluno from './pages/PulsoAluno';
 
 
 // --- Layouts e Rotas ---
@@ -59,6 +61,7 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         if (pathname === '/adm-si/organizacao') { return 'Adm SI - Organização'; }
         if (pathname === '/adm-si/governanca') { return 'Adm SI - Matriz Transacional'; }
         if (pathname === '/adm-si/tatica') { return 'Adm SI - Matriz Tática'; }
+        if (pathname === '/pulso-digital') { return 'Pulso Digital'; }
         const nomeDaPagina = pathname.split('/').pop().replace(/-/g, ' ') || 'dashboard';
         return nomeDaPagina.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
     };
@@ -162,6 +165,8 @@ function App() {
             <Route path="/login" element={perfilUsuario ? <Navigate to="/dashboard" /> : <PaginaLogin />} />
             <Route path="/cadastro" element={perfilUsuario ? <Navigate to="/dashboard" /> : <PaginaCadastro />} />
             <Route path="/esqueci-senha" element={perfilUsuario ? <Navigate to="/dashboard" /> : <PaginaEsqueciSenha />} />
+            <Route path="/pulso" element={<PulsoAluno />} />
+            <Route path="/pulso/:pin" element={<PulsoAluno />} />
             
             {/* Rotas Protegidas (atualizadas) */}
             <Route path="/" element={<Layout perfilUsuario={perfilUsuario} sidebarAberta={sidebarAberta} setSidebarAberta={setSidebarAberta} />}>
@@ -169,6 +174,7 @@ function App() {
                 <Route path="dashboard" element={<PaginaDashboard perfilUsuario={perfilUsuario} />} />
                 <Route path="analise" element={<AnaliseProjetos />} />
                 <Route path="analise/:grupoId" element={<PaginaAnalise />} />
+                <Route path="pulso-digital" element={<PulsoDigital />} />
 
                 {/* Rota "Hub" do Simulador */}
                 <Route path="simulador" element={<SimuladorHub perfilUsuario={perfilUsuario} />} />
