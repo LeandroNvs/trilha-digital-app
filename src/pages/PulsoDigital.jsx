@@ -49,6 +49,7 @@ export default function PulsoDigital() {
 
   // Estados dos Modais e Telas
   const [modalNovaSessaoAberto, setModalNovaSessaoAberto] = useState(false);
+  const [sessaoEmEdicao, setSessaoEmEdicao] = useState(null); // null = criando, objeto = editando
   const [modalQuestaoAberto, setModalQuestaoAberto] = useState(false);
   const [questaoEmEdicao, setQuestaoEmEdicao] = useState(null); // null = criando, objeto = editando
   const [modoTelaCheia, setModoTelaCheia] = useState(false);
@@ -206,8 +207,36 @@ export default function PulsoDigital() {
     return Math.floor(100000 + Math.random() * 900000).toString();
   };
 
-  // Criar Nova Sessão de Aula (Status: Preparada)
-  const handleCriarSessao = async (e) => {
+  const handleAbrirCriarSessao = () => {
+    setSessaoEmEdicao(null);
+    setNovoTitulo('');
+    setNovaTurmaId('');
+    setNovaDisciplinaId('');
+    setNovasObservacoes('');
+    setModalNovaSessaoAberto(true);
+  };
+
+  const handleAbrirEditarSessao = (sessao) => {
+    if (!sessao) return;
+    setSessaoEmEdicao(sessao);
+    setNovoTitulo(sessao.titulo || '');
+    setNovaTurmaId(sessao.turmaId || '');
+    setNovaDisciplinaId(sessao.disciplinaId || '');
+    setNovasObservacoes(sessao.observacoes || '');
+    setModalNovaSessaoAberto(true);
+  };
+
+  const handleFecharModalSessao = () => {
+    setModalNovaSessaoAberto(false);
+    setSessaoEmEdicao(null);
+    setNovoTitulo('');
+    setNovaTurmaId('');
+    setNovaDisciplinaId('');
+    setNovasObservacoes('');
+  };
+
+  // Criar ou Editar Sessão de Aula
+  const handleSalvarSessao = async (e) => {
     e.preventDefault();
     if (!novoTitulo.trim()) return;
     setSalvandoSessao(true);
@@ -215,40 +244,55 @@ export default function PulsoDigital() {
     try {
       const turmaObj = turmasData?.find(t => t.id === novaTurmaId);
       const disciplinaObj = disciplinasData?.find(d => d.id === novaDisciplinaId);
-      const pin = gerarPinUnico();
 
-      const novaSessao = {
-        pin,
-        titulo: novoTitulo.trim(),
-        turmaId: novaTurmaId || '',
-        turmaNome: turmaObj?.nome || turmaObj?.sigla || 'Turma Geral',
-        disciplinaId: novaDisciplinaId || '',
-        disciplinaNome: disciplinaObj?.nome || disciplinaObj?.sigla || 'Disciplina Geral',
-        observacoes: novasObservacoes.trim(),
-        status: 'preparada', // 'preparada' | 'ao_vivo' | 'encerrada'
-        modoAtivo: 'sentimento', // 'espera' | 'sentimento' | 'nuvem' | 'duvidas' | 'quiz'
-        nuvemPergunta: 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?',
-        nuvemRodada: 1,
-        quizAtivo: null,
-        questoes: [], // Lista de perguntas elaboradas pelo professor para esta aula
-        totalParticipantes: 0,
-        totalFeedbacks: 0,
-        criadaEm: serverTimestamp(),
-        iniciadaEm: null,
-        encerradaEm: null
-      };
+      if (sessaoEmEdicao) {
+        // Editando aula já existente
+        const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoEmEdicao.id);
+        const dadosAtualizados = {
+          titulo: novoTitulo.trim(),
+          turmaId: novaTurmaId || '',
+          turmaNome: turmaObj?.nome || turmaObj?.sigla || (novaTurmaId ? 'Turma Selecionada' : 'Turma Geral'),
+          disciplinaId: novaDisciplinaId || '',
+          disciplinaNome: disciplinaObj?.nome || disciplinaObj?.sigla || (novaDisciplinaId ? 'Disciplina Selecionada' : 'Disciplina Geral'),
+          observacoes: novasObservacoes.trim(),
+          atualizadaEm: serverTimestamp()
+        };
 
-      const sessoesRef = collection(db, `/artifacts/${appId}/public/data/pulso_sessoes`);
-      const docAdded = await addDoc(sessoesRef, novaSessao);
+        await updateDoc(sessaoDocRef, dadosAtualizados);
+      } else {
+        // Criando nova aula
+        const pin = gerarPinUnico();
+        const novaSessao = {
+          pin,
+          titulo: novoTitulo.trim(),
+          turmaId: novaTurmaId || '',
+          turmaNome: turmaObj?.nome || turmaObj?.sigla || (novaTurmaId ? 'Turma Selecionada' : 'Turma Geral'),
+          disciplinaId: novaDisciplinaId || '',
+          disciplinaNome: disciplinaObj?.nome || disciplinaObj?.sigla || (novaDisciplinaId ? 'Disciplina Selecionada' : 'Disciplina Geral'),
+          observacoes: novasObservacoes.trim(),
+          status: 'preparada', // 'preparada' | 'ao_vivo' | 'encerrada'
+          modoAtivo: 'sentimento', // 'espera' | 'sentimento' | 'nuvem' | 'duvidas' | 'quiz'
+          nuvemPergunta: 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?',
+          nuvemRodada: 1,
+          quizAtivo: null,
+          questoes: [], // Lista de perguntas elaboradas pelo professor para esta aula
+          totalParticipantes: 0,
+          totalFeedbacks: 0,
+          criadaEm: serverTimestamp(),
+          iniciadaEm: null,
+          encerradaEm: null
+        };
 
-      setSessaoSelecionadaId(docAdded.id);
-      setModalNovaSessaoAberto(false);
-      setNovoTitulo('');
-      setNovasObservacoes('');
+        const sessoesRef = collection(db, `/artifacts/${appId}/public/data/pulso_sessoes`);
+        const docAdded = await addDoc(sessoesRef, novaSessao);
+        setSessaoSelecionadaId(docAdded.id);
+      }
+
+      handleFecharModalSessao();
       setAbaHistorico(false);
     } catch (err) {
-      console.error("Erro ao criar aula:", err);
-      alert("Falha ao criar sessão de aula.");
+      console.error("Erro ao salvar aula:", err);
+      alert("Falha ao salvar sessão de aula.");
     } finally {
       setSalvandoSessao(false);
     }
@@ -790,7 +834,7 @@ export default function PulsoDigital() {
         {/* Botões de Ação Global */}
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <button
-            onClick={() => setModalNovaSessaoAberto(true)}
+            onClick={handleAbrirCriarSessao}
             className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-2xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-cyan-600/20 transition-all active:scale-95"
           >
             <span>➕</span> Nova Aula
@@ -919,13 +963,22 @@ export default function PulsoDigital() {
                   </div>
 
                   <div className="mt-4 pt-3 border-t border-gray-800 flex justify-between items-center text-xs text-gray-400">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleExcluirSessao(s.id); }}
-                      className="text-rose-400 hover:text-rose-300 p-1 rounded hover:bg-rose-500/20"
-                      title="Excluir aula"
-                    >
-                      🗑️ Excluir
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleAbrirEditarSessao(s); }}
+                        className="text-cyan-400 hover:text-cyan-300 p-1.5 rounded hover:bg-cyan-500/20 flex items-center gap-1 font-medium transition-colors"
+                        title="Editar dados da aula"
+                      >
+                        ✏️ Editar
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleExcluirSessao(s.id); }}
+                        className="text-rose-400 hover:text-rose-300 p-1.5 rounded hover:bg-rose-500/20 flex items-center gap-1 font-medium transition-colors"
+                        title="Excluir aula"
+                      >
+                        🗑️ Excluir
+                      </button>
+                    </div>
                     <span className="text-cyan-400 font-bold hover:underline">Abrir Aula →</span>
                   </div>
                 </div>
@@ -944,7 +997,7 @@ export default function PulsoDigital() {
             Crie uma nova sessão de aula para elaborar suas perguntas e planejar a dinâmica antes do início.
           </p>
           <button
-            onClick={() => setModalNovaSessaoAberto(true)}
+            onClick={handleAbrirCriarSessao}
             className="mt-6 px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-2xl text-sm shadow-lg shadow-cyan-600/30"
           >
             ➕ Planejar Nova Aula
@@ -962,9 +1015,18 @@ export default function PulsoDigital() {
                 </span>
                 <span className="text-xs text-gray-500 font-mono font-bold">| PIN: {sessaoAtiva.pin}</span>
               </div>
-              <h2 className="text-2xl font-black text-white mt-1">
-                {sessaoAtiva.titulo}
-              </h2>
+              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                <h2 className="text-2xl font-black text-white">
+                  {sessaoAtiva.titulo}
+                </h2>
+                <button
+                  onClick={() => handleAbrirEditarSessao(sessaoAtiva)}
+                  className="px-2.5 py-1 text-xs text-gray-300 hover:text-cyan-300 bg-gray-800/80 hover:bg-gray-700/80 rounded-lg border border-gray-700 transition-colors flex items-center gap-1.5 font-medium"
+                  title="Editar dados da aula"
+                >
+                  <span>✏️</span> Editar
+                </button>
+              </div>
               {sessaoAtiva.observacoes && (
                 <p className="text-xs text-gray-400 italic mt-1">"{sessaoAtiva.observacoes}"</p>
               )}
@@ -2271,24 +2333,30 @@ export default function PulsoDigital() {
         </div>
       )}
 
-      {/* MODAL: NOVA SESSÃO DE AULA */}
+      {/* MODAL: NOVA OU EDITAR SESSÃO DE AULA */}
       {modalNovaSessaoAberto && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl">
             <div className="flex justify-between items-center border-b border-gray-800 pb-4 mb-4">
               <div>
-                <h3 className="text-lg font-bold text-white">Criar Nova Aula (Pulso Digital)</h3>
-                <p className="text-xs text-gray-400">Monte o planejamento e elabore o quiz no seu tempo</p>
+                <h3 className="text-lg font-bold text-white">
+                  {sessaoEmEdicao ? '✏️ Editar Aula (Pulso Digital)' : 'Criar Nova Aula (Pulso Digital)'}
+                </h3>
+                <p className="text-xs text-gray-400">
+                  {sessaoEmEdicao 
+                    ? 'Altere o tema, a turma, a disciplina ou as metas pedagógicas' 
+                    : 'Monte o planejamento e elabore o quiz no seu tempo'}
+                </p>
               </div>
               <button
-                onClick={() => setModalNovaSessaoAberto(false)}
+                onClick={handleFecharModalSessao}
                 className="text-gray-400 hover:text-white p-1 rounded-lg"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCriarSessao} className="space-y-4">
+            <form onSubmit={handleSalvarSessao} className="space-y-4">
               <div>
                 <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
                   Título do Encontro / Tema da Aula
@@ -2353,7 +2421,7 @@ export default function PulsoDigital() {
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setModalNovaSessaoAberto(false)}
+                  onClick={handleFecharModalSessao}
                   className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-400 hover:text-white"
                 >
                   Cancelar
@@ -2363,7 +2431,7 @@ export default function PulsoDigital() {
                   disabled={salvandoSessao}
                   className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs sm:text-sm shadow-lg shadow-cyan-600/30 transition-transform active:scale-95 disabled:opacity-50"
                 >
-                  {salvandoSessao ? 'Salvando...' : 'Salvar Aula'}
+                  {salvandoSessao ? 'Salvando...' : (sessaoEmEdicao ? 'Salvar Alterações' : 'Criar Aula')}
                 </button>
               </div>
             </form>
