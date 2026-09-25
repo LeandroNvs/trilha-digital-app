@@ -41,7 +41,7 @@ export default function PulsoAluno() {
   const [processandoEntrada, setProcessandoEntrada] = useState(false);
 
   // Controle de Navegação do Aluno (Autonomia Móvel)
-  const [abaAtivaAluno, setAbaAtivaAluno] = useState('quiz'); // 'quiz' | 'nuvem' | 'duvidas' | 'energia'
+  const [abaAtivaAluno, setAbaAtivaAluno] = useState('energia'); // Padrão: Termômetro da Aula ('energia') ou Nuvem ('nuvem'), nunca Quiz antecipado
   const [mostrarAlertaQuiz, setMostrarAlertaQuiz] = useState(false);
   const [mostrarAlertaNuvem, setMostrarAlertaNuvem] = useState(false);
 
@@ -57,6 +57,7 @@ export default function PulsoAluno() {
   const [enviandoDuvida, setEnviandoDuvida] = useState(false);
   const [duvidasLista, setDuvidasLista] = useState([]);
   const [opcaoQuizEscolhida, setOpcaoQuizEscolhida] = useState(null);
+  const [minhaRespostaQuiz, setMinhaRespostaQuiz] = useState(null);
   const [pontuacaoAluno, setPontuacaoAluno] = useState(0);
 
   // Timer Regressivo do Quiz
@@ -249,14 +250,37 @@ export default function PulsoAluno() {
     };
   }, [sessao?.id, alunoConectado?.id, sessao?.status]);
 
-  // Efeito quando o professor lança uma nova pergunta de Quiz
+  // Sincronizar aba inicial do aluno com a dinâmica ativa da aula (evita abrir direto no quiz vazio)
+  const abaInicialDefinida = useRef(false);
   useEffect(() => {
-    if (sessao?.quizAtivo?.id && !sessao?.quizAtivo?.revelada) {
-      setOpcaoQuizEscolhida(null);
-      // Se o aluno não estiver na aba de quiz, aciona alerta para ir ao quiz
-      if (abaAtivaAluno !== 'quiz') {
-        setMostrarAlertaQuiz(true);
+    if (!sessao?.id || abaInicialDefinida.current) return;
+    abaInicialDefinida.current = true;
+    
+    if (sessao.modoAtivo === 'nuvem') {
+      setAbaAtivaAluno('nuvem');
+    } else if (sessao.modoAtivo === 'duvidas') {
+      setAbaAtivaAluno('duvidas');
+    } else if (sessao.modoAtivo === 'quiz' && sessao.quizAtivo) {
+      setAbaAtivaAluno('quiz');
+    } else {
+      setAbaAtivaAluno('energia'); // Padrão acolhedor: Termômetro da Aula
+    }
+  }, [sessao?.id, sessao?.modoAtivo, sessao?.quizAtivo]);
+
+  // Efeito quando o professor lança uma nova pergunta de Quiz ou encerra a atual
+  useEffect(() => {
+    if (sessao?.quizAtivo?.id) {
+      if (!sessao.quizAtivo.revelada) {
+        setOpcaoQuizEscolhida(null);
+        // Se o aluno não estiver na aba de quiz, aciona alerta para ir ao quiz
+        if (abaAtivaAluno !== 'quiz') {
+          setMostrarAlertaQuiz(true);
+        }
       }
+    } else {
+      // Quando o professor retira a pergunta do telão (quizAtivo = null)
+      setMostrarAlertaQuiz(false);
+      setOpcaoQuizEscolhida(null);
     }
   }, [sessao?.quizAtivo?.id]);
 
@@ -287,6 +311,27 @@ export default function PulsoAluno() {
 
     return () => clearInterval(interval);
   }, [sessao?.quizAtivo?.id, sessao?.quizAtivo?.revelada, sessao?.quizAtivo?.abertaParaResposta, sessao?.quizAtivo?.lancadaEm]);
+
+  // Escutar resposta do próprio aluno para o quiz ativo (mantém estado mesmo em refresh)
+  useEffect(() => {
+    if (!sessao?.id || !alunoConectado?.id || !sessao?.quizAtivo?.id) {
+      setMinhaRespostaQuiz(null);
+      return;
+    }
+    const respRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_quiz`, `${sessao.quizAtivo.id}_${alunoConectado.id}`);
+    const unsubscribe = onSnapshot(respRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setMinhaRespostaQuiz(data);
+        if (data.opcaoEscolhida !== undefined) {
+          setOpcaoQuizEscolhida(data.opcaoEscolhida);
+        }
+      } else {
+        setMinhaRespostaQuiz(null);
+      }
+    });
+    return () => unsubscribe();
+  }, [sessao?.id, alunoConectado?.id, sessao?.quizAtivo?.id]);
 
   // Efeito quando o professor ativa ou dispara a Nuvem de Palavras
   const ultimaDisparadaNuvem = useRef(null);
@@ -572,6 +617,7 @@ export default function PulsoAluno() {
   };
 
   // Responder Quiz
+  // Responder Quiz (Fórmula Kahoot: Velocidade como Desempate, com liberação no gabarito)
   const handleResponderQuiz = async (indiceOpcao) => {
     if (!sessao?.id || !alunoConectado?.id || !sessao.quizAtivo) return;
     if (opcaoQuizEscolhida !== null) return; // Já respondeu
@@ -579,26 +625,36 @@ export default function PulsoAluno() {
     if (tempoRestante === 0) return; // Tempo esgotado
 
     setOpcaoQuizEscolhida(indiceOpcao);
-    const acertou = indiceOpcao === sessao.quizAtivo.respostaCorretaIndex;
+
+    const lancadaEm = sessao.quizAtivo.lancadaEm ? new Date(sessao.quizAtivo.lancadaEm).getTime() : Date.now();
+    const tempoTotal = Number(sessao.quizAtivo.tempoSegundos) || 30;
+    const tempoGastoSegundos = Number(Math.max(0.2, Math.min(tempoTotal, (Date.now() - lancadaEm) / 1000)).toFixed(1));
+    const fracaoRestante = Math.max(0, Math.min(1, (tempoTotal - tempoGastoSegundos) / tempoTotal));
+    
+    // Fórmula Kahoot: 500 base garantida para acerto + até 500 proporcionais à velocidade
+    const pontosCalculados = Math.round(500 + (500 * fracaoRestante));
+
+    const dadosResposta = {
+      quizId: sessao.quizAtivo.id,
+      alunoId: alunoConectado.id,
+      apelido: alunoConectado.apelido,
+      avatarEmoji: alunoConectado.avatarEmoji || '👤',
+      opcaoEscolhida: indiceOpcao,
+      tempoGastoSegundos,
+      pontosCalculados,
+      acertou: null, // mantido oculto até o professor revelar o gabarito
+      pontosGanhos: 0,
+      pontosCreditados: false,
+      respondidoEm: serverTimestamp()
+    };
+
+    setMinhaRespostaQuiz(dadosResposta);
 
     try {
       const respostaRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_quiz`, `${sessao.quizAtivo.id}_${alunoConectado.id}`);
-      await setDoc(respostaRef, {
-        alunoId: alunoConectado.id,
-        apelido: alunoConectado.apelido,
-        avatarEmoji: alunoConectado.avatarEmoji,
-        opcaoEscolhida: indiceOpcao,
-        acertou,
-        pontosGanhos: acertou ? 100 : 0,
-        respondidoEm: serverTimestamp()
-      });
-
-      if (acertou) {
-        const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoConectado.id);
-        await updateDoc(alunoDocRef, {
-          pontos: increment(100)
-        });
-      }
+      await setDoc(respostaRef, dadosResposta);
+      // PONTOS NÃO SÃO INCREMENTADOS AQUI!
+      // Ficam suspensos até o professor clicar em "Revelar Gabarito no Telão".
     } catch (err) {
       console.error("Erro ao registrar resposta do quiz:", err);
     }
@@ -1350,19 +1406,49 @@ export default function PulsoAluno() {
                   )}
 
                   {sessao.quizAtivo.revelada && (
-                    <div className={`p-4 rounded-2xl text-xs font-bold shadow-xl ${
+                    <div className={`p-5 rounded-2xl text-xs font-bold shadow-xl ${
                       opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex
-                        ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300'
-                        : 'bg-rose-500/20 border border-rose-400 text-rose-300'
+                        ? 'bg-emerald-500/20 border-2 border-emerald-400 text-emerald-300'
+                        : 'bg-rose-500/20 border-2 border-rose-400 text-rose-300'
                     }`}>
-                      <div className="text-sm font-black mb-1">
-                        {opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex
-                          ? '🎉 Parabéns! Você acertou e somou +100 pontos!'
-                          : '❌ Não foi desta vez! Veja o gabarito destacado acima.'}
+                      <div className="text-base font-black mb-1 flex items-center justify-center gap-1.5">
+                        {opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex ? (
+                          <>
+                            <span>🎉</span>
+                            <span>Parabéns! Você acertou!</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>❌</span>
+                            <span>Não foi desta vez!</span>
+                          </>
+                        )}
                       </div>
 
+                      {opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex ? (
+                        <div className="mt-3 p-3 bg-emerald-950/60 rounded-xl border border-emerald-500/30 flex items-center justify-around text-center">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-gray-400 block">Velocidade</span>
+                            <span className="text-sm font-mono font-black text-white">
+                              ⚡ {minhaRespostaQuiz?.tempoGastoSegundos || '0.0'}s
+                            </span>
+                          </div>
+                          <div className="w-[1px] h-8 bg-emerald-500/30" />
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-gray-400 block">Pontos Ganhos</span>
+                            <span className="text-lg font-mono font-black text-amber-300">
+                              +{minhaRespostaQuiz?.pontosCalculados || 500} pts
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-300 mt-2 text-center">
+                          Veja a alternativa correta destacada acima e no telão.
+                        </p>
+                      )}
+
                       {sessao.quizAtivo.explicacao && (
-                        <p className="mt-2 text-gray-200 font-normal text-xs leading-relaxed bg-black/30 p-2.5 rounded-xl text-left border border-white/10">
+                        <p className="mt-3 text-gray-200 font-normal text-xs leading-relaxed bg-black/40 p-3 rounded-xl text-left border border-white/10">
                           <strong>💡 Fundamentação:</strong> {sessao.quizAtivo.explicacao}
                         </p>
                       )}

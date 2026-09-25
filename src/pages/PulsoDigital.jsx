@@ -572,14 +572,60 @@ export default function PulsoDigital() {
     });
   };
 
-  // Revelar Gabarito do Quiz
+  // Revelar Gabarito do Quiz e Liberar Pontuação Simultaneamente
   const handleRevelarGabarito = async () => {
     if (!sessaoAtiva?.id || !sessaoAtiva.quizAtivo) return;
-    const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
-    await updateDoc(sessaoDocRef, {
-      'quizAtivo.revelada': true,
-      'quizAtivo.abertaParaResposta': false
-    });
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      
+      // 1. Revelar gabarito na sessão ativa
+      await updateDoc(sessaoDocRef, {
+        'quizAtivo.revelada': true,
+        'quizAtivo.abertaParaResposta': false
+      });
+
+      // 2. Processar e creditar pontuação oficial aos alunos que acertaram nesta pergunta
+      const respostasDestaQuestao = respostasQuiz.filter(
+        r => r.quizId === sessaoAtiva.quizAtivo.id || r.id?.startsWith(sessaoAtiva.quizAtivo.id)
+      );
+
+      for (const resp of respostasDestaQuestao) {
+        const ehCorreta = resp.opcaoEscolhida === sessaoAtiva.quizAtivo.respostaCorretaIndex;
+        const pontosGanhos = ehCorreta ? (Number(resp.pontosCalculados) || 500) : 0;
+
+        // Se ainda não foi creditado e o aluno acertou, adiciona aos pontos do participante
+        if (!resp.pontosCreditados && pontosGanhos > 0 && resp.alunoId) {
+          const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessaoAtiva.id}/participantes`, resp.alunoId);
+          await updateDoc(alunoDocRef, {
+            pontos: increment(pontosGanhos)
+          }).catch(console.error);
+        }
+
+        // Atualizar documento da resposta com status final
+        const respDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessaoAtiva.id}/respostas_quiz`, resp.id);
+        await updateDoc(respDocRef, {
+          acertou: ehCorreta,
+          pontosGanhos,
+          pontosCreditados: true
+        }).catch(() => {});
+      }
+    } catch (err) {
+      console.error("Erro ao revelar gabarito e creditar pontos:", err);
+    }
+  };
+
+  // Encerrar e Tirar a Pergunta do Telão (Limpar Quiz Ativo)
+  const handleEncerrarQuizAtivo = async () => {
+    if (!sessaoAtiva?.id) return;
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      await updateDoc(sessaoDocRef, {
+        quizAtivo: null
+      });
+    } catch (err) {
+      console.error("Erro ao tirar pergunta do telão:", err);
+      alert("Houve um erro ao tirar a pergunta do telão.");
+    }
   };
 
   // Alternar Status de Dúvida como Respondida
@@ -1634,15 +1680,24 @@ export default function PulsoDigital() {
                     </div>
 
                     {/* Questão Atualmente em Exibição no Telão */}
-                    {sessaoAtiva.quizAtivo && (
+                    {sessaoAtiva.quizAtivo ? (
                       <div className="bg-gray-900/90 border-2 border-amber-500/40 rounded-2xl p-5 shadow-2xl">
                         <div className="flex justify-between items-center mb-3">
-                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
-                            QUESTÃO ATIVA NO TELÃO
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {respostasQuiz.length} respostas recebidas
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
+                              QUESTÃO ATIVA NO TELÃO
+                            </span>
+                            <span className="text-xs text-gray-400">
+                              {respostasQuiz.length} respostas recebidas
+                            </span>
+                          </div>
+                          <button
+                            onClick={handleEncerrarQuizAtivo}
+                            className="text-xs text-gray-400 hover:text-rose-400 flex items-center gap-1 p-1 rounded-lg hover:bg-white/5 transition-colors"
+                            title="Tirar pergunta do telão"
+                          >
+                            ✕ Tirar do Telão
+                          </button>
                         </div>
 
                         <h4 className="text-lg font-black text-white mb-4">
@@ -1682,25 +1737,33 @@ export default function PulsoDigital() {
                           })}
                         </div>
 
-                        {/* Controles de Gabarito */}
+                        {/* Controles de Gabarito e Encerramento */}
                         <div className="mt-5 pt-4 border-t border-gray-800 flex justify-between items-center flex-wrap gap-2">
                           <span className="text-xs text-gray-400">
                             Gabarito: <strong className="text-cyan-300">Opção {sessaoAtiva.quizAtivo.respostaCorretaIndex + 1}</strong>
                           </span>
 
-                          <div>
+                          <div className="flex items-center gap-2">
                             {!sessaoAtiva.quizAtivo.revelada ? (
                               <button
                                 onClick={handleRevelarGabarito}
-                                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black rounded-xl text-xs sm:text-sm shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
+                                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black rounded-xl text-xs sm:text-sm shadow-lg shadow-emerald-500/20 transition-all active:scale-95"
                               >
-                                🎯 Revelar Gabarito no Telão
+                                🎯 Revelar Gabarito
                               </button>
                             ) : (
                               <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
                                 ✓ Gabarito revelado aos alunos!
                               </span>
                             )}
+
+                            <button
+                              onClick={handleEncerrarQuizAtivo}
+                              className="px-3.5 py-2 bg-gray-800 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 font-bold rounded-xl text-xs transition-all flex items-center gap-1.5"
+                              title="Tirar esta pergunta do telão e liberar a tela dos alunos"
+                            >
+                              <span>⏹️</span> Tirar do Telão
+                            </button>
                           </div>
                         </div>
 
@@ -1709,6 +1772,16 @@ export default function PulsoDigital() {
                             <strong>💡 Fundamentação:</strong> {sessaoAtiva.quizAtivo.explicacao}
                           </div>
                         )}
+                      </div>
+                    ) : (
+                      <div className="bg-gray-900/60 border border-gray-700/60 rounded-2xl p-6 text-center">
+                        <span className="text-3xl block mb-2 opacity-60">🎯</span>
+                        <h4 className="text-sm font-bold text-gray-200">
+                          Nenhuma pergunta ativa no telão no momento
+                        </h4>
+                        <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
+                          As perguntas preparadas para esta aula estão listadas abaixo. Ao chegar no momento do quiz, clique em <strong className="text-amber-400">"🚀 Lançar no Telão"</strong> na questão desejada.
+                        </p>
                       </div>
                     )}
 
