@@ -1,15 +1,30 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
-  collection, query, where, onSnapshot, doc, getDoc, setDoc, addDoc, updateDoc, 
+  collection, query, where, onSnapshot, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   serverTimestamp, increment, arrayUnion, arrayRemove 
 } from 'firebase/firestore';
 import { db, appId } from '../firebase/config.js';
 import { AVATARES, sortearAvatar, getAvatarPorId } from '../components/PulsoDigital/avatares.js';
 
+// Gerador/Recuperador de Device ID persistente no navegador para evitar duplicações
+const getDeviceId = () => {
+  try {
+    let id = localStorage.getItem('pulso_device_id');
+    if (!id) {
+      id = 'dev_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now().toString(36);
+      localStorage.setItem('pulso_device_id', id);
+    }
+    return id;
+  } catch (e) {
+    return 'dev_fallback_' + Date.now();
+  }
+};
+
 export default function PulsoAluno() {
   const { pin: pinParam } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Estados de Conexão e Sessão
   const [pinInput, setPinInput] = useState(pinParam || '');
@@ -21,11 +36,20 @@ export default function PulsoAluno() {
   const [apelido, setApelido] = useState('');
   const [avatarSelecionado, setAvatarSelecionado] = useState(sortearAvatar());
   const [modalAvataresAberto, setModalAvataresAberto] = useState(false);
-  const [alunoConectado, setAlunoConectado] = useState(null); // { id, apelido, avatarId }
+  const [alunoConectado, setAlunoConectado] = useState(null); // { id, apelido, avatarId, ... }
+  const [participanteConflito, setParticipanteConflito] = useState(null); // Modal de confirmação se apelido já existe
+  const [processandoEntrada, setProcessandoEntrada] = useState(false);
 
   // Controle de Navegação do Aluno (Autonomia Móvel)
-  const [abaAtivaAluno, setAbaAtivaAluno] = useState('quiz'); // 'quiz' | 'duvidas' | 'energia'
+  const [abaAtivaAluno, setAbaAtivaAluno] = useState('quiz'); // 'quiz' | 'nuvem' | 'duvidas' | 'energia'
   const [mostrarAlertaQuiz, setMostrarAlertaQuiz] = useState(false);
+  const [mostrarAlertaNuvem, setMostrarAlertaNuvem] = useState(false);
+
+  // Estados da Nuvem de Palavras
+  const [palavraInput, setPalavraInput] = useState('');
+  const [enviandoPalavra, setEnviandoPalavra] = useState(false);
+  const [minhasPalavrasNuvem, setMinhasPalavrasNuvem] = useState([]);
+  const [respostasNuvemSessao, setRespostasNuvemSessao] = useState([]);
 
   // Estados das Dinâmicas
   const [sentimentoVotado, setSentimentoVotado] = useState(null);
@@ -45,23 +69,86 @@ export default function PulsoAluno() {
   const [avaliacaoEnviada, setAvaliacaoEnviada] = useState(false);
   const [enviandoAvaliacao, setEnviandoAvaliacao] = useState(false);
 
-  // Recuperar identificação salva na sessão do navegador
+  // Pré-preencher com última preferência de apelido e avatar caso existam no navegador
   useEffect(() => {
-    if (sessao?.id) {
-      const salvo = sessionStorage.getItem(`pulso_aluno_${sessao.id}`);
-      if (salvo) {
-        try {
-          const parsed = JSON.parse(salvo);
-          setAlunoConectado(parsed);
-          setApelido(parsed.apelido || '');
-          if (parsed.avatarId) {
-            setAvatarSelecionado(getAvatarPorId(parsed.avatarId));
-          }
-        } catch (e) {
-          console.error("Erro ao ler dados do aluno:", e);
-        }
+    try {
+      const ultimoApelido = localStorage.getItem('pulso_ultimo_apelido');
+      if (ultimoApelido && !apelido) {
+        setApelido(ultimoApelido);
       }
+      const ultimoAvatarId = localStorage.getItem('pulso_ultimo_avatarId');
+      if (ultimoAvatarId) {
+        const av = getAvatarPorId(ultimoAvatarId);
+        if (av) setAvatarSelecionado(av);
+      }
+    } catch (e) {
+      console.warn("Aviso ao carregar dados locais de avatar/apelido:", e);
     }
+  }, []);
+
+  // Recuperar identificação salva no localStorage ou na URL (?uid=...)
+  useEffect(() => {
+    if (!sessao?.id) return;
+
+    const tentarRecuperarAluno = async () => {
+      try {
+        const urlUid = searchParams.get('uid');
+        let idParaRecuperar = urlUid;
+
+        if (!idParaRecuperar) {
+          const salvo = localStorage.getItem(`pulso_aluno_${sessao.id}`);
+          if (salvo) {
+            try {
+              const parsed = JSON.parse(salvo);
+              idParaRecuperar = parsed.id;
+            } catch (err) {}
+          }
+        }
+
+        if (idParaRecuperar) {
+          const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, idParaRecuperar);
+          const alunoSnap = await getDoc(alunoDocRef);
+
+          if (alunoSnap.exists()) {
+            const dados = { id: alunoSnap.id, ...alunoSnap.data() };
+            setAlunoConectado(dados);
+            setApelido(dados.apelido || '');
+            if (dados.avatarId) {
+              setAvatarSelecionado(getAvatarPorId(dados.avatarId));
+            }
+            if (dados.pontos) {
+              setPontuacaoAluno(dados.pontos);
+            }
+            if (dados.sentimento) {
+              setSentimentoVotado(dados.sentimento);
+            }
+
+            // Atualizar último acesso e vincular deviceId
+            const devId = getDeviceId();
+            await updateDoc(alunoDocRef, {
+              ultimoAcesso: serverTimestamp(),
+              deviceId: devId
+            }).catch(() => {});
+
+            localStorage.setItem(`pulso_aluno_${sessao.id}`, JSON.stringify(dados));
+            if (!urlUid || urlUid !== dados.id) {
+              setSearchParams({ uid: dados.id }, { replace: true });
+            }
+          } else {
+            // Participante não existe mais (aula resetada ou aluno removido)
+            localStorage.removeItem(`pulso_aluno_${sessao.id}`);
+            if (urlUid) {
+              setSearchParams({}, { replace: true });
+            }
+            setAlunoConectado(null);
+          }
+        }
+      } catch (e) {
+        console.error("Erro ao recuperar aluno da sessão:", e);
+      }
+    };
+
+    tentarRecuperarAluno();
   }, [sessao?.id]);
 
   // Buscar sessão ativa por PIN
@@ -110,7 +197,7 @@ export default function PulsoAluno() {
     return () => unsubscribe();
   }, [sessao?.id]);
 
-  // Escutar pontuação e estado do aluno conectado (trata inclusive reset da aula)
+  // Escutar pontuação e estado do aluno conectado (trata inclusive reset da aula ou remoção)
   useEffect(() => {
     if (!sessao?.id || !alunoConectado?.id) return;
     const alunoRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoConectado.id);
@@ -121,7 +208,10 @@ export default function PulsoAluno() {
         if (data.sentimento) setSentimentoVotado(data.sentimento);
         if (data.avaliacaoEnviada) setAvaliacaoEnviada(true);
       } else {
-        // Sessão foi resetada pelo professor: zera o estado local
+        // Aluno foi removido ou a sessão foi resetada pelo professor: zera o estado local
+        localStorage.removeItem(`pulso_aluno_${sessao.id}`);
+        setSearchParams({}, { replace: true });
+        setAlunoConectado(null);
         setPontuacaoAluno(0);
         setSentimentoVotado(null);
         setAvaliacaoEnviada(false);
@@ -129,6 +219,35 @@ export default function PulsoAluno() {
     });
     return () => unsubscribe();
   }, [sessao?.id, alunoConectado?.id]);
+
+  // Heartbeat de Presença (Mantém status online no painel do professor ao longo da aula)
+  useEffect(() => {
+    if (!sessao?.id || !alunoConectado?.id || sessao?.status === 'encerrada') return;
+
+    const pingHeartbeat = () => {
+      const alunoRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoConectado.id);
+      updateDoc(alunoRef, { ultimoAcesso: serverTimestamp() }).catch(() => {});
+    };
+
+    // Ping inicial
+    pingHeartbeat();
+
+    // Ping a cada 60 segundos
+    const interval = setInterval(pingHeartbeat, 60000);
+
+    // Ping ao retornar o foco da tela (ex: destravou o celular ou voltou de outro app)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        pingHeartbeat();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [sessao?.id, alunoConectado?.id, sessao?.status]);
 
   // Efeito quando o professor lança uma nova pergunta de Quiz
   useEffect(() => {
@@ -169,55 +288,238 @@ export default function PulsoAluno() {
     return () => clearInterval(interval);
   }, [sessao?.quizAtivo?.id, sessao?.quizAtivo?.revelada, sessao?.quizAtivo?.abertaParaResposta, sessao?.quizAtivo?.lancadaEm]);
 
-  // Entrar na Aula (Criar participante)
-  const handleEntrarNaAula = async (e) => {
-    e.preventDefault();
-    if (!apelido.trim()) return;
-    if (!sessao?.id) return;
+  // Efeito quando o professor ativa ou dispara a Nuvem de Palavras
+  const ultimaDisparadaNuvem = useRef(null);
+  useEffect(() => {
+    if (sessao?.modoAtivo === 'nuvem') {
+      const stamp = sessao?.nuvemDisparadaEm ? JSON.stringify(sessao.nuvemDisparadaEm) : null;
+      // Se acabou de ser disparada pelo professor, direciona automaticamente o aluno para a nuvem
+      if (stamp && stamp !== ultimaDisparadaNuvem.current) {
+        ultimaDisparadaNuvem.current = stamp;
+        setAbaAtivaAluno('nuvem');
+        setMostrarAlertaNuvem(false);
+      } else if (abaAtivaAluno !== 'nuvem') {
+        setMostrarAlertaNuvem(true);
+      }
+    } else {
+      setMostrarAlertaNuvem(false);
+    }
+  }, [sessao?.modoAtivo, sessao?.nuvemRodada, sessao?.nuvemDisparadaEm]);
 
+  // Escutar respostas da nuvem de toda a turma para pré-visualização coletiva
+  useEffect(() => {
+    if (!sessao?.id) {
+      setRespostasNuvemSessao([]);
+      return;
+    }
+    const nuvemRef = collection(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_nuvem`);
+    const unsubscribe = onSnapshot(nuvemRef, (snap) => {
+      const lista = [];
+      snap.forEach(d => lista.push({ id: d.id, ...d.data() }));
+      setRespostasNuvemSessao(lista);
+    });
+    return () => unsubscribe();
+  }, [sessao?.id]);
+
+  // Escutar as palavras submetidas pelo próprio aluno na rodada ativa
+  useEffect(() => {
+    if (!sessao?.id || !alunoConectado?.id) {
+      setMinhasPalavrasNuvem([]);
+      return;
+    }
+    const rodada = sessao.nuvemRodada || 1;
+    const docRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_nuvem`, `${alunoConectado.id}_r${rodada}`);
+    const unsubscribe = onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        setMinhasPalavrasNuvem(snap.data().palavras || []);
+      } else {
+        setMinhasPalavrasNuvem([]);
+      }
+    });
+    return () => unsubscribe();
+  }, [sessao?.id, alunoConectado?.id, sessao?.nuvemRodada]);
+
+  // Estatísticas e frequência das palavras da turma na rodada ativa
+  const rodadaAtualNuvem = sessao?.nuvemRodada || 1;
+  const nuvemTurmaStats = useMemo(() => {
+    const respostasDaRodada = respostasNuvemSessao.filter(r => (r.rodada || 1) === rodadaAtualNuvem);
+    const mapa = {};
+    let total = 0;
+    respostasDaRodada.forEach(r => {
+      (r.palavras || []).forEach(p => {
+        if (!p || typeof p !== 'string') return;
+        const limpa = p.trim().replace(/[.,!?;:"'()#@]/g, '');
+        if (limpa.length < 2) return;
+        const chave = limpa.toLowerCase();
+        if (!mapa[chave]) {
+          mapa[chave] = {
+            termo: limpa.charAt(0).toUpperCase() + limpa.slice(1).toLowerCase(),
+            count: 0
+          };
+        }
+        mapa[chave].count++;
+        total++;
+      });
+    });
+    const lista = Object.values(mapa).sort((a, b) => b.count - a.count);
+    return { lista, total, alunos: respostasDaRodada.length };
+  }, [respostasNuvemSessao, rodadaAtualNuvem]);
+
+  // Reconectar a participante já existente nesta aula
+  const reconectarAlunoExistente = async (alunoExistente) => {
     try {
-      const alunoId = alunoConectado?.id || `aluno_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const dadosAluno = {
-        id: alunoId,
-        apelido: apelido.trim(),
-        avatarId: avatarSelecionado.id,
-        avatarNome: avatarSelecionado.nome,
-        avatarEmoji: avatarSelecionado.emoji,
-        avatarCorBg: avatarSelecionado.corBg,
-        pontos: pontuacaoAluno || 0,
-        conectadoEm: serverTimestamp()
-      };
-
-      const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoId);
-      await setDoc(alunoDocRef, dadosAluno, { merge: true });
-
-      // Atualizar contagem de participantes na sessão principal
-      const sessaoRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessao.id);
-      await updateDoc(sessaoRef, {
-        totalParticipantes: increment(alunoConectado ? 0 : 1)
+      const meuDeviceId = getDeviceId();
+      const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoExistente.id);
+      
+      await updateDoc(alunoDocRef, {
+        ultimoAcesso: serverTimestamp(),
+        deviceId: meuDeviceId
       }).catch(() => {});
 
-      sessionStorage.setItem(`pulso_aluno_${sessao.id}`, JSON.stringify(dadosAluno));
-      setAlunoConectado(dadosAluno);
+      const dadosAtualizados = {
+        ...alunoExistente,
+        deviceId: meuDeviceId
+      };
+
+      localStorage.setItem(`pulso_aluno_${sessao.id}`, JSON.stringify(dadosAtualizados));
+      localStorage.setItem('pulso_ultimo_apelido', alunoExistente.apelido);
+      if (alunoExistente.avatarId) {
+        localStorage.setItem('pulso_ultimo_avatarId', alunoExistente.avatarId);
+        setAvatarSelecionado(getAvatarPorId(alunoExistente.avatarId));
+      }
+
+      setAlunoConectado(dadosAtualizados);
+      setApelido(alunoExistente.apelido);
+      setPontuacaoAluno(alunoExistente.pontos || 0);
+      setParticipanteConflito(null);
+      setSearchParams({ uid: alunoExistente.id }, { replace: true });
     } catch (err) {
-      console.error("Erro ao registrar aluno:", err);
-      alert("Houve um erro ao entrar na aula. Tente novamente.");
+      console.error("Erro ao reconectar participante:", err);
+      alert("Houve um erro ao reconectar. Tente novamente.");
     }
   };
 
-  // Votar em Sentimento
+  // Registrar um novo aluno na aula
+  const registrarNovoAluno = async (apelidoLimpo, meuDeviceId) => {
+    const alunoId = `aluno_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const dadosAluno = {
+      id: alunoId,
+      apelido: apelidoLimpo,
+      apelidoLower: apelidoLimpo.toLowerCase(),
+      deviceId: meuDeviceId,
+      avatarId: avatarSelecionado.id,
+      avatarNome: avatarSelecionado.nome,
+      avatarEmoji: avatarSelecionado.emoji,
+      avatarCorBg: avatarSelecionado.corBg,
+      pontos: 0,
+      conectadoEm: serverTimestamp(),
+      ultimoAcesso: serverTimestamp()
+    };
+
+    const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoId);
+    await setDoc(alunoDocRef, dadosAluno);
+
+    // Atualizar contagem de participantes na sessão principal
+    const sessaoRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessao.id);
+    await updateDoc(sessaoRef, {
+      totalParticipantes: increment(1)
+    }).catch(() => {});
+
+    localStorage.setItem(`pulso_aluno_${sessao.id}`, JSON.stringify(dadosAluno));
+    localStorage.setItem('pulso_ultimo_apelido', apelidoLimpo);
+    localStorage.setItem('pulso_ultimo_avatarId', avatarSelecionado.id);
+
+    setAlunoConectado(dadosAluno);
+    setPontuacaoAluno(0);
+    setSearchParams({ uid: alunoId }, { replace: true });
+  };
+
+  // Entrar na Aula (Com verificação inteligente de duplicidade de apelido)
+  const handleEntrarNaAula = async (e) => {
+    if (e) e.preventDefault();
+    const apelidoLimpo = apelido.trim();
+    if (!apelidoLimpo || !sessao?.id) return;
+
+    setProcessandoEntrada(true);
+    try {
+      const meuDeviceId = getDeviceId();
+
+      // 1. Verificar se já existe algum participante com este apelido nesta aula
+      const partRef = collection(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`);
+      const partSnap = await getDocs(partRef);
+
+      let existente = null;
+      partSnap.forEach(d => {
+        const data = d.data();
+        if ((data.apelidoLower && data.apelidoLower === apelidoLimpo.toLowerCase()) || 
+            (data.apelido && data.apelido.toLowerCase() === apelidoLimpo.toLowerCase())) {
+          existente = { id: d.id, ...data };
+        }
+      });
+
+      if (existente) {
+        // Se for o mesmo dispositivo registrado anteriormente, reconecta direto!
+        if (existente.deviceId && existente.deviceId === meuDeviceId) {
+          await reconectarAlunoExistente(existente);
+          setProcessandoEntrada(false);
+          return;
+        }
+
+        // Se for de outro aparelho/navegador, abre modal de confirmação amigável
+        setParticipanteConflito(existente);
+        setProcessandoEntrada(false);
+        return;
+      }
+
+      // 2. Apelido inédito: cadastra novo participante
+      await registrarNovoAluno(apelidoLimpo, meuDeviceId);
+    } catch (err) {
+      console.error("Erro ao entrar na aula:", err);
+      alert("Houve um erro ao entrar na aula. Tente novamente.");
+    } finally {
+      setProcessandoEntrada(false);
+    }
+  };
+
+  // Sair ou trocar de participante
+  const handleConfirmarSair = () => {
+    if (!alunoConectado) return;
+    const confirmou = window.confirm(
+      `Deseja sair do perfil "${alunoConectado.apelido}"?\n\nSeus pontos (${pontuacaoAluno} pts) continuarão salvos na aula. Você poderá reconectar quando quiser usando o mesmo apelido.`
+    );
+    if (!confirmou) return;
+
+    try {
+      localStorage.removeItem(`pulso_aluno_${sessao.id}`);
+    } catch (e) {}
+
+    setSearchParams({}, { replace: true });
+    setAlunoConectado(null);
+    setSentimentoVotado(null);
+    setOpcaoQuizEscolhida(null);
+    setPontuacaoAluno(0);
+  };
+
+  // Votar em Sentimento / Termômetro da Aula
   const handleVotarSentimento = async (sentimento) => {
     if (!sessao?.id || !alunoConectado?.id) return;
     try {
+      const anterior = sentimentoVotado;
+      if (anterior === sentimento) return;
+
       setSentimentoVotado(sentimento);
       const alunoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/participantes`, alunoConectado.id);
       await updateDoc(alunoDocRef, { sentimento });
 
       // Atualizar contadores na sessão
       const sessaoRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessao.id);
-      await updateDoc(sessaoRef, {
+      const updates = {
         [`sentimentos.${sentimento}`]: increment(1)
-      }).catch(() => {});
+      };
+      if (anterior) {
+        updates[`sentimentos.${anterior}`] = increment(-1);
+      }
+      await updateDoc(sessaoRef, updates).catch(() => {});
     } catch (err) {
       console.error("Erro ao registrar sentimento:", err);
     }
@@ -335,6 +637,76 @@ export default function PulsoAluno() {
       alert("Houve um erro ao enviar sua avaliação.");
     } finally {
       setEnviandoAvaliacao(false);
+    }
+  };
+
+  // Adicionar palavra na Nuvem (até 3 palavras por aluno por rodada)
+  const handleAdicionarPalavraNuvem = async (e) => {
+    if (e) e.preventDefault();
+    const palavraLimpa = palavraInput.trim().replace(/[.,!?;:"'()#@]/g, '');
+    if (!palavraLimpa || !sessao?.id || !alunoConectado?.id) return;
+    
+    if (palavraLimpa.length < 2) {
+      alert("Digite uma palavra com pelo menos 2 letras.");
+      return;
+    }
+    if (minhasPalavrasNuvem.length >= 3) {
+      alert("Você já atingiu o limite de 3 palavras nesta rodada!");
+      return;
+    }
+    if (minhasPalavrasNuvem.some(p => p.toLowerCase() === palavraLimpa.toLowerCase())) {
+      alert("Você já adicionou essa palavra!");
+      return;
+    }
+
+    setEnviandoPalavra(true);
+    try {
+      const rodada = sessao.nuvemRodada || 1;
+      const docId = `${alunoConectado.id}_r${rodada}`;
+      const docRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_nuvem`, docId);
+      
+      const termoFormatado = palavraLimpa.charAt(0).toUpperCase() + palavraLimpa.slice(1);
+      const novasPalavras = [...minhasPalavrasNuvem, termoFormatado];
+      
+      await setDoc(docRef, {
+        alunoId: alunoConectado.id,
+        apelido: alunoConectado.apelido,
+        avatarEmoji: alunoConectado.avatarEmoji || '👤',
+        rodada,
+        palavras: novasPalavras,
+        atualizadoEm: serverTimestamp()
+      }, { merge: true });
+
+      setMinhasPalavrasNuvem(novasPalavras);
+      setPalavraInput('');
+    } catch (err) {
+      console.error("Erro ao enviar palavra:", err);
+      alert("Houve um erro ao enviar sua palavra. Tente novamente.");
+    } finally {
+      setEnviandoPalavra(false);
+    }
+  };
+
+  // Remover palavra enviada na Nuvem
+  const handleRemoverPalavraNuvem = async (palavraParaRemover) => {
+    if (!sessao?.id || !alunoConectado?.id) return;
+    const rodada = sessao.nuvemRodada || 1;
+    const docId = `${alunoConectado.id}_r${rodada}`;
+    const docRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_nuvem`, docId);
+    const novasPalavras = minhasPalavrasNuvem.filter(p => p !== palavraParaRemover);
+
+    try {
+      if (novasPalavras.length === 0) {
+        await deleteDoc(docRef).catch(() => {});
+      } else {
+        await updateDoc(docRef, {
+          palavras: novasPalavras,
+          atualizadoEm: serverTimestamp()
+        });
+      }
+      setMinhasPalavrasNuvem(novasPalavras);
+    } catch (err) {
+      console.error("Erro ao remover palavra:", err);
     }
   };
 
@@ -458,12 +830,58 @@ export default function PulsoAluno() {
 
             <button
               type="submit"
-              className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-gray-950 font-black rounded-2xl text-lg shadow-lg shadow-cyan-500/30 transition-transform active:scale-95"
+              disabled={processandoEntrada}
+              className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-gray-950 font-black rounded-2xl text-lg shadow-lg shadow-cyan-500/30 transition-transform active:scale-95 disabled:opacity-50"
             >
-              🚀 Entrar na Aula
+              {processandoEntrada ? 'Conectando à aula...' : '🚀 Entrar na Aula'}
             </button>
           </form>
         </div>
+
+        {/* Modal de Conflito de Apelido / Reconexão Inteligente */}
+        {participanteConflito && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div className="bg-gray-900 border border-amber-500/60 rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center">
+              <div className={`w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br ${participanteConflito.avatarCorBg || 'from-amber-500 to-orange-600'} flex items-center justify-center text-4xl mb-3 shadow-lg border-2 border-amber-400/50`}>
+                {participanteConflito.avatarEmoji || '👤'}
+              </div>
+              <h3 className="font-bold text-lg text-white">
+                Apelido Já Cadastrado!
+              </h3>
+              <p className="text-xs text-gray-300 mt-2 leading-relaxed">
+                Já existe um participante chamado <span className="font-bold text-cyan-300">"{participanteConflito.apelido}"</span> nesta aula.
+              </p>
+              
+              <div className="mt-4 p-3 bg-gray-800/90 rounded-2xl border border-gray-700 text-xs text-gray-300 text-left space-y-1">
+                <div className="flex justify-between items-center text-gray-400">
+                  <span>Avatar:</span>
+                  <span className="font-semibold text-white">{participanteConflito.avatarNome || 'Personalizado'}</span>
+                </div>
+                <div className="flex justify-between items-center text-gray-400">
+                  <span>Pontuação Acumulada:</span>
+                  <span className="font-bold font-mono text-amber-300">{participanteConflito.pontos || 0} pts</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 mt-5">
+                <button
+                  type="button"
+                  onClick={() => reconectarAlunoExistente(participanteConflito)}
+                  className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-gray-950 font-black rounded-xl text-sm shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform flex items-center justify-center gap-1.5"
+                >
+                  <span>✅</span> Sim, sou eu! (Reconectar)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setParticipanteConflito(null)}
+                  className="w-full py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-xl text-xs border border-gray-700 transition-colors"
+                >
+                  Não, sou outro aluno (Trocar nome)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal de Galeria de Avatares */}
         {modalAvataresAberto && (
@@ -537,6 +955,16 @@ export default function PulsoAluno() {
           <div className="mt-6 text-xs text-gray-500">
             Aula: <span className="text-gray-300 font-semibold">{sessao.titulo}</span> • PIN: <span className="font-mono text-cyan-300">{sessao.pin}</span>
           </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-700/60">
+            <button
+              type="button"
+              onClick={handleConfirmarSair}
+              className="text-xs text-gray-400 hover:text-cyan-300 transition-colors underline"
+            >
+              Trocar apelido / Sair da aula
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -575,6 +1003,16 @@ export default function PulsoAluno() {
               <p className="text-xs text-gray-500 mt-6">
                 Você já pode fechar esta aba ou acompanhar o pódio no telão.
               </p>
+
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={handleConfirmarSair}
+                  className="text-xs text-gray-400 hover:text-cyan-300 transition-colors underline"
+                >
+                  Entrar com outro apelido
+                </button>
+              </div>
             </div>
           ) : (
             <div>
@@ -668,6 +1106,16 @@ export default function PulsoAluno() {
                 >
                   {enviandoAvaliacao ? 'Enviando...' : '🚀 Enviar Feedback'}
                 </button>
+
+                <div className="mt-3 text-center">
+                  <button
+                    type="button"
+                    onClick={handleConfirmarSair}
+                    className="text-xs text-gray-500 hover:text-cyan-300 transition-colors underline"
+                  >
+                    Trocar apelido / Sair
+                  </button>
+                </div>
               </form>
             </div>
           )}
@@ -710,10 +1158,18 @@ export default function PulsoAluno() {
             <span className="text-xs">🏆</span>
             <span className="text-xs font-black text-amber-300 font-mono">{pontuacaoAluno}</span>
           </div>
+          <button
+            type="button"
+            onClick={handleConfirmarSair}
+            className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded-xl border border-gray-700 text-xs transition-colors"
+            title="Sair ou trocar de participante"
+          >
+            🚪
+          </button>
         </div>
       </header>
 
-      {/* NOTIFICAÇÃO FLUTUANTE DE NOVA PERGUNTA (CASO O ALUNO ESTEJA EM DÚVIDAS OU ENERGIA) */}
+      {/* NOTIFICAÇÃO FLUTUANTE DE NOVA PERGUNTA (CASO O ALUNO ESTEJA EM OUTRA ABA) */}
       {mostrarAlertaQuiz && abaAtivaAluno !== 'quiz' && (
         <div className="mx-4 mt-3 p-3 bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl shadow-xl flex items-center justify-between text-gray-950 animate-bounce">
           <div className="flex items-center gap-2">
@@ -730,6 +1186,27 @@ export default function PulsoAluno() {
             className="px-3 py-1.5 bg-gray-950 text-white rounded-xl text-xs font-bold shadow active:scale-95"
           >
             Responder Agora →
+          </button>
+        </div>
+      )}
+
+      {/* NOTIFICAÇÃO FLUTUANTE DE NUVEM DE PALAVRAS ATIVA */}
+      {mostrarAlertaNuvem && abaAtivaAluno !== 'nuvem' && sessao?.modoAtivo === 'nuvem' && (
+        <div className="mx-4 mt-3 p-3 bg-gradient-to-r from-sky-500 to-indigo-600 rounded-2xl shadow-xl flex items-center justify-between text-white animate-bounce">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">☁️</span>
+            <span className="text-xs font-black leading-tight">
+              Nuvem de Palavras Ativa no Telão!
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setAbaAtivaAluno('nuvem');
+              setMostrarAlertaNuvem(false);
+            }}
+            className="px-3 py-1.5 bg-gray-950 text-sky-300 rounded-xl text-xs font-bold shadow active:scale-95"
+          >
+            Participar Agora →
           </button>
         </div>
       )}
@@ -898,6 +1375,142 @@ export default function PulsoAluno() {
         )}
 
         {/* ============================================================== */}
+        {/* ABA: NUVEM DE PALAVRAS COLETIVA */}
+        {/* ============================================================== */}
+        {abaAtivaAluno === 'nuvem' && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <span className="text-[10px] uppercase font-mono font-bold px-3 py-1 bg-sky-500/20 text-sky-300 rounded-full border border-sky-500/30">
+                ☁️ Nuvem de Palavras • Rodada {rodadaAtualNuvem}
+              </span>
+              <h2 className="text-lg sm:text-xl font-black text-white mt-2 leading-snug">
+                {sessao.nuvemPergunta || 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?'}
+              </h2>
+              <p className="text-xs text-gray-400 mt-1">
+                Envie até 3 palavras. Elas aparecerão ao vivo no telão da sala!
+              </p>
+            </div>
+
+            {/* FORMULÁRIO DE ENVIO DA PALAVRA */}
+            <form onSubmit={handleAdicionarPalavraNuvem} className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  maxLength={25}
+                  disabled={minhasPalavrasNuvem.length >= 3 || enviandoPalavra}
+                  value={palavraInput}
+                  onChange={(e) => setPalavraInput(e.target.value)}
+                  placeholder={
+                    minhasPalavrasNuvem.length >= 3
+                      ? 'Limite de 3 palavras atingido!'
+                      : 'Digite uma palavra (ex: Prática)...'
+                  }
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded-2xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sky-400 disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={!palavraInput.trim() || minhasPalavrasNuvem.length >= 3 || enviandoPalavra}
+                  className="px-5 py-3 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold rounded-2xl text-xs sm:text-sm transition-transform active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-sky-500/20 flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <span>☁️</span>
+                  <span>{enviandoPalavra ? 'Enviando...' : 'Enviar Nuvem'}</span>
+                </button>
+              </div>
+
+              {/* CONTADOR DE PALAVRAS DO ALUNO */}
+              <div className="flex justify-between items-center px-1 text-[11px] text-gray-400">
+                <span>Suas palavras: <strong className="text-sky-300 font-mono">{minhasPalavrasNuvem.length}/3</strong></span>
+                {minhasPalavrasNuvem.length >= 3 ? (
+                  <span className="text-emerald-400 font-semibold">✓ Limite da rodada alcançado</span>
+                ) : (
+                  <span>Restam {3 - minhasPalavrasNuvem.length} palavras</span>
+                )}
+              </div>
+            </form>
+
+            {/* MINHAS PALAVRAS ENVIADAS (CHIPS COM OPÇÃO DE REMOVER) */}
+            <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-3.5 shadow-md">
+              <span className="text-[11px] uppercase tracking-wider font-bold text-gray-400 block mb-2">
+                Palavras que você enviou:
+              </span>
+              {minhasPalavrasNuvem.length === 0 ? (
+                <p className="text-xs text-gray-500 italic py-1">
+                  Você ainda não enviou palavras para esta rodada. Digite acima e clique em Enviar!
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {minhasPalavrasNuvem.map((palavra, idx) => (
+                    <div
+                      key={idx}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-sky-500/20 to-indigo-500/20 border border-sky-400/40 rounded-xl text-sky-200 text-xs font-bold shadow-sm"
+                    >
+                      <span>☁️ {palavra}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoverPalavraNuvem(palavra)}
+                        className="text-gray-400 hover:text-rose-400 p-0.5 rounded-full hover:bg-white/10 transition-colors"
+                        title="Remover palavra"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* VISUALIZAÇÃO EM TEMPO REAL DAS PALAVRAS DA TURMA */}
+            <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-xs font-bold text-gray-300 flex items-center gap-1.5">
+                  <span>✨</span> Palavras da Turma
+                </span>
+                <span className="text-[10px] text-gray-400 font-mono">
+                  {nuvemTurmaStats.total} palavras • {nuvemTurmaStats.alunos} alunos
+                </span>
+              </div>
+
+              {nuvemTurmaStats.lista.length === 0 ? (
+                <div className="text-center py-6 text-xs text-gray-500">
+                  Aguardando as primeiras palavras da turma...
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2 justify-center items-center py-2 max-h-48 overflow-y-auto">
+                  {nuvemTurmaStats.lista.map((item, idx) => {
+                    const enviadaPorMim = minhasPalavrasNuvem.some(
+                      p => p.toLowerCase() === item.termo.toLowerCase()
+                    );
+                    const ehDestaque = item.count > 1;
+
+                    return (
+                      <span
+                        key={idx}
+                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-xl text-xs transition-all ${
+                          enviadaPorMim
+                            ? 'bg-sky-500/30 border-2 border-sky-400 text-sky-200 font-black shadow-md shadow-sky-500/10'
+                            : ehDestaque
+                            ? 'bg-indigo-500/20 border border-indigo-400/40 text-indigo-200 font-bold'
+                            : 'bg-gray-800/80 border border-gray-700 text-gray-300'
+                        }`}
+                      >
+                        {item.termo}
+                        {item.count > 1 && (
+                          <span className="text-[10px] font-mono opacity-70">
+                            ×{item.count}
+                          </span>
+                        )}
+                        {enviadaPorMim && <span className="text-[10px]">⭐</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* ============================================================== */}
         {/* ABA 2: MURAL DE DÚVIDAS ANÔNIMAS (SEMPRE ACESSÍVEL PELO ALUNO) */}
         {/* ============================================================== */}
         {abaAtivaAluno === 'duvidas' && (
@@ -985,46 +1598,76 @@ export default function PulsoAluno() {
         )}
 
         {/* ============================================================== */}
-        {/* ABA 3: TERMÔMETRO DE ENERGIA & SENTIMENTO */}
+        {/* ABA 3: TERMÔMETRO DE COMPREENSÃO & RITMO DA TURMA */}
         {/* ============================================================== */}
         {abaAtivaAluno === 'energia' && (
           <div className="space-y-4">
             <div className="text-center">
               <span className="text-xs uppercase font-extrabold tracking-widest text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">
-                Termômetro de Energia
+                Termômetro da Aula
               </span>
               <h2 className="text-xl font-black text-white mt-2">
                 Como está seu ritmo agora?
               </h2>
               <p className="text-xs text-gray-400">
-                Atualize como você está se sentindo na aula a qualquer momento:
+                Sinalize para o professor em tempo real. Você pode alterar seu voto a qualquer momento:
               </p>
             </div>
 
             <div className="grid grid-cols-1 gap-3">
               {[
-                { id: 'animado', emoji: '🚀', titulo: 'Animado & Empolgado', desc: 'Acelerando e absorvendo o ritmo', cor: 'from-amber-500/30 to-orange-500/30 border-amber-500/50' },
-                { id: 'pensativo', emoji: '🤔', titulo: 'Pensativo & Reflexivo', desc: 'Processando os conceitos com calma', cor: 'from-blue-500/30 to-indigo-500/30 border-blue-500/50' },
-                { id: 'inspirado', emoji: '💡', titulo: 'Inspirado & Cheio de Ideias', desc: 'Conectando à prática e projetos', cor: 'from-yellow-500/30 to-amber-500/30 border-yellow-500/50' },
-                { id: 'cansado', emoji: '😴', titulo: 'Cansado / Bateria Baixa', desc: 'Precisando de uma pausa ou café', cor: 'from-purple-500/30 to-pink-500/30 border-purple-500/50' },
-                { id: 'confuso', emoji: '🤯', titulo: 'Muita Informação!', desc: 'Conceito denso, preciso rever', cor: 'from-rose-500/30 to-red-500/30 border-rose-500/50' }
+                { 
+                  id: 'pleno', 
+                  emoji: '🚀', 
+                  titulo: '100% Conectado!', 
+                  desc: 'O conteúdo está claro em sua teoria e aplicação.', 
+                  cor: 'from-emerald-500/30 to-teal-500/30 border-emerald-500/60' 
+                },
+                { 
+                  id: 'ritmo', 
+                  emoji: '🏃‍♂️', 
+                  titulo: 'Segue o Jogo!', 
+                  desc: 'Acompanhando bem o ritmo da aula, pode seguir.', 
+                  cor: 'from-cyan-500/30 to-blue-500/30 border-cyan-500/60' 
+                },
+                { 
+                  id: 'pratica', 
+                  emoji: '💡', 
+                  titulo: 'Preciso da Prática!', 
+                  desc: 'Teoria clara, tentando buscar uma aplicação prática.', 
+                  cor: 'from-amber-500/30 to-yellow-500/30 border-amber-500/60' 
+                },
+                { 
+                  id: 'teoria', 
+                  emoji: '📖', 
+                  titulo: 'Preciso da Teoria!', 
+                  desc: 'A ideia faz sentido, mas preciso entender o conceito de fundo.', 
+                  cor: 'from-orange-500/30 to-purple-500/30 border-orange-500/60' 
+                },
+                { 
+                  id: 'perdi', 
+                  emoji: '🛑', 
+                  titulo: 'Me Perdi! Me Espera!', 
+                  desc: 'O ritmo acelerou ou travei em um ponto. Dá uma pausa!', 
+                  cor: 'from-rose-500/30 to-red-500/30 border-rose-500/60' 
+                }
               ].map((item) => (
                 <button
                   key={item.id}
                   onClick={() => handleVotarSentimento(item.id)}
                   className={`p-4 rounded-2xl border text-left flex items-center gap-4 transition-all transform active:scale-95 ${
                     sentimentoVotado === item.id
-                      ? `bg-gradient-to-r ${item.cor} ring-2 ring-cyan-400 shadow-lg`
+                      ? `bg-gradient-to-r ${item.cor} ring-2 ring-cyan-400 shadow-lg scale-[1.01]`
                       : 'bg-gray-800/80 border-gray-700/80 hover:bg-gray-700/80'
                   }`}
                 >
                   <span className="text-3xl">{item.emoji}</span>
                   <div className="flex-1">
                     <h3 className="font-bold text-sm text-white">{item.titulo}</h3>
-                    <p className="text-xs text-gray-400">{item.desc}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{item.desc}</p>
                   </div>
                   {sentimentoVotado === item.id && (
-                    <span className="text-cyan-400 text-lg font-bold">✓</span>
+                    <span className="text-cyan-400 text-lg font-black">✓</span>
                   )}
                 </button>
               ))}
@@ -1037,35 +1680,53 @@ export default function PulsoAluno() {
       {/* ============================================================== */}
       {/* BARRA DE NAVEGAÇÃO INFERIOR DO ALUNO (CONTROLE TOTAL NO CELULAR) */}
       {/* ============================================================== */}
-      <nav className="fixed bottom-0 inset-x-0 bg-gray-900/95 backdrop-blur-xl border-t border-gray-800 py-2 px-4 z-40 flex justify-around items-center max-w-lg mx-auto">
+      <nav className="fixed bottom-0 inset-x-0 bg-gray-900/95 backdrop-blur-xl border-t border-gray-800 py-2 px-2 z-40 flex justify-around items-center max-w-lg mx-auto">
         <button
           onClick={() => {
             setAbaAtivaAluno('quiz');
             setMostrarAlertaQuiz(false);
           }}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all relative ${
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl transition-all relative ${
             abaAtivaAluno === 'quiz'
               ? 'text-cyan-400 font-bold scale-105'
               : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           <span className="text-xl">🎯</span>
-          <span className="text-[11px]">Quiz</span>
+          <span className="text-[10px] sm:text-[11px]">Quiz</span>
           {quizAtivoAberto && (
-            <span className="absolute top-1 right-2 w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping" />
+            <span className="absolute top-1 right-2 w-2 h-2 bg-rose-500 rounded-full animate-ping" />
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            setAbaAtivaAluno('nuvem');
+            setMostrarAlertaNuvem(false);
+          }}
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl transition-all relative ${
+            abaAtivaAluno === 'nuvem'
+              ? 'text-sky-400 font-bold scale-105'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          <span className="text-xl">☁️</span>
+          <span className="text-[10px] sm:text-[11px]">Nuvem</span>
+          {sessao?.modoAtivo === 'nuvem' && (
+            <span className="absolute top-1 right-2 w-2 h-2 bg-sky-400 rounded-full animate-pulse" />
           )}
         </button>
 
         <button
           onClick={() => setAbaAtivaAluno('duvidas')}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all relative ${
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl transition-all relative ${
             abaAtivaAluno === 'duvidas'
               ? 'text-indigo-400 font-bold scale-105'
               : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           <span className="text-xl">💬</span>
-          <span className="text-[11px]">Dúvidas</span>
+          <span className="text-[10px] sm:text-[11px]">Dúvidas</span>
           {duvidasLista.length > 0 && (
             <span className="absolute top-0.5 right-1 px-1.5 py-0.2 bg-indigo-500 text-white rounded-full text-[9px] font-mono font-bold">
               {duvidasLista.length}
@@ -1075,14 +1736,14 @@ export default function PulsoAluno() {
 
         <button
           onClick={() => setAbaAtivaAluno('energia')}
-          className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all ${
+          className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl transition-all ${
             abaAtivaAluno === 'energia'
               ? 'text-amber-400 font-bold scale-105'
               : 'text-gray-400 hover:text-gray-200'
           }`}
         >
           <span className="text-xl">⚡</span>
-          <span className="text-[11px]">Energia</span>
+          <span className="text-[10px] sm:text-[11px]">Termômetro</span>
         </button>
       </nav>
 

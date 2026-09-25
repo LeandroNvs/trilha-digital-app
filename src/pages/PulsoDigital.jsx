@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import html2canvas from 'html2canvas';
 import { 
   collection, query, where, onSnapshot, doc, getDoc, setDoc, addDoc, updateDoc, 
-  deleteDoc, getDocs, serverTimestamp, orderBy 
+  deleteDoc, getDocs, serverTimestamp, orderBy, increment 
 } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { db, appId, auth } from '../firebase/config.js';
@@ -18,11 +19,33 @@ export default function PulsoDigital() {
   const [sessaoSelecionadaId, setSessaoSelecionadaId] = useState(null);
   const [sessaoAtiva, setSessaoAtiva] = useState(null);
 
-  // Participantes, Dúvidas e Feedbacks da Sessão Ativa
+  // Participantes, Dúvidas, Feedbacks e Nuvem da Sessão Ativa
   const [participantes, setParticipantes] = useState([]);
   const [duvidas, setDuvidas] = useState([]);
   const [feedbacks, setFeedbacks] = useState([]);
   const [respostasQuiz, setRespostasQuiz] = useState([]);
+  const [respostasNuvem, setRespostasNuvem] = useState([]);
+  const [nuvemPerguntaInput, setNuvemPerguntaInput] = useState('');
+  const [palavrasOcultadas, setPalavrasOcultadas] = useState([]);
+  const [editandoPerguntaNuvem, setEditandoPerguntaNuvem] = useState(false);
+  const [baixandoNuvem, setBaixandoNuvem] = useState(false);
+  const [nuvemEnviadaSucesso, setNuvemEnviadaSucesso] = useState(false);
+  const nuvemContainerRef = useRef(null);
+
+  // Relógio para recalcular presença ativa a cada 30 segundos
+  const [relogioOnline, setRelogioOnline] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setRelogioOnline(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const participantesAtivosCount = useMemo(() => {
+    const limiteMs = 3 * 60 * 1000; // Considera ativo se enviou ping nos últimos 3 minutos
+    return participantes.filter(p => {
+      const stamp = p.ultimoAcesso?.toMillis ? p.ultimoAcesso.toMillis() : (p.conectadoEm?.toMillis ? p.conectadoEm.toMillis() : 0);
+      return (relogioOnline - stamp) < limiteMs;
+    }).length;
+  }, [participantes, relogioOnline]);
 
   // Estados dos Modais e Telas
   const [modalNovaSessaoAberto, setModalNovaSessaoAberto] = useState(false);
@@ -154,6 +177,30 @@ export default function PulsoDigital() {
     return () => unsubscribe();
   }, [sessaoSelecionadaId]);
 
+  // Escutar respostas da Nuvem de Palavras da sessão ativa
+  useEffect(() => {
+    if (!sessaoSelecionadaId) {
+      setRespostasNuvem([]);
+      return;
+    }
+    const nuvemRef = collection(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessaoSelecionadaId}/respostas_nuvem`);
+    const unsubscribe = onSnapshot(nuvemRef, (snap) => {
+      const lista = [];
+      snap.forEach(d => lista.push({ id: d.id, ...d.data() }));
+      setRespostasNuvem(lista);
+    });
+    return () => unsubscribe();
+  }, [sessaoSelecionadaId]);
+
+  // Sincronizar input da pergunta da nuvem com a sessão ativa
+  useEffect(() => {
+    if (sessaoAtiva?.nuvemPergunta) {
+      setNuvemPerguntaInput(sessaoAtiva.nuvemPergunta);
+    } else {
+      setNuvemPerguntaInput('Em uma ou duas palavras, qual sua expectativa para a aula de hoje?');
+    }
+  }, [sessaoAtiva?.id, sessaoAtiva?.nuvemPergunta]);
+
   // Gerar PIN numérico de 6 dígitos
   const gerarPinUnico = () => {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -179,7 +226,9 @@ export default function PulsoDigital() {
         disciplinaNome: disciplinaObj?.nome || disciplinaObj?.sigla || 'Disciplina Geral',
         observacoes: novasObservacoes.trim(),
         status: 'preparada', // 'preparada' | 'ao_vivo' | 'encerrada'
-        modoAtivo: 'sentimento', // 'espera' | 'sentimento' | 'duvidas' | 'quiz'
+        modoAtivo: 'sentimento', // 'espera' | 'sentimento' | 'nuvem' | 'duvidas' | 'quiz'
+        nuvemPergunta: 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?',
+        nuvemRodada: 1,
         quizAtivo: null,
         questoes: [], // Lista de perguntas elaboradas pelo professor para esta aula
         totalParticipantes: 0,
@@ -260,12 +309,21 @@ export default function PulsoDigital() {
         await deleteDoc(d.ref);
       }
 
-      // 5. Resetar documento principal da sessão
+      // 5. Limpar subcoleção respostas da nuvem de palavras
+      const nuvRef = collection(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessaoAtiva.id}/respostas_nuvem`);
+      const nuvDocs = await getDocs(nuvRef);
+      for (const d of nuvDocs.docs) {
+        await deleteDoc(d.ref);
+      }
+
+      // 6. Resetar documento principal da sessão
       const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
       await updateDoc(sessaoDocRef, {
         status: 'preparada',
         modoAtivo: 'sentimento',
         quizAtivo: null,
+        nuvemPergunta: 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?',
+        nuvemRodada: 1,
         totalParticipantes: 0,
         totalFeedbacks: 0,
         sentimentos: {},
@@ -280,6 +338,109 @@ export default function PulsoDigital() {
       alert("Houve um erro ao resetar a aula.");
     } finally {
       setResetandoAula(false);
+    }
+  };
+
+  // Remover participante indesejado/duplicado manualmente
+  const handleRemoverParticipante = async (participanteId, apelidoRemovido) => {
+    if (!sessaoAtiva?.id) return;
+    const confirmou = window.confirm(`Deseja remover "${apelidoRemovido}" desta aula?`);
+    if (!confirmou) return;
+
+    try {
+      const partDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessaoAtiva.id}/participantes`, participanteId);
+      await deleteDoc(partDocRef);
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      await updateDoc(sessaoDocRef, {
+        totalParticipantes: increment(-1)
+      }).catch(() => {});
+    } catch (err) {
+      console.error("Erro ao remover participante:", err);
+      alert("Houve um erro ao remover o participante.");
+    }
+  };
+
+  // Salvar/Atualizar a pergunta aberta da nuvem
+  const handleSalvarPerguntaNuvem = async () => {
+    if (!sessaoAtiva?.id || !nuvemPerguntaInput.trim()) return;
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      await updateDoc(sessaoDocRef, {
+        nuvemPergunta: nuvemPerguntaInput.trim()
+      });
+      setEditandoPerguntaNuvem(false);
+    } catch (err) {
+      console.error("Erro ao atualizar pergunta da nuvem:", err);
+      alert("Houve um erro ao atualizar a pergunta.");
+    }
+  };
+
+  // Limpar a nuvem para iniciar uma nova rodada (ex: no final da aula)
+  const handleLimparNuvem = async () => {
+    if (!sessaoAtiva?.id) return;
+    const confirmou = window.confirm(
+      "Deseja iniciar uma nova rodada da Nuvem de Palavras?\n\nAs respostas da tela serão limpas para que os alunos possam responder à nova pergunta (ex: fechamento/síntese da aula)."
+    );
+    if (!confirmou) return;
+
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      const novaRodada = (sessaoAtiva.nuvemRodada || 1) + 1;
+      await updateDoc(sessaoDocRef, {
+        nuvemRodada: novaRodada
+      });
+      setPalavrasOcultadas([]);
+    } catch (err) {
+      console.error("Erro ao iniciar nova rodada da nuvem:", err);
+    }
+  };
+
+  // Disparar / Enviar Nuvem para os alunos da turma
+  const handleDispararNuvem = async () => {
+    if (!sessaoAtiva?.id) return;
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      const updates = {
+        modoAtivo: 'nuvem',
+        nuvemDisparadaEm: serverTimestamp()
+      };
+      if (editandoPerguntaNuvem && nuvemPerguntaInput.trim()) {
+        updates.nuvemPergunta = nuvemPerguntaInput.trim();
+        setEditandoPerguntaNuvem(false);
+      }
+      await updateDoc(sessaoDocRef, updates);
+      setNuvemEnviadaSucesso(true);
+      setTimeout(() => setNuvemEnviadaSucesso(false), 3500);
+    } catch (err) {
+      console.error("Erro ao enviar nuvem para os alunos:", err);
+      alert("Houve um erro ao enviar a nuvem para a turma.");
+    }
+  };
+
+  // Baixar imagem em alta resolução da Nuvem de Palavras (PNG)
+  const handleBaixarNuvem = async () => {
+    if (!nuvemContainerRef.current) return;
+    setBaixandoNuvem(true);
+    try {
+      const canvas = await html2canvas(nuvemContainerRef.current, {
+        backgroundColor: '#030712', // gray-950
+        scale: 2, // 2x para exportação nítida em alta definição
+        useCORS: true,
+        logging: false
+      });
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      const turmaNomeLimpo = (sessaoAtiva.turmaNome || 'aula').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const dataAtual = new Date().toISOString().slice(0, 10);
+      link.download = `nuvem_palavras_${turmaNomeLimpo}_rodada${rodadaAtualNuvem}_${dataAtual}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("Erro ao baixar nuvem:", err);
+      alert("Houve um erro ao exportar a imagem da nuvem.");
+    } finally {
+      setBaixandoNuvem(false);
     }
   };
 
@@ -441,9 +602,9 @@ export default function PulsoDigital() {
     }
   };
 
-  // Métricas Consolidadas dos Sentimentos
+  // Métricas Consolidadas dos Sentimentos (Termômetro da Aula)
   const sentimentosStats = useMemo(() => {
-    const contadores = { animado: 0, pensativo: 0, inspirado: 0, cansado: 0, confuso: 0 };
+    const contadores = { pleno: 0, ritmo: 0, pratica: 0, teoria: 0, perdi: 0 };
     participantes.forEach(p => {
       if (p.sentimento && contadores[p.sentimento] !== undefined) {
         contadores[p.sentimento]++;
@@ -452,6 +613,46 @@ export default function PulsoDigital() {
     const total = Object.values(contadores).reduce((a, b) => a + b, 0);
     return { contadores, total };
   }, [participantes]);
+
+  // Métricas Consolidadas da Nuvem de Palavras
+  const rodadaAtualNuvem = sessaoAtiva?.nuvemRodada || 1;
+  const nuvemStats = useMemo(() => {
+    const respostasDaRodada = respostasNuvem.filter(r => (r.rodada || 1) === rodadaAtualNuvem);
+    const mapa = {};
+    let totalPalavras = 0;
+
+    respostasDaRodada.forEach(r => {
+      (r.palavras || []).forEach(p => {
+        if (!p || typeof p !== 'string') return;
+        const limpa = p.trim().replace(/[.,!?;:"'()#@]/g, '');
+        if (limpa.length < 2) return;
+        const chave = limpa.toLowerCase();
+        
+        if (palavrasOcultadas.includes(chave)) return;
+
+        if (!mapa[chave]) {
+          mapa[chave] = {
+            termo: limpa.charAt(0).toUpperCase() + limpa.slice(1).toLowerCase(),
+            count: 0
+          };
+        }
+        mapa[chave].count++;
+        totalPalavras++;
+      });
+    });
+
+    const lista = Object.values(mapa).sort((a, b) => b.count - a.count);
+    const maxCount = lista.length > 0 ? Math.max(...lista.map(item => item.count)) : 1;
+    const minCount = lista.length > 0 ? Math.min(...lista.map(item => item.count)) : 1;
+
+    return {
+      lista,
+      totalPalavras,
+      totalAlunos: respostasDaRodada.length,
+      maxCount,
+      minCount
+    };
+  }, [respostasNuvem, rodadaAtualNuvem, palavrasOcultadas]);
 
   // Estatísticas do Quiz Ativo
   const statsRespostasQuiz = useMemo(() => {
@@ -928,12 +1129,17 @@ export default function PulsoDigital() {
                 {/* Participantes Conectados em Tempo Real */}
                 <div className="w-full mt-2 pt-4 border-t border-gray-700 text-left">
                   <div className="flex justify-between items-center mb-3">
-                    <span className="text-xs uppercase font-bold text-gray-300">
-                      👥 Alunos Conectados ({participantes.length})
-                    </span>
-                    <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
-                      Ao Vivo
+                    <div>
+                      <span className="text-xs uppercase font-bold text-gray-300 block">
+                        👥 Alunos ({participantes.length})
+                      </span>
+                      <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1 mt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                        {participantesAtivosCount} online agora
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-cyan-300 font-bold bg-cyan-500/10 px-2.5 py-1 rounded-full border border-cyan-500/20">
+                      Sincronizado
                     </span>
                   </div>
 
@@ -943,20 +1149,38 @@ export default function PulsoDigital() {
                         Aguardando os primeiros alunos escanearem o QR Code...
                       </p>
                     ) : (
-                      participantes.map((p) => (
-                        <div
-                          key={p.id}
-                          className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gray-900 border border-gray-700 text-xs shadow-sm hover:border-cyan-400 transition-colors"
-                        >
-                          <span className="text-base">{p.avatarEmoji || '👤'}</span>
-                          <span className="font-semibold text-gray-200">{p.apelido}</span>
-                          {p.pontos > 0 && (
-                            <span className="text-[10px] font-mono font-bold text-amber-300 ml-1">
-                              {p.pontos}
-                            </span>
-                          )}
-                        </div>
-                      ))
+                      participantes.map((p) => {
+                        const stamp = p.ultimoAcesso?.toMillis ? p.ultimoAcesso.toMillis() : (p.conectadoEm?.toMillis ? p.conectadoEm.toMillis() : 0);
+                        const estaAtivo = (relogioOnline - stamp) < (3 * 60 * 1000);
+                        return (
+                          <div
+                            key={p.id}
+                            className={`group flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gray-900 border text-xs shadow-sm transition-all ${
+                              estaAtivo ? 'border-emerald-500/40 text-gray-200' : 'border-gray-800 text-gray-400 opacity-75'
+                            }`}
+                          >
+                            <span className="text-base">{p.avatarEmoji || '👤'}</span>
+                            <span className="font-semibold">{p.apelido}</span>
+                            {p.pontos > 0 && (
+                              <span className="text-[10px] font-mono font-bold text-amber-300 ml-0.5">
+                                {p.pontos}
+                              </span>
+                            )}
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ml-1 ${estaAtivo ? 'bg-emerald-400 shadow-sm shadow-emerald-400 animate-pulse' : 'bg-gray-600'}`}
+                              title={estaAtivo ? 'Online agora' : 'Ausente ou segundo plano (>3 min)'}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoverParticipante(p.id, p.apelido)}
+                              className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-gray-500 ml-1 text-xs transition-opacity"
+                              title={`Remover ${p.apelido} da aula`}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -970,9 +1194,10 @@ export default function PulsoDigital() {
                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider block mb-3">
                     Dinâmica Ativa no Telão & Celulares:
                   </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                     {[
-                      { id: 'sentimento', emoji: '⚡', label: 'Termômetro', desc: 'Sentimento da Turma' },
+                      { id: 'sentimento', emoji: '⚡', label: 'Termômetro', desc: 'Compreensão & Ritmo' },
+                      { id: 'nuvem', emoji: '☁️', label: 'Nuvem', desc: 'Nuvem de Palavras' },
                       { id: 'duvidas', emoji: '💬', label: 'Dúvidas', desc: 'Mural Anônimo' },
                       { id: 'quiz', emoji: '🎯', label: 'Quiz', desc: 'Perguntas da Aula' },
                       { id: 'espera', emoji: '👀', label: 'Telão', desc: 'Modo Apresentação' }
@@ -994,30 +1219,95 @@ export default function PulsoDigital() {
                   </div>
                 </div>
 
-                {/* PAINEL DINÂMICO 1: TERMÔMETRO DE SENTIMENTOS */}
+                {/* PAINEL DINÂMICO 1: TERMÔMETRO DE COMPREENSÃO & RITMO */}
                 {sessaoAtiva.modoAtivo === 'sentimento' && (
-                  <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-xl">
-                    <div className="flex justify-between items-center mb-6">
+                  <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-xl space-y-6">
+                    <div className="flex flex-wrap justify-between items-center gap-4">
                       <div>
                         <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                          <span>⚡</span> Termômetro de Energia & Sentimento da Turma
+                          <span>⚡</span> Termômetro da Turma (Compreensão & Ritmo)
                         </h3>
                         <p className="text-xs text-gray-400">
-                          Atualização em tempo real conforme os alunos tocam nos celulares
+                          Sinalização contínua dos alunos sobre teoria, prática e andamento da aula
                         </p>
                       </div>
                       <span className="text-xs font-mono font-bold px-3 py-1 bg-cyan-500/20 text-cyan-300 rounded-full border border-cyan-500/30">
-                        {sentimentosStats.total} votos
+                        {sentimentosStats.total} votos ativos
                       </span>
                     </div>
 
+                    {/* CARD DE INSIGHT PEDAGÓGICO EM TEMPO REAL */}
+                    {sentimentosStats.total > 0 && (
+                      <div className="p-4 rounded-2xl bg-gray-900/90 border border-gray-700/80 flex items-start gap-3.5 shadow-inner">
+                        <span className="text-2xl mt-0.5">
+                          {sentimentosStats.contadores.perdi > 0 && (sentimentosStats.contadores.perdi / sentimentosStats.total) >= 0.2
+                            ? '🛑'
+                            : sentimentosStats.contadores.pratica > sentimentosStats.contadores.teoria && sentimentosStats.contadores.pratica > 0
+                            ? '💡'
+                            : sentimentosStats.contadores.teoria > sentimentosStats.contadores.pratica && sentimentosStats.contadores.teoria > 0
+                            ? '📖'
+                            : '🚀'}
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold text-white">
+                            {sentimentosStats.contadores.perdi > 0 && (sentimentosStats.contadores.perdi / sentimentosStats.total) >= 0.2
+                              ? 'Alerta de Ritmo: Alunos pedindo pausa / revisão!'
+                              : sentimentosStats.contadores.pratica > sentimentosStats.contadores.teoria && sentimentosStats.contadores.pratica > 0
+                              ? 'Demanda por Aplicação Prática: Alunos pedindo exemplos práticos.'
+                              : sentimentosStats.contadores.teoria > sentimentosStats.contadores.pratica && sentimentosStats.contadores.teoria > 0
+                              ? 'Demanda Conceitual: Alunos querem aprofundar na base teórica.'
+                              : 'Excelente Fluidez: A turma está acompanhando com segurança!'}
+                          </h4>
+                          <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+                            {sentimentosStats.contadores.perdi > 0 && (sentimentosStats.contadores.perdi / sentimentosStats.total) >= 0.2
+                              ? 'Mais de 20% da turma sinalizou que se perdeu. Vale abrir para dúvidas antes de mudar de assunto.'
+                              : sentimentosStats.contadores.pratica > sentimentosStats.contadores.teoria && sentimentosStats.contadores.pratica > 0
+                              ? 'A turma compreendeu o conceito abstrato e quer ver como isso se aplica no mundo real ou em exercícios.'
+                              : sentimentosStats.contadores.teoria > sentimentosStats.contadores.pratica && sentimentosStats.contadores.teoria > 0
+                              ? 'A turma entendeu a utilidade prática, mas precisa fixar melhor as regras, conceitos ou definições.'
+                              : 'A grande maioria compreendeu tanto a teoria quanto a aplicação e está no mesmo ritmo.'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="space-y-4">
                       {[
-                        { id: 'animado', emoji: '🚀', label: 'Animados & Empolgados', cor: 'bg-gradient-to-r from-amber-500 to-orange-500' },
-                        { id: 'pensativo', emoji: '🤔', label: 'Pensativos & Reflexivos', cor: 'bg-gradient-to-r from-blue-500 to-indigo-500' },
-                        { id: 'inspirado', emoji: '💡', label: 'Inspirados & Novas Ideias', cor: 'bg-gradient-to-r from-yellow-400 to-amber-500' },
-                        { id: 'cansado', emoji: '😴', label: 'Cansados / Bateria Baixa', cor: 'bg-gradient-to-r from-purple-500 to-pink-500' },
-                        { id: 'confuso', emoji: '🤯', label: 'Muita Informação / Revisar', cor: 'bg-gradient-to-r from-rose-500 to-red-500' }
+                        { 
+                          id: 'pleno', 
+                          emoji: '🚀', 
+                          label: '100% Conectado!', 
+                          desc: 'O conteúdo está claro em sua teoria e aplicação', 
+                          cor: 'bg-gradient-to-r from-emerald-500 to-teal-500' 
+                        },
+                        { 
+                          id: 'ritmo', 
+                          emoji: '🏃‍♂️', 
+                          label: 'Segue o Jogo!', 
+                          desc: 'Acompanhando bem o ritmo da aula, pode seguir', 
+                          cor: 'bg-gradient-to-r from-cyan-500 to-blue-500' 
+                        },
+                        { 
+                          id: 'pratica', 
+                          emoji: '💡', 
+                          label: 'Preciso da Prática!', 
+                          desc: 'Teoria clara, tentando buscar uma aplicação prática', 
+                          cor: 'bg-gradient-to-r from-amber-400 to-yellow-500' 
+                        },
+                        { 
+                          id: 'teoria', 
+                          emoji: '📖', 
+                          label: 'Preciso da Teoria!', 
+                          desc: 'A ideia faz sentido, mas preciso entender o conceito de fundo', 
+                          cor: 'bg-gradient-to-r from-orange-500 to-purple-600' 
+                        },
+                        { 
+                          id: 'perdi', 
+                          emoji: '🛑', 
+                          label: 'Me Perdi! Me Espera!', 
+                          desc: 'O ritmo acelerou ou travei em um ponto. Dá uma pausa!', 
+                          cor: 'bg-gradient-to-r from-rose-500 to-red-600' 
+                        }
                       ].map((item) => {
                         const qtd = sentimentosStats.contadores[item.id] || 0;
                         const pct = sentimentosStats.total > 0 
@@ -1025,11 +1315,14 @@ export default function PulsoDigital() {
                           : 0;
                         return (
                           <div key={item.id} className="space-y-1.5">
-                            <div className="flex justify-between text-sm">
-                              <span className="font-semibold text-white flex items-center gap-2">
-                                <span className="text-xl">{item.emoji}</span>
-                                <span>{item.label}</span>
-                              </span>
+                            <div className="flex justify-between items-end text-sm">
+                              <div>
+                                <span className="font-semibold text-white flex items-center gap-2">
+                                  <span className="text-xl">{item.emoji}</span>
+                                  <span>{item.label}</span>
+                                </span>
+                                <span className="text-[11px] text-gray-400 block ml-7">{item.desc}</span>
+                              </div>
                               <span className="font-mono font-bold text-gray-300">{qtd} ({pct}%)</span>
                             </div>
                             <div className="w-full bg-gray-900 rounded-full h-3 overflow-hidden border border-gray-700/80">
@@ -1041,6 +1334,208 @@ export default function PulsoDigital() {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* PAINEL DINÂMICO: NUVEM DE PALAVRAS AO VIVO */}
+                {sessaoAtiva.modoAtivo === 'nuvem' && (
+                  <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-xl space-y-6">
+                    {/* CABEÇALHO COM PERGUNTA ABERTA E CONTROLES */}
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700/80 pb-5">
+                      <div className="flex-1 min-w-[280px]">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase font-mono font-bold tracking-widest text-cyan-400 bg-cyan-500/10 px-2.5 py-0.5 rounded-full border border-cyan-500/20">
+                            Nuvem de Palavras • Rodada #{rodadaAtualNuvem}
+                          </span>
+                          {sessaoAtiva.modoAtivo === 'nuvem' && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                              Ativa no Telão & Celulares
+                            </span>
+                          )}
+                        </div>
+                        
+                        {editandoPerguntaNuvem ? (
+                          <div className="flex gap-2 mt-2">
+                            <input
+                              type="text"
+                              maxLength={120}
+                              value={nuvemPerguntaInput}
+                              onChange={(e) => setNuvemPerguntaInput(e.target.value)}
+                              placeholder="Digite a pergunta aberta da nuvem..."
+                              className="flex-1 bg-gray-900 border-2 border-cyan-500 rounded-xl px-3 py-2 text-sm text-white focus:outline-none"
+                            />
+                            <button
+                              onClick={handleSalvarPerguntaNuvem}
+                              className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-gray-950 font-bold rounded-xl text-xs transition-colors"
+                            >
+                              Salvar
+                            </button>
+                            <button
+                              onClick={() => setEditandoPerguntaNuvem(false)}
+                              className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-xl text-xs"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 mt-1.5 group">
+                            <h3 className="text-xl sm:text-2xl font-black text-white leading-snug">
+                              {sessaoAtiva.nuvemPergunta || 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?'}
+                            </h3>
+                            <button
+                              onClick={() => setEditandoPerguntaNuvem(true)}
+                              className="p-1.5 text-gray-400 hover:text-cyan-300 hover:bg-gray-700/50 rounded-lg text-xs opacity-75 group-hover:opacity-100 transition-opacity"
+                              title="Editar pergunta aberta"
+                            >
+                              ✏️
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Ações da Nuvem: Enviar Nuvem, Baixar Nuvem, Limpar/Nova Rodada */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          onClick={handleDispararNuvem}
+                          className="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-gray-950 font-black rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-cyan-500/20 active:scale-95 transition-transform"
+                          title="Disparar a dinâmica para os celulares dos alunos e projetar no telão"
+                        >
+                          <span>🚀</span> {nuvemEnviadaSucesso ? 'Nuvem Disparada!' : 'Enviar Nuvem para Turma'}
+                        </button>
+
+                        <button
+                          onClick={handleBaixarNuvem}
+                          disabled={baixandoNuvem || nuvemStats.totalPalavras === 0}
+                          className="px-3.5 py-2.5 bg-gray-900 hover:bg-gray-700 text-cyan-300 font-bold rounded-xl text-xs border border-cyan-500/30 flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Baixar imagem em PNG da nuvem de palavras para apresentações e relatórios"
+                        >
+                          <span>📥</span> {baixandoNuvem ? 'Gerando Imagem...' : 'Baixar Nuvem (PNG)'}
+                        </button>
+
+                        <button
+                          onClick={handleLimparNuvem}
+                          className="px-3.5 py-2.5 bg-gray-900 hover:bg-gray-700 text-amber-300 font-bold rounded-xl text-xs border border-amber-500/30 flex items-center gap-1.5 shadow-sm transition-colors"
+                          title="Limpar respostas e iniciar nova rodada (ex: fechamento da aula)"
+                        >
+                          <span>🔄</span> Nova Rodada
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* ÁREA EXPORTÁVEL DA NUVEM (CAPTURA DO HTML2CANVAS) */}
+                    <div ref={nuvemContainerRef} className="space-y-4 p-4 rounded-3xl bg-gray-950/70 border border-gray-800">
+                      {/* Cabeçalho do Card para Exportação */}
+                      <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+                        <div>
+                          <div className="flex items-center gap-2 text-xs text-gray-400">
+                            <span className="font-bold text-cyan-400">⚡ Pulso Digital</span>
+                            <span>•</span>
+                            <span className="text-gray-300 font-semibold">{sessaoAtiva.turmaNome || 'Turma'}</span>
+                            <span>•</span>
+                            <span>{sessaoAtiva.titulo}</span>
+                          </div>
+                          <h4 className="text-lg font-black text-white mt-1">
+                            "{sessaoAtiva.nuvemPergunta || 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?'}"
+                          </h4>
+                        </div>
+                        <span className="text-[10px] uppercase font-mono font-bold px-2.5 py-1 bg-cyan-500/10 text-cyan-300 rounded-full border border-cyan-500/20">
+                          Rodada #{rodadaAtualNuvem}
+                        </span>
+                      </div>
+
+                      {/* BARRA DE ESTATÍSTICAS RÁPIDAS */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-gray-900/60 border border-gray-700/60 rounded-2xl p-3 text-center">
+                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Palavras Enviadas</span>
+                          <span className="text-xl font-black text-white font-mono">{nuvemStats.totalPalavras}</span>
+                        </div>
+                        <div className="bg-gray-900/60 border border-gray-700/60 rounded-2xl p-3 text-center">
+                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Termos Únicos</span>
+                          <span className="text-xl font-black text-cyan-300 font-mono">{nuvemStats.lista.length}</span>
+                        </div>
+                        <div className="bg-gray-900/60 border border-gray-700/60 rounded-2xl p-3 text-center">
+                          <span className="text-[10px] uppercase font-bold text-gray-400 block">Alunos Participantes</span>
+                          <span className="text-xl font-black text-emerald-300 font-mono">{nuvemStats.totalAlunos}</span>
+                        </div>
+                      </div>
+
+                      {/* CANVAS / NUVEM DE PALAVRAS VIBRANTE */}
+                      <div className="bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 border border-gray-700 rounded-3xl p-6 sm:p-10 min-h-[320px] flex flex-wrap items-center justify-center gap-3 sm:gap-4 shadow-inner relative overflow-hidden">
+                        {nuvemStats.lista.length === 0 ? (
+                          <div className="text-center py-12">
+                            <span className="text-5xl block mb-2 opacity-50">☁️</span>
+                            <p className="text-sm font-bold text-gray-300">
+                              Aguardando os alunos enviarem as primeiras palavras...
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              A nuvem se formará aqui automaticamente em tempo real!
+                            </p>
+                          </div>
+                        ) : (
+                          nuvemStats.lista.map((item, idx) => {
+                            const tamFonte = Math.round(
+                              15 + ((item.count - nuvemStats.minCount) / (Math.max(1, nuvemStats.maxCount - nuvemStats.minCount))) * 35
+                            );
+                            const ehLider = idx === 0 && item.count > 1;
+
+                            const cores = [
+                              'text-cyan-300 border-cyan-500/30 bg-cyan-500/10',
+                              'text-emerald-300 border-emerald-500/30 bg-emerald-500/10',
+                              'text-amber-300 border-amber-500/30 bg-amber-500/10',
+                              'text-purple-300 border-purple-500/30 bg-purple-500/10',
+                              'text-rose-300 border-rose-500/30 bg-rose-500/10',
+                              'text-blue-300 border-blue-500/30 bg-blue-500/10',
+                              'text-teal-300 border-teal-500/30 bg-teal-500/10'
+                            ];
+                            const corEstilo = cores[idx % cores.length];
+
+                            return (
+                              <div
+                                key={item.termo}
+                                style={{ fontSize: `${tamFonte}px` }}
+                                className={`group inline-flex items-center gap-1.5 px-3.5 py-1 rounded-2xl border font-bold transition-all transform hover:scale-110 cursor-default select-none shadow-sm ${corEstilo} ${
+                                  ehLider ? 'ring-2 ring-amber-400 shadow-amber-400/20 font-black' : ''
+                                }`}
+                              >
+                                <span>{item.termo}</span>
+                                <span className="text-[11px] font-mono px-1.5 py-0.2 rounded-full bg-black/40 text-gray-300 font-bold opacity-80">
+                                  {item.count}
+                                </span>
+                                <button
+                                  onClick={() => setPalavrasOcultadas(prev => [...prev, item.termo.toLowerCase()])}
+                                  className="opacity-0 group-hover:opacity-100 hover:text-red-400 text-gray-500 text-xs ml-0.5 transition-opacity"
+                                  title="Ocultar termo da nuvem"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      {/* PÓDIO / TOP 5 PALAVRAS MAIS CITADAS */}
+                      {nuvemStats.lista.length > 0 && (
+                        <div className="bg-gray-900/70 border border-gray-700/70 rounded-2xl p-4">
+                          <span className="text-xs uppercase font-bold text-gray-400 tracking-wider block mb-2">
+                            🏆 Termos Mais Citados:
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {nuvemStats.lista.slice(0, 5).map((item, idx) => (
+                              <div
+                                key={item.termo}
+                                className="flex items-center gap-1.5 px-3 py-1 bg-gray-800 rounded-xl border border-gray-700 text-xs font-semibold"
+                              >
+                                <span className="text-amber-400 font-mono font-bold">#{idx + 1}</span>
+                                <span className="text-white">{item.termo}</span>
+                                <span className="text-[10px] text-gray-400 font-mono">({item.count}x)</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
