@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Módulo Pulso Digital: Acesso 100% anônimo via QR Code ou PIN (sem exigir login/cadastro)
+    match /artifacts/{appId}/public/data/pulso_sessoes/{document=**} {
+      allow read, write: if true;
+    }
+
+    // Demais módulos da plataforma: exigem usuário autenticado
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

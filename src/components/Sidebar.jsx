@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebase/config.js';
+import { signOut, updateProfile } from 'firebase/auth';
+import { doc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase/config.js';
 
 // --- Ícones ---
 const IconeDashboard = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>;
@@ -20,7 +21,30 @@ function Sidebar({ perfilUsuario, aberta, setSidebarAberta }) {
   const [parametrizacaoAberta, setParametrizacaoAberta] = useState(true);
   const [admSIAberta, setAdmSIAberta] = useState(true);
   const [redeNegociosAberta, setRedeNegociosAberta] = useState(true);
+  const [editandoMeuNome, setEditandoMeuNome] = useState(false);
+  const [novoNomeInput, setNovoNomeInput] = useState('');
+  const [salvandoNome, setSalvandoNome] = useState(false);
   const navigate = useNavigate();
+
+  const handleSalvarMeuNome = async (e) => {
+    e.preventDefault();
+    const limpo = novoNomeInput.trim().replace(/\s+/g, ' ');
+    if (limpo.length < 3 || !auth.currentUser) return;
+    setSalvandoNome(true);
+    try {
+      await updateProfile(auth.currentUser, { displayName: limpo });
+      const fotoURL = auth.currentUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(limpo)}&background=0D8ABC&color=fff`;
+      await updateDoc(doc(db, 'usuarios', auth.currentUser.uid), {
+        nome: limpo,
+        fotoURL
+      });
+      setEditandoMeuNome(false);
+    } catch (err) {
+      console.error("Erro ao atualizar nome:", err);
+    } finally {
+      setSalvandoNome(false);
+    }
+  };
 
   const handleLogout = async () => {
     try { await signOut(auth); navigate('/login'); } 
@@ -124,16 +148,77 @@ function Sidebar({ perfilUsuario, aberta, setSidebarAberta }) {
         </nav>
 
         {/* Restante do Sidebar (Perfil e Logout) */}
-        <div className={`p-4 border-t border-gray-700`}>
+        <div className="p-4 border-t border-gray-700">
           {aberta ? (
             <>
-              <div className="flex items-center gap-3 mb-4">
-                <img src={perfilUsuario?.fotoURL} alt={perfilUsuario?.nome} className="w-10 h-10 rounded-full" />
-                <div>
-                  <p className="font-semibold whitespace-nowrap overflow-hidden text-ellipsis max-w-[120px]">{perfilUsuario?.nome}</p>
-                  <p className="text-sm text-gray-400 capitalize">{perfilUsuario?.papel}</p>
+              <div className="flex items-center gap-3 mb-3">
+                <img src={perfilUsuario?.fotoURL} alt={perfilUsuario?.nome} className="w-10 h-10 rounded-full shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-semibold truncate text-sm text-white" title={perfilUsuario?.nome}>
+                      {perfilUsuario?.nome}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNovoNomeInput(perfilUsuario?.nome || '');
+                        setEditandoMeuNome(!editandoMeuNome);
+                      }}
+                      className="text-xs text-gray-400 hover:text-cyan-400 transition-colors"
+                      title="Editar meu nome completo"
+                    >
+                      ✏️
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 capitalize">{perfilUsuario?.papel}</p>
                 </div>
               </div>
+
+              {!editandoMeuNome && perfilUsuario?.nome && !perfilUsuario.nome.includes(' ') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNovoNomeInput(perfilUsuario?.nome || '');
+                    setEditandoMeuNome(true);
+                  }}
+                  className="w-full mb-3 px-2.5 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[11px] font-semibold text-left hover:bg-amber-500/25 transition-colors"
+                >
+                  ⚠️ Clique aqui para informar seu Nome e Sobrenome
+                </button>
+              )}
+
+              {editandoMeuNome && (
+                <form onSubmit={handleSalvarMeuNome} className="mb-3 space-y-2 bg-gray-900/80 p-2.5 rounded-lg border border-gray-700">
+                  <label className="block text-[10px] uppercase font-bold text-cyan-400">
+                    Seu Nome e Sobrenome
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={novoNomeInput}
+                    onChange={(e) => setNovoNomeInput(e.target.value)}
+                    placeholder="Nome e Sobrenome"
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-400"
+                  />
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setEditandoMeuNome(false)}
+                      className="px-2 py-1 text-[11px] text-gray-400 hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={salvandoNome}
+                      className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-[11px] font-bold rounded"
+                    >
+                      {salvandoNome ? '...' : 'Salvar'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
               <button onClick={handleLogout} className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">Sair</button>
             </>
           ) : (

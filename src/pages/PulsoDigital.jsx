@@ -52,6 +52,8 @@ export default function PulsoDigital() {
   const [sessaoEmEdicao, setSessaoEmEdicao] = useState(null); // null = criando, objeto = editando
   const [modalQuestaoAberto, setModalQuestaoAberto] = useState(false);
   const [questaoEmEdicao, setQuestaoEmEdicao] = useState(null); // null = criando, objeto = editando
+  const [modalNuvemQuestaoAberto, setModalNuvemQuestaoAberto] = useState(false);
+  const [nuvemQuestaoEmEdicao, setNuvemQuestaoEmEdicao] = useState(null); // null = criando, objeto = editando
   const [modoTelaCheia, setModoTelaCheia] = useState(false);
   const [abaHistorico, setAbaHistorico] = useState(false);
   const [resetandoAula, setResetandoAula] = useState(false);
@@ -69,6 +71,10 @@ export default function PulsoDigital() {
   const [formPerguntaOpcoes, setFormPerguntaOpcoes] = useState(['', '', '', '']);
   const [formPerguntaCorretaIndex, setFormPerguntaCorretaIndex] = useState(0);
   const [formPerguntaExplicacao, setFormPerguntaExplicacao] = useState('');
+
+  // Form Criar/Editar Pergunta da Nuvem de Palavras
+  const [formNuvemEnunciado, setFormNuvemEnunciado] = useState('');
+  const [formNuvemMomento, setFormNuvemMomento] = useState('Abertura / Quebra-gelo');
 
   // Filtros na aba de Aulas Salvas
   const [filtroDisciplina, setFiltroDisciplina] = useState('');
@@ -273,9 +279,11 @@ export default function PulsoDigital() {
           status: 'preparada', // 'preparada' | 'ao_vivo' | 'encerrada'
           modoAtivo: 'sentimento', // 'espera' | 'sentimento' | 'nuvem' | 'duvidas' | 'quiz'
           nuvemPergunta: 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?',
+          nuvemPerguntaAtivaId: null,
           nuvemRodada: 1,
+          perguntasNuvem: [], // Lista de perguntas da Nuvem de Palavras elaboradas pelo professor
           quizAtivo: null,
-          questoes: [], // Lista de perguntas elaboradas pelo professor para esta aula
+          questoes: [], // Lista de perguntas do Quiz elaboradas pelo professor para esta aula
           totalParticipantes: 0,
           totalFeedbacks: 0,
           criadaEm: serverTimestamp(),
@@ -317,8 +325,8 @@ export default function PulsoDigital() {
     if (!sessaoAtiva?.id) return;
     const confirmou = window.confirm(
       "Deseja resetar esta aula?\n\n" +
-      "• Todos os participantes, dúvidas enviadas, respostas do quiz e feedbacks serão apagados.\n" +
-      "• As perguntas elaboradas do quiz serão MANTIDAS intactas.\n" +
+      "• Todos os participantes, dúvidas enviadas, respostas do quiz/nuvem e feedbacks serão apagados.\n" +
+      "• As perguntas elaboradas do Quiz e da Nuvem de Palavras serão MANTIDAS intactas.\n" +
       "• A aula voltará ao estado 'Preparada', pronta para ser reiniciada com uma nova turma."
     );
     if (!confirmou) return;
@@ -360,13 +368,20 @@ export default function PulsoDigital() {
         await deleteDoc(d.ref);
       }
 
-      // 6. Resetar documento principal da sessão
+      // 6. Resetar documento principal da sessão (preservando questoes e perguntasNuvem)
+      const listaNuvemResetada = Array.isArray(sessaoAtiva.perguntasNuvem)
+        ? sessaoAtiva.perguntasNuvem.map((item, idx) => ({ ...item, rodada: idx + 1 }))
+        : [];
+      const primeiraPerguntaNuvem = listaNuvemResetada[0]?.enunciado || 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?';
+
       const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
       await updateDoc(sessaoDocRef, {
         status: 'preparada',
         modoAtivo: 'sentimento',
         quizAtivo: null,
-        nuvemPergunta: 'Em uma ou duas palavras, qual sua expectativa para a aula de hoje?',
+        perguntasNuvem: listaNuvemResetada,
+        nuvemPerguntaAtivaId: listaNuvemResetada[0]?.id || null,
+        nuvemPergunta: primeiraPerguntaNuvem,
         nuvemRodada: 1,
         totalParticipantes: 0,
         totalFeedbacks: 0,
@@ -423,16 +438,27 @@ export default function PulsoDigital() {
   const handleLimparNuvem = async () => {
     if (!sessaoAtiva?.id) return;
     const confirmou = window.confirm(
-      "Deseja iniciar uma nova rodada da Nuvem de Palavras?\n\nAs respostas da tela serão limpas para que os alunos possam responder à nova pergunta (ex: fechamento/síntese da aula)."
+      "Deseja limpar as palavras desta nuvem e iniciar uma nova rodada em branco?"
     );
     if (!confirmou) return;
 
     try {
       const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
-      const novaRodada = (sessaoAtiva.nuvemRodada || 1) + 1;
-      await updateDoc(sessaoDocRef, {
-        nuvemRodada: novaRodada
-      });
+      const rodadasExistentes = [
+        sessaoAtiva.nuvemRodada || 1,
+        ...(sessaoAtiva.perguntasNuvem || []).map(p => p.rodada || 1),
+        ...respostasNuvem.map(r => r.rodada || 1)
+      ];
+      const novaRodada = Math.max(...rodadasExistentes) + 1;
+
+      const updates = { nuvemRodada: novaRodada };
+      if (sessaoAtiva.nuvemPerguntaAtivaId && Array.isArray(sessaoAtiva.perguntasNuvem)) {
+        updates.perguntasNuvem = sessaoAtiva.perguntasNuvem.map(p =>
+          p.id === sessaoAtiva.nuvemPerguntaAtivaId ? { ...p, rodada: novaRodada } : p
+        );
+      }
+
+      await updateDoc(sessaoDocRef, updates);
       setPalavrasOcultadas([]);
     } catch (err) {
       console.error("Erro ao iniciar nova rodada da nuvem:", err);
@@ -458,6 +484,120 @@ export default function PulsoDigital() {
     } catch (err) {
       console.error("Erro ao enviar nuvem para os alunos:", err);
       alert("Houve um erro ao enviar a nuvem para a turma.");
+    }
+  };
+
+  // Abrir Modal para Criar Nova Pergunta da Nuvem de Palavras
+  const handleAbrirCriarPerguntaNuvem = () => {
+    setNuvemQuestaoEmEdicao(null);
+    setFormNuvemEnunciado('');
+    setFormNuvemMomento('Abertura / Quebra-gelo');
+    setModalNuvemQuestaoAberto(true);
+  };
+
+  // Abrir Modal para Editar Pergunta da Nuvem Existente
+  const handleAbrirEditarPerguntaNuvem = (item, index) => {
+    setNuvemQuestaoEmEdicao({ ...item, index });
+    setFormNuvemEnunciado(item.enunciado || item.pergunta || '');
+    setFormNuvemMomento(item.momento || 'Abertura / Quebra-gelo');
+    setModalNuvemQuestaoAberto(true);
+  };
+
+  // Salvar Pergunta da Nuvem de Palavras (Pré-Aula ou Ao Vivo)
+  const handleSalvarPerguntaNuvemElaborada = async (e) => {
+    e.preventDefault();
+    if (!formNuvemEnunciado.trim() || !sessaoAtiva?.id) return;
+
+    const listaAtual = Array.isArray(sessaoAtiva.perguntasNuvem) ? [...sessaoAtiva.perguntasNuvem] : [];
+    const rodadasUsadas = [
+      sessaoAtiva.nuvemRodada || 1,
+      ...listaAtual.map((x, i) => x.rodada || i + 1),
+      ...respostasNuvem.map(r => r.rodada || 1)
+    ];
+    const novaRodada = nuvemQuestaoEmEdicao?.rodada || (listaAtual.length === 0 ? 1 : Math.max(...rodadasUsadas) + 1);
+
+    const itemFormatado = {
+      id: nuvemQuestaoEmEdicao?.id || `nuv_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      enunciado: formNuvemEnunciado.trim(),
+      momento: formNuvemMomento || 'Dinâmica em Sala',
+      rodada: novaRodada
+    };
+
+    let novaLista;
+    if (nuvemQuestaoEmEdicao) {
+      novaLista = listaAtual.map((item, idx) => {
+        const idMatch = nuvemQuestaoEmEdicao.id && item.id === nuvemQuestaoEmEdicao.id;
+        const indexMatch = nuvemQuestaoEmEdicao.index !== undefined && idx === nuvemQuestaoEmEdicao.index;
+        return (idMatch || indexMatch) ? itemFormatado : item;
+      });
+    } else {
+      novaLista = [...listaAtual, itemFormatado];
+    }
+
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      const updates = { perguntasNuvem: novaLista };
+
+      // Se for a primeira pergunta cadastrada ou for a pergunta atualmente ativa no telão, sincroniza o texto
+      if (novaLista.length === 1 && !sessaoAtiva.nuvemPerguntaAtivaId) {
+        updates.nuvemPergunta = itemFormatado.enunciado;
+        updates.nuvemPerguntaAtivaId = itemFormatado.id;
+        updates.nuvemRodada = itemFormatado.rodada;
+      } else if (nuvemQuestaoEmEdicao && sessaoAtiva.nuvemPerguntaAtivaId === itemFormatado.id) {
+        updates.nuvemPergunta = itemFormatado.enunciado;
+      }
+
+      await updateDoc(sessaoDocRef, updates);
+      setModalNuvemQuestaoAberto(false);
+    } catch (err) {
+      console.error("Erro ao salvar pergunta da nuvem:", err);
+      alert("Falha ao salvar pergunta da nuvem: " + err.message);
+    }
+  };
+
+  // Excluir Pergunta da Nuvem de Palavras Elaborada
+  const handleExcluirPerguntaNuvemElaborada = async (itemId, index) => {
+    if (!window.confirm("Tem certeza que deseja excluir esta pergunta da Nuvem de Palavras?")) return;
+    if (!sessaoAtiva?.id) return;
+
+    const listaAtual = Array.isArray(sessaoAtiva.perguntasNuvem) ? [...sessaoAtiva.perguntasNuvem] : [];
+    const novaLista = listaAtual.filter((item, idx) => {
+      if (itemId && item.id) return item.id !== itemId;
+      return idx !== index;
+    });
+
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      await updateDoc(sessaoDocRef, { perguntasNuvem: novaLista });
+    } catch (err) {
+      console.error("Erro ao excluir pergunta da nuvem:", err);
+      alert("Falha ao excluir pergunta da nuvem: " + err.message);
+    }
+  };
+
+  // Lançar uma Pergunta da Nuvem Elaborada diretamente no Telão e Celulares
+  const handleLancarPerguntaNuvemNoTelao = async (item, index) => {
+    if (!sessaoAtiva?.id || !item) return;
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      const rodadaAlvo = item.rodada || (index + 1);
+      const textoPergunta = item.enunciado || item.pergunta;
+
+      await updateDoc(sessaoDocRef, {
+        modoAtivo: 'nuvem',
+        nuvemPerguntaAtivaId: item.id || `nuv_${index}`,
+        nuvemPergunta: textoPergunta,
+        nuvemRodada: rodadaAlvo,
+        nuvemDisparadaEm: serverTimestamp()
+      });
+      setNuvemPerguntaInput(textoPergunta);
+      setPalavrasOcultadas([]);
+      setEditandoPerguntaNuvem(false);
+      setNuvemEnviadaSucesso(true);
+      setTimeout(() => setNuvemEnviadaSucesso(false), 3500);
+    } catch (err) {
+      console.error("Erro ao lançar nuvem no telão:", err);
+      alert("Houve um erro ao lançar a pergunta da nuvem no telão.");
     }
   };
 
@@ -672,6 +812,52 @@ export default function PulsoDigital() {
     }
   };
 
+  // Adicionar mais tempo (+15s) para a pergunta ativa no telão
+  const handleAdicionarTempoQuiz = async (segundosExtras = 15) => {
+    if (!sessaoAtiva?.id || !sessaoAtiva?.quizAtivo) return;
+    try {
+      const tempoAtual = Number(sessaoAtiva.quizAtivo.tempoSegundos) || 30;
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      await updateDoc(sessaoDocRef, {
+        'quizAtivo.tempoSegundos': tempoAtual + segundosExtras
+      });
+    } catch (err) {
+      console.error("Erro ao adicionar tempo ao quiz:", err);
+    }
+  };
+
+  // Cronômetro regressivo da questão ativa no painel/telão do professor
+  const [tempoRestanteQuizProf, setTempoRestanteQuizProf] = useState(null);
+  const inicioLocalQuizProfRef = useRef({});
+
+  useEffect(() => {
+    const quiz = sessaoAtiva?.quizAtivo;
+    if (!quiz?.id || quiz.revelada || !quiz.abertaParaResposta) {
+      setTempoRestanteQuizProf(null);
+      return;
+    }
+
+    if (!inicioLocalQuizProfRef.current[quiz.id]) {
+      inicioLocalQuizProfRef.current[quiz.id] = Date.now();
+    }
+    const inicioMs = inicioLocalQuizProfRef.current[quiz.id];
+    const tempoTotal = Number(quiz.tempoSegundos) || 30;
+
+    const calcular = () => {
+      const passados = Math.floor((Date.now() - inicioMs) / 1000);
+      return Math.max(0, tempoTotal - passados);
+    };
+
+    setTempoRestanteQuizProf(calcular());
+    const timer = setInterval(() => {
+      const rest = calcular();
+      setTempoRestanteQuizProf(rest);
+      if (rest <= 0) clearInterval(timer);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [sessaoAtiva?.quizAtivo?.id, sessaoAtiva?.quizAtivo?.revelada, sessaoAtiva?.quizAtivo?.abertaParaResposta, sessaoAtiva?.quizAtivo?.tempoSegundos]);
+
   // Alternar Status de Dúvida como Respondida
   const handleAlternarDuvidaRespondida = async (duvida) => {
     if (!sessaoAtiva?.id) return;
@@ -744,17 +930,25 @@ export default function PulsoDigital() {
     };
   }, [respostasNuvem, rodadaAtualNuvem, palavrasOcultadas]);
 
-  // Estatísticas do Quiz Ativo
+  // Respostas exclusivamente da pergunta ativa no telão (evita acumular escolhas de perguntas anteriores!)
+  const respostasQuizAtivo = useMemo(() => {
+    const idAtivo = sessaoAtiva?.quizAtivo?.id;
+    if (!idAtivo) return [];
+    return respostasQuiz.filter(
+      r => r.quizId === idAtivo || r.id?.startsWith(`${idAtivo}_`)
+    );
+  }, [sessaoAtiva?.quizAtivo?.id, respostasQuiz]);
+
+  // Estatísticas do Quiz Ativo (apenas da questão atual)
   const statsRespostasQuiz = useMemo(() => {
-    if (!sessaoAtiva?.quizAtivo?.id) return [0, 0, 0, 0];
     const cont = [0, 0, 0, 0];
-    respostasQuiz.forEach(r => {
+    respostasQuizAtivo.forEach(r => {
       if (r.opcaoEscolhida !== undefined && cont[r.opcaoEscolhida] !== undefined) {
         cont[r.opcaoEscolhida]++;
       }
     });
     return cont;
-  }, [sessaoAtiva?.quizAtivo?.id, respostasQuiz]);
+  }, [respostasQuizAtivo]);
 
   // Métricas de Micro-Avaliação Pós-Aula
   const metricasFeedback = useMemo(() => {
@@ -798,6 +992,7 @@ export default function PulsoDigital() {
     : '';
 
   const questoesDaAula = sessaoAtiva?.questoes || [];
+  const perguntasNuvemDaAula = sessaoAtiva?.perguntasNuvem || [];
 
   return (
     <div className={`space-y-6 ${modoTelaCheia ? 'fixed inset-0 z-50 bg-gray-950 p-6 overflow-y-auto' : ''}`}>
@@ -957,8 +1152,9 @@ export default function PulsoDigital() {
                   <h3 className="font-bold text-white text-base mt-2 line-clamp-1">{s.titulo}</h3>
                   <p className="text-xs text-gray-400 mt-1">{s.turmaNome} • {s.disciplinaNome}</p>
 
-                  <div className="mt-3 flex items-center gap-3 text-xs text-gray-400">
-                    <span>🎯 {s.questoes?.length || 0} perguntas</span>
+                  <div className="mt-3 flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                    <span>🎯 {s.questoes?.length || 0} quiz</span>
+                    <span>☁️ {s.perguntasNuvem?.length || 0} nuvens</span>
                     <span>👥 {s.totalParticipantes || 0} alunos</span>
                   </div>
 
@@ -1074,18 +1270,102 @@ export default function PulsoDigital() {
           </div>
 
           {/* ============================================================== */}
-          {/* ESTADO 1: PRÉ-AULA (PREPARADA) -> AMBIENTE DE ELABORAÇÃO DO QUIZ */}
+          {/* ESTADO 1: PRÉ-AULA (PREPARADA) -> AMBIENTE DE ELABORAÇÃO (QUIZ & NUVEM) */}
           {/* ============================================================== */}
           {sessaoAtiva.status === 'preparada' && (
             <div className="space-y-6">
+              
+              {/* SEÇÃO 1: PERGUNTAS DA NUVEM DE PALAVRAS */}
+              <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 sm:p-8 shadow-xl">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700 pb-5 mb-6">
+                  <div>
+                    <span className="text-xs uppercase font-mono font-bold text-sky-400 bg-sky-500/10 px-3 py-1 rounded-full border border-sky-500/20">
+                      Modo Planejamento Pré-Aula
+                    </span>
+                    <h3 className="text-xl font-black text-white mt-2 flex items-center gap-2">
+                      <span>☁️</span> Perguntas da Nuvem de Palavras ({perguntasNuvemDaAula.length})
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Cadastre com antecedência as perguntas abertas (ex: quebra-gelo inicial, reflexão no meio da aula ou síntese final) para lançar com 1 clique.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleAbrirCriarPerguntaNuvem}
+                    className="px-5 py-3 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-2xl text-sm flex items-center gap-2 shadow-lg shadow-sky-600/20 transition-all active:scale-95"
+                  >
+                    <span>➕</span> Elaborar Pergunta da Nuvem
+                  </button>
+                </div>
+
+                {perguntasNuvemDaAula.length === 0 ? (
+                  <div className="text-center py-10 px-4 bg-gray-900/60 rounded-2xl border border-dashed border-gray-700">
+                    <span className="text-4xl block mb-2">☁️</span>
+                    <h4 className="text-base font-bold text-white">Nenhuma pergunta de Nuvem cadastrada ainda</h4>
+                    <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
+                      Deixe suas perguntas abertas prontas antes da aula (ex: "Em uma palavra, qual sua expectativa hoje?" ou "Qual palavra resume o aprendizado de hoje?").
+                    </p>
+                    <button
+                      onClick={handleAbrirCriarPerguntaNuvem}
+                      className="mt-4 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-sky-300 font-bold rounded-xl text-xs border border-gray-600 transition-colors"
+                    >
+                      ➕ Criar Primeira Pergunta da Nuvem
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {perguntasNuvemDaAula.map((item, idx) => (
+                      <div
+                        key={item.id || idx}
+                        className="bg-gray-900 border border-gray-700 rounded-2xl p-4 hover:border-sky-500/40 transition-all shadow-md flex flex-wrap items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-[240px]">
+                          <span className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-300 font-mono font-bold text-xs flex items-center justify-center border border-sky-500/30 flex-shrink-0">
+                            #{idx + 1}
+                          </span>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                                {item.momento || 'Dinâmica em Sala'}
+                              </span>
+                            </div>
+                            <h4 className="font-bold text-white text-sm sm:text-base mt-1">
+                              {item.enunciado || item.pergunta}
+                            </h4>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleAbrirEditarPerguntaNuvem(item, idx)}
+                            className="p-2 bg-gray-800 hover:bg-gray-700 text-sky-300 hover:text-white rounded-lg text-xs font-semibold transition-colors"
+                            title="Editar pergunta da nuvem"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            onClick={() => handleExcluirPerguntaNuvemElaborada(item.id, idx)}
+                            className="p-2 bg-gray-800 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs font-semibold transition-colors"
+                            title="Excluir pergunta da nuvem"
+                          >
+                            🗑️ Excluir
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* SEÇÃO 2: PERGUNTAS DO QUIZ */}
               <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 sm:p-8 shadow-xl">
                 <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-700 pb-5 mb-6">
                   <div>
                     <span className="text-xs uppercase font-mono font-bold text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
                       Modo Planejamento Pré-Aula
                     </span>
-                    <h3 className="text-xl font-black text-white mt-2">
-                      Perguntas do Quiz desta Aula
+                    <h3 className="text-xl font-black text-white mt-2 flex items-center gap-2">
+                      <span>🎯</span> Perguntas do Quiz desta Aula ({questoesDaAula.length})
                     </h3>
                     <p className="text-xs text-gray-400 mt-1">
                       Elabore quantas perguntas desejar. O QR Code só será projetado quando você clicar em "Iniciar Aula Ao Vivo".
@@ -1645,6 +1925,107 @@ export default function PulsoDigital() {
                         </div>
                       )}
                     </div>
+
+                    {/* LISTA DE PERGUNTAS ELABORADAS DA NUVEM PARA LANÇAR NO TELÃO */}
+                    <div className="space-y-3 pt-4 border-t border-gray-700/80">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <span className="text-xs uppercase font-bold text-gray-300 tracking-wider flex items-center gap-1.5">
+                            <span>☁️</span> Perguntas Elaboradas da Nuvem ({perguntasNuvemDaAula.length})
+                          </span>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            Clique em <strong className="text-cyan-300">Lançar no Telão</strong> para trocar a pergunta ativa e abrir uma rodada exclusiva nos celulares dos alunos
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleAbrirCriarPerguntaNuvem}
+                          className="px-3.5 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-xl text-xs font-bold border border-cyan-500/30 transition-colors"
+                        >
+                          ➕ Elaborar Pergunta da Nuvem
+                        </button>
+                      </div>
+
+                      {perguntasNuvemDaAula.length === 0 ? (
+                        <div className="text-center py-6 bg-gray-900/50 rounded-2xl border border-gray-800">
+                          <p className="text-xs text-gray-400 mb-2">
+                            Nenhuma pergunta pré-cadastrada para a Nuvem de Palavras nesta aula.
+                          </p>
+                          <button
+                            onClick={handleAbrirCriarPerguntaNuvem}
+                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs shadow"
+                          >
+                            ➕ Cadastrar Primeira Pergunta da Nuvem
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                          {perguntasNuvemDaAula.map((item, idx) => {
+                            const rodadaItem = item.rodada || (idx + 1);
+                            const isAtivaNoTelao =
+                              sessaoAtiva.nuvemPerguntaAtivaId === item.id ||
+                              (sessaoAtiva.nuvemPergunta === item.pergunta && rodadaAtualNuvem === rodadaItem);
+
+                            return (
+                              <div
+                                key={item.id || idx}
+                                className={`p-4 rounded-2xl border flex flex-wrap sm:flex-nowrap items-center justify-between gap-4 transition-all ${
+                                  isAtivaNoTelao
+                                    ? 'bg-cyan-950/40 border-cyan-500/60 ring-1 ring-cyan-500/40'
+                                    : 'bg-gray-900 border-gray-700 hover:border-cyan-400/50'
+                                }`}
+                              >
+                                <div className="space-y-1 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                      Nuvem #{idx + 1} • Rodada #{rodadaItem}
+                                    </span>
+                                    {item.momento && (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                                        📌 {item.momento}
+                                      </span>
+                                    )}
+                                    {isAtivaNoTelao && (
+                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                        No Telão Agora
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-sm font-bold text-white">{item.pergunta}</p>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    onClick={() => handleAbrirEditarPerguntaNuvem(item, idx)}
+                                    className="p-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl text-xs border border-gray-700 transition-colors"
+                                    title="Editar pergunta da nuvem"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleExcluirPerguntaNuvemElaborada(item.id, idx)}
+                                    className="p-2 bg-gray-800 hover:bg-rose-500/20 text-gray-400 hover:text-rose-300 rounded-xl text-xs border border-gray-700 transition-colors"
+                                    title="Excluir pergunta da nuvem"
+                                  >
+                                    🗑️
+                                  </button>
+                                  <button
+                                    onClick={() => handleLancarPerguntaNuvemNoTelao(item, idx)}
+                                    className={`px-4 py-2.5 font-black rounded-xl text-xs shadow-lg transition-transform active:scale-95 whitespace-nowrap flex items-center gap-1.5 ${
+                                      isAtivaNoTelao
+                                        ? 'bg-emerald-500 hover:bg-emerald-400 text-gray-950 shadow-emerald-500/20'
+                                        : 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-gray-950 shadow-cyan-500/20'
+                                    }`}
+                                  >
+                                    <span>🚀</span> {isAtivaNoTelao ? 'Reenviar p/ Celulares' : 'Lançar no Telão'}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1744,14 +2125,36 @@ export default function PulsoDigital() {
                     {/* Questão Atualmente em Exibição no Telão */}
                     {sessaoAtiva.quizAtivo ? (
                       <div className="bg-gray-900/90 border-2 border-amber-500/40 rounded-2xl p-5 shadow-2xl">
-                        <div className="flex justify-between items-center mb-3">
-                          <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
                               QUESTÃO ATIVA NO TELÃO
                             </span>
-                            <span className="text-xs text-gray-400">
-                              {respostasQuiz.length} respostas recebidas
+                            <span className="text-xs font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-0.5 rounded-full font-mono">
+                              👥 {respostasQuizAtivo.length} de {participantes.length} responderam
                             </span>
+
+                            {!sessaoAtiva.quizAtivo.revelada && tempoRestanteQuizProf !== null && (
+                              <div className="flex items-center gap-1.5">
+                                <span className={`px-2.5 py-0.5 rounded-full font-mono text-xs font-black border ${
+                                  tempoRestanteQuizProf <= 5
+                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                                    : tempoRestanteQuizProf <= 10
+                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                }`}>
+                                  ⏱️ {tempoRestanteQuizProf}s
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAdicionarTempoQuiz(15)}
+                                  className="px-2 py-0.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-cyan-300 border border-gray-700 text-[11px] font-bold transition-colors"
+                                  title="Dar mais 15 segundos para os alunos responderem"
+                                >
+                                  +15s
+                                </button>
+                              </div>
+                            )}
                           </div>
                           <button
                             onClick={handleEncerrarQuizAtivo}
@@ -1779,21 +2182,47 @@ export default function PulsoDigital() {
                             const ehCorreta = idx === sessaoAtiva.quizAtivo.respostaCorretaIndex;
                             const revelada = sessaoAtiva.quizAtivo.revelada;
                             const votos = statsRespostasQuiz[idx] || 0;
+                            const totalRespostasQuestao = respostasQuizAtivo.length;
+                            const percentual = totalRespostasQuestao > 0 ? Math.round((votos / totalRespostasQuestao) * 100) : 0;
 
                             return (
                               <div
                                 key={idx}
-                                className={`p-3.5 rounded-2xl border-2 flex items-center justify-between gap-3 ${cores[idx % cores.length]} ${
+                                className={`p-3.5 rounded-2xl border-2 flex items-center justify-between gap-3 transition-all ${cores[idx % cores.length]} ${
                                   revelada && ehCorreta ? 'ring-4 ring-emerald-400 font-bold scale-[1.02]' : ''
+                                } ${
+                                  revelada && !ehCorreta ? 'opacity-75' : ''
                                 }`}
                               >
                                 <div className="flex items-center gap-2.5">
                                   <span className="text-xl font-bold">{icones[idx % icones.length]}</span>
-                                  <span className="text-xs sm:text-sm font-semibold">{op.texto || op}</span>
+                                  <div>
+                                    <span className="text-xs sm:text-sm font-semibold block">{op.texto || op}</span>
+                                    {revelada && ehCorreta && (
+                                      <span className="inline-block mt-1 text-[10px] bg-emerald-400 text-gray-950 font-black px-2 py-0.5 rounded-full uppercase">
+                                        ✓ Resposta Correta
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
-                                <span className="font-mono text-base font-black px-2 py-0.5 rounded bg-black/40">
-                                  {votos}
-                                </span>
+
+                                {revelada ? (
+                                  <div className="flex flex-col items-end px-2.5 py-1 rounded-xl bg-black/50 border border-white/10 flex-shrink-0">
+                                    <span className="font-mono text-base font-black text-white leading-none">
+                                      {votos} {votos === 1 ? 'voto' : 'votos'}
+                                    </span>
+                                    <span className="font-mono text-[10px] text-gray-300 mt-0.5">
+                                      {percentual}%
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span
+                                    className="font-mono text-xs text-white/40 px-2 py-1 rounded-lg bg-black/30 flex-shrink-0"
+                                    title="Quantidade por opção fica oculta até você revelar o gabarito"
+                                  >
+                                    🔒
+                                  </span>
+                                )}
                               </div>
                             );
                           })}
@@ -1801,9 +2230,15 @@ export default function PulsoDigital() {
 
                         {/* Controles de Gabarito e Encerramento */}
                         <div className="mt-5 pt-4 border-t border-gray-800 flex justify-between items-center flex-wrap gap-2">
-                          <span className="text-xs text-gray-400">
-                            Gabarito: <strong className="text-cyan-300">Opção {sessaoAtiva.quizAtivo.respostaCorretaIndex + 1}</strong>
-                          </span>
+                          {sessaoAtiva.quizAtivo.revelada ? (
+                            <span className="text-xs text-gray-300">
+                              Gabarito: <strong className="text-emerald-400">Opção {sessaoAtiva.quizAtivo.respostaCorretaIndex + 1}</strong>
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400 flex items-center gap-1.5">
+                              <span>🔒</span> Gabarito e votos por opção ocultos no telão
+                            </span>
+                          )}
 
                           <div className="flex items-center gap-2">
                             {!sessaoAtiva.quizAtivo.revelada ? (
@@ -2099,6 +2534,10 @@ export default function PulsoDigital() {
                         <span className="font-bold text-white font-mono">{duvidas.length}</span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-gray-800">
+                        <span className="text-gray-400">Perguntas da Nuvem:</span>
+                        <span className="font-bold text-white font-mono">{perguntasNuvemDaAula.length}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-gray-800">
                         <span className="text-gray-400">Perguntas no Quiz:</span>
                         <span className="font-bold text-white font-mono">{questoesDaAula.length}</span>
                       </div>
@@ -2138,12 +2577,71 @@ export default function PulsoDigital() {
                 </div>
               </div>
 
-              {/* GERENCIAMENTO DE PERGUNTAS DA AULA MESMO APÓS ENCERRADA */}
+              {/* GERENCIAMENTO DE PERGUNTAS DA NUVEM DE PALAVRAS MESMO APÓS ENCERRADA */}
               <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-700 pb-3">
                   <div>
                     <h4 className="text-base font-bold text-white flex items-center gap-2">
-                      <span>🎯</span> Perguntas Elaboradas desta Aula ({questoesDaAula.length})
+                      <span>☁️</span> Perguntas da Nuvem de Palavras ({perguntasNuvemDaAula.length})
+                    </h4>
+                    <p className="text-xs text-gray-400">
+                      Revise, edite ou cadastre novas perguntas da nuvem para a próxima aplicação desta aula
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleAbrirCriarPerguntaNuvem}
+                    className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
+                  >
+                    ➕ Nova Pergunta da Nuvem
+                  </button>
+                </div>
+
+                {perguntasNuvemDaAula.length === 0 ? (
+                  <p className="text-xs text-gray-500 italic py-2">Nenhuma pergunta da nuvem elaborada para esta aula.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {perguntasNuvemDaAula.map((item, idx) => (
+                      <div
+                        key={item.id || idx}
+                        className="p-3 rounded-2xl bg-gray-900 border border-gray-700 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-2.5 flex-1">
+                          <span className="font-mono font-bold text-cyan-300">#{idx + 1}</span>
+                          {item.momento && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                              {item.momento}
+                            </span>
+                          )}
+                          <span className="font-semibold text-white line-clamp-1">{item.pergunta}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleAbrirEditarPerguntaNuvem(item, idx)}
+                            className="p-1.5 bg-gray-800 hover:bg-gray-700 text-cyan-300 hover:text-white rounded-lg text-xs font-semibold transition-colors"
+                            title="Editar pergunta da nuvem"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            onClick={() => handleExcluirPerguntaNuvemElaborada(item.id, idx)}
+                            className="p-1.5 bg-gray-800 hover:bg-rose-500/20 text-rose-400 rounded-lg text-xs font-semibold transition-colors"
+                            title="Excluir pergunta da nuvem"
+                          >
+                            🗑️ Excluir
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* GERENCIAMENTO DE PERGUNTAS DO QUIZ DA AULA MESMO APÓS ENCERRADA */}
+              <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-xl space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-700 pb-3">
+                  <div>
+                    <h4 className="text-base font-bold text-white flex items-center gap-2">
+                      <span>🎯</span> Perguntas Elaboradas do Quiz ({questoesDaAula.length})
                     </h4>
                     <p className="text-xs text-gray-400">
                       Você pode revisar, editar ou excluir perguntas para a próxima aplicação desta aula
@@ -2153,7 +2651,7 @@ export default function PulsoDigital() {
                     onClick={handleAbrirCriarPergunta}
                     className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
                   >
-                    ➕ Nova Pergunta
+                    ➕ Nova Pergunta do Quiz
                   </button>
                 </div>
 
@@ -2194,6 +2692,82 @@ export default function PulsoDigital() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* MODAL: CRIAR OU EDITAR PERGUNTA DA NUVEM DE PALAVRAS */}
+      {modalNuvemQuestaoAberto && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-gray-800 pb-3 mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-white">
+                  {nuvemQuestaoEmEdicao ? '✏️ Editar Pergunta da Nuvem' : '☁️ Elaborar Pergunta da Nuvem de Palavras'}
+                </h3>
+                <p className="text-xs text-gray-400">
+                  Prepare perguntas abertas com antecedência para lançar no telão durante a aula
+                </p>
+              </div>
+              <button
+                onClick={() => setModalNuvemQuestaoAberto(false)}
+                className="text-gray-400 hover:text-white p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvarPerguntaNuvemElaborada} className="space-y-4">
+              <div>
+                <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
+                  Momento Pedagógico da Aula
+                </label>
+                <select
+                  value={formNuvemMomento}
+                  onChange={(e) => setFormNuvemMomento(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-400"
+                >
+                  <option value="Abertura / Quebra-gelo">🌅 Abertura / Quebra-gelo (Expectativas ou conhecimentos prévios)</option>
+                  <option value="Reflexão Durante a Aula">💡 Reflexão Durante a Aula (Termos-chave ou insights)</option>
+                  <option value="Estudo de Caso / Prática">🛠️ Estudo de Caso / Prática (Diagnóstico ou palavras de ação)</option>
+                  <option value="Fechamento / Síntese">🏁 Fechamento / Síntese (O que fica da aula de hoje?)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
+                  Pergunta Aberta para os Alunos
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  maxLength={140}
+                  value={formNuvemEnunciado}
+                  onChange={(e) => setFormNuvemEnunciado(e.target.value)}
+                  placeholder="Ex: Em uma ou duas palavras, qual o maior desafio ao implantar um ERP em uma empresa?"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-cyan-400 resize-none"
+                />
+                <span className="text-[11px] text-gray-500 block mt-1">
+                  Dica: Cada pergunta lançada cria uma rodada exclusiva para não misturar palavras com as anteriores.
+                </span>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2 border-t border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => setModalNuvemQuestaoAberto(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-400 hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs sm:text-sm shadow-lg shadow-cyan-600/30"
+                >
+                  {nuvemQuestaoEmEdicao ? 'Salvar Alterações' : 'Salvar Pergunta da Nuvem'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

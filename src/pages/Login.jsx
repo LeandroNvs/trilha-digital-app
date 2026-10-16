@@ -59,6 +59,20 @@ function PaginaLogin() {
                     Não tem uma conta?{' '}
                     <Link to="/cadastro" className="font-semibold text-cyan-400 hover:underline">Cadastre-se</Link>
                 </p>
+
+                {/* Acesso Rápido Anônimo ao Pulso Digital (Sem necessidade de Login) */}
+                <div className="mt-6 pt-6 border-t border-gray-600/80">
+                    <Link
+                        to="/pulso"
+                        className="w-full bg-gradient-to-r from-cyan-500/20 to-blue-600/20 hover:from-cyan-500/30 hover:to-blue-600/30 border border-cyan-400/40 text-cyan-300 font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all shadow-sm"
+                    >
+                        <span className="text-lg">⚡</span>
+                        <span className="text-sm">Entrar no Pulso Digital (PIN da Aula)</span>
+                    </Link>
+                    <p className="text-[11px] text-center text-gray-400 mt-1.5">
+                        Acesso 100% anônimo para participar da aula ao vivo sem precisar de conta
+                    </p>
+                </div>
             </div>
         </div>
     );

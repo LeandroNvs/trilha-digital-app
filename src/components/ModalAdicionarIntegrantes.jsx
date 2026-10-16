@@ -1,15 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db, appId } from '../firebase/config.js'; // Corrigido para importar o appId
+import { db, appId } from '../firebase/config.js';
 import useCollection from '../hooks/useCollection.js';
 
 function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
     // Estado para guardar os IDs dos alunos selecionados
     const [selecionados, setSelecionados] = useState({});
+    const [busca, setBusca] = useState('');
     
     // Filtro por Turma
     const [turmaFiltroId, setTurmaFiltroId] = useState(grupo?.turmaId || '');
-    const { documents: turmasData, isLoading: isTurmasLoading } = useCollection(`/artifacts/${appId}/public/data/turmas`);
+    const { documents: turmasData } = useCollection(`/artifacts/${appId}/public/data/turmas`);
     const turmas = turmasData || [];
 
     // Efeito para inicializar o estado de selecionados com os integrantes atuais do grupo
@@ -31,26 +32,51 @@ function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
         }));
     };
 
-    // Filtra para exibir apenas usuários com o papel 'aluno' ou 'professor', e pela turma selecionada
+    // Filtra para exibir apenas usuários com o papel 'aluno' ou 'professor', pela turma selecionada e busca
     const alunosDisponiveis = useMemo(() => {
-        return todosAlunos.filter(u => {
+        const termo = busca.trim().toLowerCase();
+        const filtrados = todosAlunos.filter(u => {
             const isRoleValid = u.papel === 'aluno' || u.papel === 'professor';
-            const isTurmaValid = turmaFiltroId ? u.turmaId === turmaFiltroId : true;
-            return isRoleValid && isTurmaValid;
+            let isTurmaValid = true;
+            if (turmaFiltroId === 'sem_turma') {
+                isTurmaValid = !u.turmaId;
+            } else if (turmaFiltroId) {
+                // Exibe da turma selecionada OU quem já está marcado neste grupo
+                isTurmaValid = u.turmaId === turmaFiltroId || !!selecionados[u.id];
+            }
+            const isBuscaValid = !termo ||
+                (u.nome || '').toLowerCase().includes(termo) ||
+                (u.email || '').toLowerCase().includes(termo);
+
+            return isRoleValid && isTurmaValid && isBuscaValid;
         });
-    }, [todosAlunos, turmaFiltroId]);
+
+        return filtrados.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR', { sensitivity: 'base' }));
+    }, [todosAlunos, turmaFiltroId, busca, selecionados]);
 
     // Função para salvar as alterações no Firestore
     const handleSalvar = async () => {
         const integrantesIds = Object.keys(selecionados).filter(id => selecionados[id]);
-        // Corrigido: Caminho completo para o documento no Firestore
         const grupoRef = doc(db, 'artifacts', appId, 'public', 'data', 'grupos', grupo.id);
 
         try {
             await updateDoc(grupoRef, {
                 integrantesIds: integrantesIds
             });
-            onClose(); // Fecha o modal após salvar
+
+            // Se o grupo possui uma turma vinculada, vincula automaticamente os alunos adicionados que ainda estavam sem turma
+            if (grupo?.turmaId) {
+                for (const uid of integrantesIds) {
+                    const alunoObj = todosAlunos.find(a => a.id === uid);
+                    if (alunoObj && !alunoObj.turmaId) {
+                        await updateDoc(doc(db, 'usuarios', uid), {
+                            turmaId: grupo.turmaId
+                        }).catch(() => {});
+                    }
+                }
+            }
+
+            onClose();
         } catch (error) {
             console.error("Erro ao atualizar integrantes do grupo:", error);
         }
@@ -58,20 +84,27 @@ function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
-            <div className="bg-gray-700 rounded-lg shadow-xl p-8 max-w-2xl w-full h-3/4 flex flex-col">
-                <h2 className="text-2xl font-bold text-cyan-400 mb-4">
+            <div className="bg-gray-700 rounded-lg shadow-xl p-6 sm:p-8 max-w-3xl w-full h-4/5 flex flex-col">
+                <h2 className="text-xl sm:text-2xl font-bold text-cyan-400 mb-3">
                     Gerenciar Integrantes do Grupo: <span className="text-white">{grupo.nome}</span>
                 </h2>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
-                    <p className="text-gray-300">Selecione os alunos ou professores que farão parte deste grupo.</p>
-                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                        <span className="text-sm font-semibold text-gray-400">Filtrar Turma:</span>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between mb-4 gap-3">
+                    <input
+                        type="text"
+                        value={busca}
+                        onChange={(e) => setBusca(e.target.value)}
+                        placeholder="🔍 Buscar por nome ou e-mail..."
+                        className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                    />
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-gray-300 whitespace-nowrap">Turma:</span>
                         <select 
                             value={turmaFiltroId} 
                             onChange={(e) => setTurmaFiltroId(e.target.value)}
-                            className="bg-gray-800 border border-gray-600 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-500 w-full sm:w-auto"
+                            className="bg-gray-800 border border-gray-600 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-cyan-500"
                         >
-                            <option value="">Todas as Turmas</option>
+                            <option value="">Todas as Turmas (Incluir sem turma)</option>
+                            <option value="sem_turma">⏳ Apenas Sem Turma</option>
                             {turmas.map(t => (
                                 <option key={t.id} value={t.id}>{t.nome} ({t.sigla})</option>
                             ))}
@@ -81,24 +114,38 @@ function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
                 
                 <div className="flex-1 overflow-y-auto bg-gray-800 p-4 rounded-lg">
                     {alunosDisponiveis.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {alunosDisponiveis.map(aluno => (
-                                <label key={aluno.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-600 cursor-pointer transition-colors">
+                                <label
+                                    key={aluno.id}
+                                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                                        selecionados[aluno.id]
+                                            ? 'bg-cyan-950/50 border-cyan-500/60'
+                                            : 'border-gray-700 hover:bg-gray-700'
+                                    }`}
+                                >
                                     <input 
                                         type="checkbox" 
                                         checked={!!selecionados[aluno.id]} 
                                         onChange={() => handleCheckboxChange(aluno.id)}
-                                        className="w-5 h-5 bg-gray-700 rounded text-cyan-500 focus:ring-cyan-600 border-gray-500"
+                                        className="w-5 h-5 bg-gray-700 rounded text-cyan-500 focus:ring-cyan-600 border-gray-500 shrink-0"
                                     />
-                                    <div className="flex items-center gap-2">
-                                        <img src={aluno.fotoURL} alt={aluno.nome} className="w-8 h-8 rounded-full" />
-                                        <span className="text-sm">{aluno.nome}</span>
+                                    <img
+                                        src={aluno.fotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(aluno.nome || 'A')}&background=0D8ABC&color=fff`}
+                                        alt={aluno.nome}
+                                        className="w-8 h-8 rounded-full shrink-0"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                        <span className="text-sm font-bold text-white block truncate">{aluno.nome}</span>
+                                        <span className="text-xs text-gray-400 block truncate">{aluno.email}</span>
                                     </div>
                                 </label>
                             ))}
                         </div>
                     ) : (
-                        <p className="text-gray-400 text-center">Nenhum aluno encontrado para adicionar.</p>
+                        <p className="text-gray-400 text-center py-8">
+                            Nenhum aluno encontrado para este filtro. Experimente mudar o filtro de Turma para "Todas as Turmas".
+                        </p>
                     )}
                 </div>
 
@@ -116,4 +163,5 @@ function ModalAdicionarIntegrantes({ grupo, onClose, todosAlunos }) {
 }
 
 export default ModalAdicionarIntegrantes;
+
 

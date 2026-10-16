@@ -267,15 +267,42 @@ export default function PulsoAluno() {
     }
   }, [sessao?.id, sessao?.modoAtivo, sessao?.quizAtivo]);
 
+  // Controle de timestamp local de chegada da pergunta no celular (elimina defasagem de relógio PC x Celular e atraso de rede)
+  const inicioLocalQuizRef = useRef({});
+  const obterInicioLocalQuiz = (quizId) => {
+    if (!quizId) return Date.now();
+    if (inicioLocalQuizRef.current[quizId]) {
+      return inicioLocalQuizRef.current[quizId];
+    }
+    try {
+      const salvo = sessionStorage.getItem(`pulso_quiz_inicio_${quizId}`);
+      if (salvo) {
+        const ts = Number(salvo);
+        if (!isNaN(ts) && ts > 0) {
+          inicioLocalQuizRef.current[quizId] = ts;
+          return ts;
+        }
+      }
+      const agora = Date.now();
+      sessionStorage.setItem(`pulso_quiz_inicio_${quizId}`, String(agora));
+      inicioLocalQuizRef.current[quizId] = agora;
+      return agora;
+    } catch (e) {
+      const agora = Date.now();
+      inicioLocalQuizRef.current[quizId] = agora;
+      return agora;
+    }
+  };
+
   // Efeito quando o professor lança uma nova pergunta de Quiz ou encerra a atual
   useEffect(() => {
     if (sessao?.quizAtivo?.id) {
       if (!sessao.quizAtivo.revelada) {
+        obterInicioLocalQuiz(sessao.quizAtivo.id);
         setOpcaoQuizEscolhida(null);
-        // Se o aluno não estiver na aba de quiz, aciona alerta para ir ao quiz
-        if (abaAtivaAluno !== 'quiz') {
-          setMostrarAlertaQuiz(true);
-        }
+        // Direciona o aluno automaticamente para a aba do Quiz ao lançar a pergunta no telão
+        setAbaAtivaAluno('quiz');
+        setMostrarAlertaQuiz(false);
       }
     } else {
       // Quando o professor retira a pergunta do telão (quizAtivo = null)
@@ -284,7 +311,7 @@ export default function PulsoAluno() {
     }
   }, [sessao?.quizAtivo?.id]);
 
-  // Timer Regressivo Sincronizado do Quiz
+  // Timer Regressivo do Quiz ancorado no instante em que a pergunta chegou ao celular do aluno
   useEffect(() => {
     if (!sessao?.quizAtivo || sessao.quizAtivo.revelada || !sessao.quizAtivo.abertaParaResposta) {
       setTempoRestante(null);
@@ -292,10 +319,10 @@ export default function PulsoAluno() {
     }
 
     const tempoTotal = Number(sessao.quizAtivo.tempoSegundos) || 30;
-    const lancadaEm = sessao.quizAtivo.lancadaEm ? new Date(sessao.quizAtivo.lancadaEm).getTime() : Date.now();
+    const inicioLocal = obterInicioLocalQuiz(sessao.quizAtivo.id);
 
     const calcularRestante = () => {
-      const segundosPassados = Math.floor((Date.now() - lancadaEm) / 1000);
+      const segundosPassados = Math.floor((Date.now() - inicioLocal) / 1000);
       return Math.max(0, tempoTotal - segundosPassados);
     };
 
@@ -310,7 +337,7 @@ export default function PulsoAluno() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [sessao?.quizAtivo?.id, sessao?.quizAtivo?.revelada, sessao?.quizAtivo?.abertaParaResposta, sessao?.quizAtivo?.lancadaEm]);
+  }, [sessao?.quizAtivo?.id, sessao?.quizAtivo?.revelada, sessao?.quizAtivo?.abertaParaResposta, sessao?.quizAtivo?.tempoSegundos]);
 
   // Escutar resposta do próprio aluno para o quiz ativo (mantém estado mesmo em refresh)
   useEffect(() => {
@@ -626,9 +653,9 @@ export default function PulsoAluno() {
 
     setOpcaoQuizEscolhida(indiceOpcao);
 
-    const lancadaEm = sessao.quizAtivo.lancadaEm ? new Date(sessao.quizAtivo.lancadaEm).getTime() : Date.now();
+    const inicioLocal = obterInicioLocalQuiz(sessao.quizAtivo.id);
     const tempoTotal = Number(sessao.quizAtivo.tempoSegundos) || 30;
-    const tempoGastoSegundos = Number(Math.max(0.2, Math.min(tempoTotal, (Date.now() - lancadaEm) / 1000)).toFixed(1));
+    const tempoGastoSegundos = Number(Math.max(0.2, Math.min(tempoTotal, (Date.now() - inicioLocal) / 1000)).toFixed(1));
     const fracaoRestante = Math.max(0, Math.min(1, (tempoTotal - tempoGastoSegundos) / tempoTotal));
     
     // Fórmula Kahoot: 500 base garantida para acerto + até 500 proporcionais à velocidade

@@ -19,6 +19,8 @@ const app = initializeApp(firebaseConfig);
 // Agora, em vez de inicializar o app em vários lugares,
 // apenas importaremos 'auth' e 'db' deste arquivo.
 export const auth = getAuth(app);
+auth.languageCode = 'pt-BR';
 export const db = getFirestore(app);
 export const appId = firebaseConfig.appId;
+
 

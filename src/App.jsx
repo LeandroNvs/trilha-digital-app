@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './firebase/config'; // Corrigido
 
 // Componentes e Páginas
@@ -127,32 +127,77 @@ function App() {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Efeito de autenticação (inalterado)
+    // Efeito de autenticação com sincronização em tempo real do perfil
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        let unsubscribeSnapshot = null;
+
+        const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+            if (unsubscribeSnapshot) {
+                unsubscribeSnapshot();
+                unsubscribeSnapshot = null;
+            }
+
             if (user) {
                 const userRef = doc(db, 'usuarios', user.uid);
-                const userSnap = await getDoc(userRef);
                 const isAdminEmail = user.email === 'leandros.nvs@gmail.com';
-                if (userSnap.exists()) {
-                    const perfil = userSnap.data();
-                    if (isAdminEmail && perfil.papel !== 'admin') {
-                        await updateDoc(userRef, { papel: 'admin' });
-                        setPerfilUsuario({ ...perfil, papel: 'admin' });
+                const prefixoEmail = user.email ? user.email.split('@')[0] : 'Usuário';
+
+                unsubscribeSnapshot = onSnapshot(userRef, async (userSnap) => {
+                    if (userSnap.exists()) {
+                        const perfil = { id: userSnap.id, ...userSnap.data() };
+                        const updates = {};
+
+                        if (isAdminEmail && perfil.papel !== 'admin') {
+                            updates.papel = 'admin';
+                        }
+
+                        // Auto-reparo: se o nome salvo era apenas o prefixo do e-mail (por conta da condição de corrida antiga)
+                        // e o usuário possui displayName preenchido no Auth, atualiza automaticamente para o nome completo
+                        const nomeAuth = auth.currentUser?.displayName || user.displayName;
+                        if (nomeAuth && (!perfil.nome || perfil.nome === prefixoEmail) && nomeAuth !== prefixoEmail) {
+                            updates.nome = nomeAuth;
+                            updates.fotoURL = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(nomeAuth)}&background=0D8ABC&color=fff`;
+                        }
+
+                        if (Object.keys(updates).length > 0) {
+                            await updateDoc(userRef, updates).catch(() => {});
+                            setPerfilUsuario({ ...perfil, ...updates });
+                        } else {
+                            setPerfilUsuario(perfil);
+                        }
+                        setLoading(false);
                     } else {
-                        setPerfilUsuario(perfil);
+                        // Aguarda um breve instante caso venha da tela de Cadastro (que já grava o nome completo)
+                        setTimeout(async () => {
+                            const checkSnap = await getDoc(userRef);
+                            if (!checkSnap.exists()) {
+                                const nome = auth.currentUser?.displayName || user.displayName || prefixoEmail;
+                                const fotoURL = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(nome)}&background=0D8ABC&color=fff`;
+                                const novoPerfil = {
+                                    nome,
+                                    email: user.email,
+                                    fotoURL,
+                                    papel: isAdminEmail ? 'admin' : 'aluno',
+                                    criadoEm: serverTimestamp()
+                                };
+                                await setDoc(userRef, novoPerfil, { merge: true }).catch(() => {});
+                            }
+                        }, 400);
                     }
-                } else {
-                    const nome = user.displayName || user.email.split('@')[0];
-                    const fotoURL = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(nome)}&background=0D8ABC&color=fff`;
-                    const novoPerfil = { nome, email: user.email, fotoURL, papel: isAdminEmail ? 'admin' : 'aluno' };
-                    await setDoc(userRef, novoPerfil);
-                    setPerfilUsuario(novoPerfil);
-                }
-            } else { setPerfilUsuario(null); }
-            setLoading(false);
+                }, (err) => {
+                    console.error("Erro ao sincronizar perfil do usuário:", err);
+                    setLoading(false);
+                });
+            } else {
+                setPerfilUsuario(null);
+                setLoading(false);
+            }
         });
-        return () => unsubscribe();
+
+        return () => {
+            unsubscribeAuth();
+            if (unsubscribeSnapshot) unsubscribeSnapshot();
+        };
     }, []);
 
     if (loading) {
