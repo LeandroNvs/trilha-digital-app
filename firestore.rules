@@ -6,6 +6,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Módulo Pago ou Não? 3D (Receita Federal): Acesso anônimo às salas multijogador via QR Code ou Código
+    match /artifacts/{appId}/public/data/pago_ou_nao_salas/{document=**} {
+      allow read, write: if true;
+    }
+
     // Demais módulos da plataforma: exigem usuário autenticado
     match /{document=**} {
       allow read, write: if request.auth != null;

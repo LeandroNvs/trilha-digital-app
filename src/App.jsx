@@ -34,8 +34,10 @@ import EvolucaoRede from './pages/EvolucaoRede';
 import AdmSIOrganizacao from './pages/AdmSIOrganizacao';
 import AdmSIGovernanca from './pages/AdmSIGovernanca';
 import AdmSITatica from './pages/AdmSITatica';
+import AdmSICargosDigitais from './pages/AdmSICargosDigitais';
 import PulsoDigital from './pages/PulsoDigital';
 import PulsoAluno from './pages/PulsoAluno';
+import PagoOuNao3D from './pages/PagoOuNao3D';
 
 
 // --- Layouts e Rotas ---
@@ -61,7 +63,9 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         if (pathname === '/adm-si/organizacao') { return 'Adm SI - Organização'; }
         if (pathname === '/adm-si/governanca') { return 'Adm SI - Matriz Transacional'; }
         if (pathname === '/adm-si/tatica') { return 'Adm SI - Matriz Tática'; }
+        if (pathname === '/adm-si/cargos-digitais') { return 'Adm SI - Cargos Digitais & Canvas'; }
         if (pathname === '/pulso-digital') { return 'Pulso Digital'; }
+        if (pathname === '/pago-ou-nao') { return 'Pago ou Não? 3D (Receita Federal)'; }
         const nomeDaPagina = pathname.split('/').pop().replace(/-/g, ' ') || 'dashboard';
         return nomeDaPagina.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
     };
@@ -86,7 +90,7 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
                     </div>
                     <h2 className="text-sm md:text-lg font-semibold capitalize text-gray-300 truncate max-w-[180px] sm:max-w-xs">{tituloDaPagina}</h2>
                 </header>
-                <main className="flex-1 p-3 sm:p-8 overflow-y-auto bg-gray-900"><Outlet /></main>
+                <main className={`flex-1 ${location.pathname === '/pago-ou-nao' ? 'p-1 sm:p-2' : 'p-3 sm:p-8'} overflow-y-auto bg-gray-900`}><Outlet /></main>
             </div>
         </div>
     );
@@ -151,8 +155,6 @@ function App() {
                             updates.papel = 'admin';
                         }
 
-                        // Auto-reparo: se o nome salvo era apenas o prefixo do e-mail (por conta da condição de corrida antiga)
-                        // e o usuário possui displayName preenchido no Auth, atualiza automaticamente para o nome completo
                         const nomeAuth = auth.currentUser?.displayName || user.displayName;
                         if (nomeAuth && (!perfil.nome || perfil.nome === prefixoEmail) && nomeAuth !== prefixoEmail) {
                             updates.nome = nomeAuth;
@@ -167,7 +169,6 @@ function App() {
                         }
                         setLoading(false);
                     } else {
-                        // Aguarda um breve instante caso venha da tela de Cadastro (que já grava o nome completo)
                         setTimeout(async () => {
                             const checkSnap = await getDoc(userRef);
                             if (!checkSnap.exists()) {
@@ -206,12 +207,14 @@ function App() {
 
     return (
         <Routes>
-            {/* Rotas Públicas (inalteradas) */}
+            {/* Rotas Públicas (inalteradas + Pago ou Não 3D Mobile/Telão) */}
             <Route path="/login" element={perfilUsuario ? <Navigate to="/dashboard" /> : <PaginaLogin />} />
             <Route path="/cadastro" element={perfilUsuario ? <Navigate to="/dashboard" /> : <PaginaCadastro />} />
             <Route path="/esqueci-senha" element={perfilUsuario ? <Navigate to="/dashboard" /> : <PaginaEsqueciSenha />} />
             <Route path="/pulso" element={<PulsoAluno />} />
             <Route path="/pulso/:pin" element={<PulsoAluno />} />
+            <Route path="/pago-ou-nao/sala/:codigo" element={<PagoOuNao3D />} />
+            <Route path="/pago-ou-nao-telao" element={<PagoOuNao3D />} />
             
             {/* Rotas Protegidas (atualizadas) */}
             <Route path="/" element={<Layout perfilUsuario={perfilUsuario} sidebarAberta={sidebarAberta} setSidebarAberta={setSidebarAberta} />}>
@@ -220,6 +223,7 @@ function App() {
                 <Route path="analise" element={<AnaliseProjetos />} />
                 <Route path="analise/:grupoId" element={<PaginaAnalise />} />
                 <Route path="pulso-digital" element={<PulsoDigital />} />
+                <Route path="pago-ou-nao" element={<PagoOuNao3D isEmbeddedInLayout={true} />} />
 
                 {/* Rota "Hub" do Simulador */}
                 <Route path="simulador" element={<SimuladorHub perfilUsuario={perfilUsuario} />} />
@@ -233,6 +237,7 @@ function App() {
                 <Route path="adm-si/organizacao" element={<AdmSIOrganizacao />} />
                 <Route path="adm-si/governanca" element={<AdmSIGovernanca />} />
                 <Route path="adm-si/tatica" element={<AdmSITatica />} />
+                <Route path="adm-si/cargos-digitais" element={<AdmSICargosDigitais />} />
 
                 {/* Rotas de Admin/Professor do Simulador */}
                  <Route element={<ProfessorAdminRoute perfilUsuario={perfilUsuario} />}>
