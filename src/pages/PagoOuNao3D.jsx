@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { db, appId } from '../firebase/config.js';
 import confetti from 'canvas-confetti';
 import {
@@ -31,14 +31,20 @@ import {
 import Board3DScene from '../modules/pago-ou-nao/components/Board3DScene.jsx';
 import {
   MediatorConsoleOverlay,
-  MobilePlayerController
+  MobilePlayerController,
+  RedCardInteractiveSelector,
+  BlueCardActionPanel,
+  RulesAndCardsModal
 } from '../modules/pago-ou-nao/components/MultiModeConsole.jsx';
 import {
   createInitialGameState,
   createPlayer,
   submitRoundTaxVote,
+  applyRedCardInteractiveChoice,
+  dismissPlayerSabotageAlert,
   closeRoundReveal,
   performSpontaneousDenunciation,
+  useBlueActionCard,
   performRollDice,
   applyForkChoice,
   applyCharityChoice,
@@ -65,12 +71,27 @@ function generateRoomCode() {
 
 function getOrCreateClientPlayerId() {
   const key = 'pago_ou_nao_client_id';
-  let id = sessionStorage.getItem(key);
+  let id = localStorage.getItem(key) || sessionStorage.getItem(key);
   if (!id) {
     id = `player_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  }
+  try {
+    localStorage.setItem(key, id);
     sessionStorage.setItem(key, id);
+  } catch (e) {
+    // ignore storage errors
   }
   return id;
+}
+
+function setClientPlayerIdStorage(newId) {
+  const key = 'pago_ou_nao_client_id';
+  try {
+    localStorage.setItem(key, newId);
+    sessionStorage.setItem(key, newId);
+  } catch (e) {
+    // ignore
+  }
 }
 
 export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
@@ -126,8 +147,15 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   const [showPathOverlay, setShowPathOverlay] = useState(false);
   const [boardVisualMode, setBoardVisualMode] = useState('3d_world'); // '3d_world' | '2d_classic'
   const [isAnimatingRoll, setIsAnimatingRoll] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState('');
+  const [pendingLocalVote, setPendingLocalVote] = useState(null);
+  const [pendingLocalReadConfirm, setPendingLocalReadConfirm] = useState(false);
+  const [reclaimableTeams, setReclaimableTeams] = useState([]);
 
   const broadcastRef = useRef(null);
+  const pendingLocalVoteRef = useRef(null); // { round: number, payTax: boolean }
+  const pendingLocalReadRef = useRef(null); // { round: number, type: string }
 
   // Helper para persistir estado da sala no Firebase Firestore (Modo Telão + Celulares)
   const pushStateToFirestore = async (roomCode, nextState) => {
@@ -142,6 +170,34 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     }
   };
 
+  // Auto-reconexão imediata quando o jogador abre/atualiza o link da sala no celular
+  useEffect(() => {
+    if (!initialJoinCode) return;
+    const cleanCode = initialJoinCode.trim().toUpperCase();
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(getRoomDocRef(cleanCode));
+        if (cancelled || !snap.exists()) return;
+        const remote = snap.data();
+        const clientId = getOrCreateClientPlayerId();
+        const alreadyInRoom = remote.players?.some((p) => p.id === clientId);
+        if (alreadyInRoom) {
+          setMyPlayerId(clientId);
+          setActiveOnlineRoomCode(cleanCode);
+          setGameState(remote);
+        } else if (remote.status !== 'lobby') {
+          setReclaimableTeams((remote.players || []).filter((p) => !p.isBot));
+        }
+      } catch (e) {
+        // ignore initial check error
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialJoinCode]);
+
   // Listener em Tempo Real do Firebase Firestore quando conectado a uma sala Online
   useEffect(() => {
     if (!activeOnlineRoomCode) return;
@@ -150,7 +206,48 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       roomRef,
       (snap) => {
         if (snap.exists()) {
-          setGameState(snap.data());
+          const remote = snap.data();
+          const pVote = pendingLocalVoteRef.current;
+
+          // Se o jogador acabou de votar nesta rodada e um snapshot antigo em trânsito chegou sem o voto dele,
+          // preserva a marcação local para nunca desmarcar na tela do celular!
+          if (
+            pVote &&
+            remote.phase === 'tax_vote' &&
+            remote.roundNumber === pVote.round
+          ) {
+            if (remote.roundVotes?.[myPlayerId] === undefined) {
+              remote.roundVotes = {
+                ...(remote.roundVotes || {}),
+                [myPlayerId]: pVote.payTax
+              };
+            } else {
+              // O servidor já confirmou o voto!
+              pendingLocalVoteRef.current = null;
+              setPendingLocalVote(null);
+            }
+          } else {
+            pendingLocalVoteRef.current = null;
+            setPendingLocalVote(null);
+          }
+
+          const pRead = pendingLocalReadRef.current;
+          if (
+            pRead &&
+            remote.pendingDecision &&
+            remote.roundNumber === pRead.round &&
+            remote.pendingDecision.type === pRead.type
+          ) {
+            if (remote.pendingDecision.readBy?.includes(myPlayerId)) {
+              pendingLocalReadRef.current = null;
+              setPendingLocalReadConfirm(false);
+            }
+          } else {
+            pendingLocalReadRef.current = null;
+            setPendingLocalReadConfirm(false);
+          }
+
+          setGameState(remote);
         }
       },
       (err) => {
@@ -158,7 +255,27 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       }
     );
     return () => unsub();
-  }, [activeOnlineRoomCode]);
+  }, [activeOnlineRoomCode, myPlayerId]);
+
+  // Botão Manual de Atualizar / Sincronizar no Celular
+  const handleManualSync = async () => {
+    const code = activeOnlineRoomCode || gameState.roomCode || roomCodeInput;
+    if (!code) return;
+    setIsSyncing(true);
+    try {
+      const snap = await getDoc(getRoomDocRef(code));
+      if (snap.exists()) {
+        setGameState(snap.data());
+        setSyncStatusText('✅ Sincronizado com a sala!');
+        setTimeout(() => setSyncStatusText(''), 2500);
+      }
+    } catch (err) {
+      setSyncStatusText('⚠️ Falha de rede ao sincronizar. Tente novamente.');
+      setTimeout(() => setSyncStatusText(''), 3000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Sincronização em Tempo Real entre as 2 Abas do Modo Mediador (Console do Mediador <-> Aba do Telão 3D)
   useEffect(() => {
@@ -170,6 +287,14 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         setGameState(event.data.state);
       } else if (!isTelaoTab && event.data?.type === 'REQUEST_STATE') {
         channel.postMessage({ type: 'SYNC_STATE', state: gameState });
+      } else if (!isTelaoTab && event.data?.type === 'TELAO_CONFIRM_READ') {
+        setGameState((prev) => {
+          if (!prev.pendingDecision) return prev;
+          if (prev.pendingDecision.type === 'round_reveal') {
+            return closeRoundReveal(prev);
+          }
+          return confirmReadDecision(prev, 'FORCE_ALL');
+        });
       }
     };
 
@@ -211,12 +336,12 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     window.open(url, 'PagoOuNaoTelao', 'noopener');
   };
 
-  // Quando o dado 3D é lançado (diceRollId aumenta), aguarda o dado rolar (1.2s) + o pino caminhar pelas casas antes de abrir a janela da casa!
+  // Quando o dado 3D é lançado (diceRollId aumenta), aguarda o dado rolar (1.35s) + o pino caminhar pelas casas antes de abrir a janela da casa!
   useEffect(() => {
     if (!gameState.diceRollId) return;
     setIsAnimatingRoll(true);
     const steps = gameState.lastDice || 3;
-    const totalAnimMs = 1200 + steps * 700 + 350;
+    const totalAnimMs = 1350 + steps * 700 + 350;
     const timer = setTimeout(() => {
       setIsAnimatingRoll(false);
     }, totalAnimMs);
@@ -366,64 +491,176 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     }
   };
 
+  const handleReclaimTeam = async (teamId) => {
+    const cleanCode = (roomCodeInput || initialJoinCode || '').trim().toUpperCase();
+    if (!cleanCode || !teamId) return;
+    setIsSyncing(true);
+    try {
+      const snap = await getDoc(getRoomDocRef(cleanCode));
+      if (snap.exists()) {
+        const remote = snap.data();
+        setClientPlayerIdStorage(teamId);
+        setMyPlayerId(teamId);
+        setActiveOnlineRoomCode(cleanCode);
+        setGameState(remote);
+        setErrorMsg('');
+      }
+    } catch (err) {
+      setErrorMsg('Erro ao reconectar na equipe: ' + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleJoinOnlineRoom = async () => {
     const cleanCode = roomCodeInput.trim().toUpperCase();
     if (!cleanCode) {
       setErrorMsg('Digite o código de 4 letras da sala!');
       return;
     }
+    setIsSyncing(true);
     try {
-      const snap = await getDoc(getRoomDocRef(cleanCode));
-      if (!snap.exists()) {
-        setErrorMsg('Sala não encontrada! Verifique o código no Telão.');
-        return;
-      }
-      const remoteState = snap.data();
+      const roomRef = getRoomDocRef(cleanCode);
       const clientId = getOrCreateClientPlayerId();
       setMyPlayerId(clientId);
 
-      // Se o jogador já estava na sala (ex: deu refresh no celular), apenas reconecta!
-      const alreadyInRoom = remoteState.players?.some((p) => p.id === clientId);
-      if (!alreadyInRoom) {
+      const finalState = await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(roomRef);
+        if (!snap.exists()) {
+          throw new Error('ROOM_NOT_FOUND');
+        }
+        const remoteState = snap.data();
+        const typedName = playerNameInput.trim();
+
+        // 1. Se o ID deste celular já está na sala, apenas reconecta
+        const alreadyById = remoteState.players?.find((p) => p.id === clientId);
+        if (alreadyById) {
+          return { state: remoteState, assignedId: clientId };
+        }
+
+        // 2. Se digitou o mesmo nome de uma equipe já existente na sala, reconecta a ela!
+        if (typedName) {
+          const matchByName = remoteState.players?.find(
+            (p) => !p.isBot && p.name.trim().toLowerCase() === typedName.toLowerCase()
+          );
+          if (matchByName) {
+            return { state: remoteState, assignedId: matchByName.id };
+          }
+        }
+
         if (remoteState.status !== 'lobby') {
-          setErrorMsg('A partida já começou!');
-          return;
+          const err = new Error('GAME_ALREADY_STARTED');
+          err.teams = (remoteState.players || []).filter((p) => !p.isBot);
+          throw err;
         }
+
         if ((remoteState.players?.length || 0) >= 6) {
-          setErrorMsg('A sala já atingiu o limite de 6 participantes!');
-          return;
+          throw new Error('ROOM_FULL');
         }
+
         const newP = createPlayer({
           id: clientId,
-          name: playerNameInput.trim() || `Equipe ${(remoteState.players?.length || 0) + 1}`,
+          name: typedName || `Equipe ${(remoteState.players?.length || 0) + 1}`,
           isBot: false,
           colorIndex: remoteState.players?.length || 0
         });
         remoteState.players = [...(remoteState.players || []), newP];
-        await pushStateToFirestore(cleanCode, remoteState);
+        const clean = JSON.parse(JSON.stringify(remoteState));
+        transaction.set(roomRef, { ...clean, updatedAt: Date.now() });
+        return { state: clean, assignedId: clientId };
+      });
+
+      if (finalState.assignedId !== clientId) {
+        setClientPlayerIdStorage(finalState.assignedId);
+        setMyPlayerId(finalState.assignedId);
       }
 
       setActiveOnlineRoomCode(cleanCode);
-      setGameState(remoteState);
+      setGameState(finalState.state);
       setErrorMsg('');
     } catch (err) {
-      setErrorMsg('Erro ao entrar na sala: ' + err.message);
+      if (err.message === 'ROOM_NOT_FOUND') {
+        setErrorMsg('Sala não encontrada! Verifique o código no Telão.');
+      } else if (err.message === 'GAME_ALREADY_STARTED') {
+        if (err.teams?.length > 0) setReclaimableTeams(err.teams);
+        setErrorMsg('A partida já está em andamento! Toque na sua Equipe abaixo para reconectar:');
+      } else if (err.message === 'ROOM_FULL') {
+        setErrorMsg('A sala já atingiu o limite de 6 participantes!');
+      } else {
+        setErrorMsg('Erro ao entrar na sala: ' + err.message);
+      }
+    } finally {
+      setIsSyncing(false);
     }
   };
 
+  // Executa transação atômica no Firestore para NUNCA sobrescrever votos simultâneos nem executar sorteios/dados duas vezes!
   const applyAndSyncState = async (updaterFn) => {
-    const nextState = updaterFn(gameState);
-    setGameState(nextState);
     if (gameState.mode === 'online' && gameState.roomCode) {
-      await pushStateToFirestore(gameState.roomCode, nextState);
+      const roomRef = getRoomDocRef(gameState.roomCode);
+      setIsSyncing(true);
+      try {
+        const committedState = await runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(roomRef);
+          const baseState = snap.exists() ? snap.data() : gameState;
+          const next = updaterFn(baseState);
+          const clean = JSON.parse(JSON.stringify(next));
+          transaction.set(roomRef, {
+            ...clean,
+            updatedAt: Date.now()
+          });
+          return clean;
+        });
+        setGameState(committedState);
+      } catch (err) {
+        console.error('Erro na transação do Firestore, aplicando fallback:', err);
+        const fallbackState = updaterFn(gameState);
+        setGameState(fallbackState);
+        await pushStateToFirestore(gameState.roomCode, fallbackState);
+      } finally {
+        setIsSyncing(false);
+      }
+      return;
     }
+
+    setGameState((prev) => updaterFn(prev));
   };
 
   const handleTaxVote = (payTax, customPlayerId = null) => {
     const voterId =
       customPlayerId ||
       (gameState.mode === 'solo' ? gameState.players[0]?.id : myPlayerId);
+
+    if (!customPlayerId) {
+      pendingLocalVoteRef.current = { round: gameState.roundNumber, payTax };
+      setPendingLocalVote(payTax);
+    }
     applyAndSyncState((prev) => submitRoundTaxVote(prev, voterId, payTax));
+  };
+
+  const handleRedCardChoice = (choicePayload, customPlayerId = null) => {
+    const actorId =
+      customPlayerId ||
+      (gameState.mode === 'solo' ? gameState.players[0]?.id : myPlayerId);
+    if (!actorId) return;
+    applyAndSyncState((prev) =>
+      applyRedCardInteractiveChoice(prev, actorId, choicePayload)
+    );
+  };
+
+  const handleDismissSabotageAlert = (customPlayerId = null) => {
+    const targetId =
+      customPlayerId ||
+      (gameState.mode === 'solo' ? gameState.players[0]?.id : myPlayerId);
+    if (!targetId) return;
+    applyAndSyncState((prev) => dismissPlayerSabotageAlert(prev, targetId));
+  };
+
+  const handleDismissTelaoBanner = () => {
+    applyAndSyncState((prev) => ({
+      ...prev,
+      telaoAnnouncementBanner: null
+    }));
   };
 
   const handleSpontaneousDenunciation = (customPlayerId = null) => {
@@ -431,6 +668,16 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     const targetId = customPlayerId || currentPlayer?.id;
     if (!targetId) return;
     applyAndSyncState((prev) => performSpontaneousDenunciation(prev, targetId));
+  };
+
+  const handleUseBlueCard = (actionPayload, customPlayerId = null) => {
+    const currentPlayer = gameState.players[gameState.turnIndex];
+    const actorId =
+      customPlayerId ||
+      (gameState.mode === 'solo' ? gameState.players[0]?.id : myPlayerId) ||
+      currentPlayer?.id;
+    if (!actorId) return;
+    applyAndSyncState((prev) => useBlueActionCard(prev, actorId, actionPayload));
   };
 
   const handleRollDice = () => {
@@ -444,13 +691,24 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   };
 
   const handleConfirmRead = () => {
+    if (isTelaoTab) {
+      broadcastRef.current?.postMessage({ type: 'TELAO_CONFIRM_READ' });
+      setGameState((prev) => {
+        if (!prev.pendingDecision) return prev;
+        if (prev.pendingDecision.type === 'round_reveal') {
+          return closeRoundReveal(prev);
+        }
+        return confirmReadDecision(prev, 'FORCE_ALL');
+      });
+      return;
+    }
     if (gameState.mode === 'mediator') {
       applyAndSyncState((prev) => {
         if (!prev.pendingDecision) return prev;
         if (prev.pendingDecision.type === 'round_reveal') {
           return closeRoundReveal(prev);
         }
-        return confirmReadDecision(prev, prev.players[0]?.id);
+        return confirmReadDecision(prev, 'FORCE_ALL');
       });
       return;
     }
@@ -458,6 +716,13 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     if (gameState.mode === 'online' && gameState.isTelaoHost && myPlayerId === gameState.hostId) {
       applyAndSyncState((prev) => confirmReadDecision(prev, 'FORCE_ALL'));
       return;
+    }
+    if (gameState.pendingDecision) {
+      pendingLocalReadRef.current = {
+        round: gameState.roundNumber,
+        type: gameState.pendingDecision.type
+      };
+      setPendingLocalReadConfirm(true);
     }
     applyAndSyncState((prev) => confirmReadDecision(prev, readerId));
   };
@@ -524,174 +789,206 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         />
       </div>
 
-      {/* BARRA SUPERIOR (STATUS DO ESTADO E CARTÕES DE SERVIÇO) */}
-      <header className="relative z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg">
-        <div className="flex items-center gap-3">
+      {/* BARRA SUPERIOR EM LINHA ÚNICA (AGRUPADA DE FORMA COMPACTA E FLUIDA) */}
+      <header className="relative z-10 flex items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 shadow-lg flex-nowrap overflow-x-auto">
+        {/* GRUPO 1: BOTÃO VOLTAR + TÍTULO + SALA E RODADA */}
+        <div className="flex items-center gap-2 shrink-0">
           {!isEmbeddedInLayout && !isTelaoTab && !initialJoinCode && (
             <button
               onClick={() => navigate('/dashboard')}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition shrink-0"
               title="Voltar ao Trilha Digital"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-blue-600 flex items-center justify-center shadow-md">
-            <Scale className="w-6 h-6 text-white" />
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-blue-600 flex items-center justify-center shadow-md shrink-0">
+            <Scale className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-black text-lg tracking-tight bg-gradient-to-r from-white via-sky-200 to-emerald-300 bg-clip-text text-transparent">
-                PAGO OU NÃO? 3D
-              </h1>
-              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                Receita Federal • Trilha Digital
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 hidden sm:block">
-              Sala: <span className="text-amber-400 font-mono font-bold">{gameState.roomCode}</span> • Período Fiscal #{gameState.roundNumber} • Trilha de 78 Casas
-            </p>
+          <div className="flex items-center gap-2">
+            <h1 className="font-black text-sm sm:text-base tracking-tight bg-gradient-to-r from-white via-sky-200 to-emerald-300 bg-clip-text text-transparent whitespace-nowrap">
+              PAGO OU NÃO? 3D
+            </h1>
+            <span className="hidden lg:inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 whitespace-nowrap">
+              Sala <strong className="text-amber-400 font-mono">{gameState.roomCode}</strong> • Rodada #{gameState.roundNumber}
+            </span>
           </div>
         </div>
 
-        {/* DESTINO DO ESTADO NA RODADA ATUAL */}
+        {/* GRUPO 2: DESTINO DO ESTADO NA RODADA ATUAL (PÍLULA EM LINHA ÚNICA) */}
         <div
-          className={`px-4 py-1.5 rounded-2xl border flex items-center gap-2.5 shadow-md transition-all ${
+          className={`px-3 py-1 rounded-xl border flex items-center gap-2 shadow-sm shrink-0 transition-all ${
             gameState.stateHasResources
               ? 'bg-emerald-950/90 border-emerald-400 text-emerald-200'
               : 'bg-red-950/90 border-red-500 text-red-200 animate-pulse'
           }`}
         >
-          <Landmark className="w-5 h-5 shrink-0" />
-          <div>
-            <div className="text-[10px] uppercase font-bold tracking-wider opacity-80">
-              Status do Estado nesta Rodada
-            </div>
-            <div className="text-xs sm:text-sm font-black">
-              {gameState.stateHasResources
-                ? '✅ INVESTIMENTOS SUFICIENTES (Maioria Pagou)'
-                : '🚨 INVESTIMENTOS INSUFICIENTES (Sonegação/Empate)'}
-            </div>
-          </div>
+          <Landmark className="w-4 h-4 shrink-0" />
+          <span className="text-[11px] sm:text-xs font-black whitespace-nowrap">
+            {gameState.stateHasResources
+              ? '✅ Estado COM Recursos (Maioria Pagou)'
+              : '🚨 Estado SEM Recursos (Sonegação/Empate)'}
+          </span>
         </div>
 
-        {/* Botões de Consulta aos Cartões de Serviço, Mundo 3D/2D, Trilha, Mediador e Regras */}
-        <div className="flex items-center gap-2">
+        {/* GRUPO 3: CONTROLES AGRUPADOS EM LINHA ÚNICA */}
+        <div className="flex items-center gap-1.5 shrink-0">
           {isTelaoTab ? (
-            <span className="px-3 py-1.5 rounded-lg text-xs font-black bg-amber-400 text-slate-950 flex items-center gap-1.5 shadow">
+            <span className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-amber-400 text-slate-950 flex items-center gap-1 shadow whitespace-nowrap">
               <Monitor className="w-3.5 h-3.5" />
-              TELÃO 3D (SINCRONIZADO)
+              <span>TELÃO 3D</span>
             </span>
           ) : (
             gameState.mode === 'mediator' && (
               <button
                 onClick={handleOpenTelaoTab}
-                className="px-3 py-1.5 rounded-lg text-xs font-black bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center gap-1.5 shadow transition"
+                className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-amber-400 hover:bg-amber-300 text-slate-950 flex items-center gap-1 shadow transition whitespace-nowrap"
                 title="Abrir segunda aba limpa com o Mapa 3D para o Projetor / TV"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Abrir Aba do Telão</span>
+                <span className="hidden xl:inline">Abrir Telão</span>
               </button>
             )
           )}
 
           {isOnlineMobilePlayer && gameState.status === 'playing' && (
-            <button
-              onClick={() => setMobileShowBoard((prev) => !prev)}
-              className="px-3 py-1.5 rounded-lg text-xs font-black bg-sky-400 text-slate-950 flex items-center gap-1.5 shadow"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>{mobileShowBoard ? 'Voltar à Minha Carteira' : 'Ver Mapa'}</span>
-            </button>
+            <>
+              <button
+                onClick={handleManualSync}
+                disabled={isSyncing}
+                className="px-2 py-1 rounded-lg text-[11px] font-black bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow transition whitespace-nowrap"
+                title="Sincronizar estado com a sala agora"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Sinc...' : 'Atualizar'}</span>
+              </button>
+              <button
+                onClick={() => setMobileShowBoard((prev) => !prev)}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-sky-400 text-slate-950 flex items-center gap-1 shadow whitespace-nowrap"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>{mobileShowBoard ? 'Carteira' : 'Ver Mapa'}</span>
+              </button>
+            </>
           )}
 
-          <button
-            onClick={() => setShowPlayersPanel((prev) => !prev)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition ${
-              showPlayersPanel
-                ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-md'
-                : 'bg-slate-800 hover:bg-slate-700 text-sky-300 border-sky-500/30'
-            }`}
-            title="Mostrar ou ocultar o painel de Empresas / Jogadores"
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Empresas / Jogadores</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-950/40 font-black">
-              {gameState.players.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setShowHistoryPanel((prev) => !prev)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition ${
-              showHistoryPanel
-                ? 'bg-indigo-500 text-slate-950 border-indigo-300 shadow-md'
-                : 'bg-slate-800 hover:bg-slate-700 text-indigo-300 border-indigo-500/30'
-            }`}
-            title="Mostrar ou ocultar o Histórico da Sociedade"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Histórico</span>
-          </button>
-
-          <button
-            onClick={() =>
-              setBoardVisualMode((prev) =>
-                prev === '3d_world' ? '2d_classic' : '3d_world'
-              )
-            }
-            className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 border transition ${
-              boardVisualMode === '3d_world'
-                ? 'bg-gradient-to-r from-emerald-500 to-sky-500 text-slate-950 border-emerald-300 shadow-md'
-                : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-500/40'
-            }`}
-          >
-            <span>{boardVisualMode === '3d_world' ? '🌍 Mundo 3D' : '🗺️ Tabuleiro 2D'}</span>
-          </button>
-
-          <button
-            onClick={() => setShowPathOverlay(!showPathOverlay)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition ${
-              showPathOverlay
-                ? 'bg-sky-500 text-slate-950 border-sky-300'
-                : 'bg-slate-800 hover:bg-slate-700 text-sky-300 border-sky-500/30'
-            }`}
-          >
-            <GitFork className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Trilha/Bifurcações</span>
-          </button>
-
-          <button
-            onClick={() => setShowServiceCardsModal(true)}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 transition"
-          >
-            <Layers className="w-3.5 h-3.5" />
-            <span>Cartões de Serviço</span>
-          </button>
-
-          {!isTelaoTab && !isOnlineMobilePlayer && !initialJoinCode && (
+          {/* Subgrupo: Painéis da Partida (Jogadores, Histórico, Facilitador) */}
+          <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
             <button
-              onClick={() => setShowMediatorPanel(!showMediatorPanel)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border transition ${
-                showMediatorPanel
-                  ? 'bg-amber-500 text-slate-950 border-amber-400'
-                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-500/30'
+              onClick={() => setShowPlayersPanel((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition whitespace-nowrap ${
+                showPlayersPanel
+                  ? 'bg-sky-500 text-slate-950 shadow'
+                  : 'hover:bg-slate-800 text-sky-300'
               }`}
+              title="Mostrar ou ocultar o painel de Empresas / Jogadores"
             >
-              <Eye className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Facilitador</span>
+              <Users className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Jogadores</span>
+              <span className="text-[10px] px-1.5 rounded-full bg-slate-950/40 font-black">
+                {gameState.players.length}
+              </span>
             </button>
-          )}
 
+            <button
+              onClick={() => setShowHistoryPanel((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition whitespace-nowrap ${
+                showHistoryPanel
+                  ? 'bg-indigo-500 text-slate-950 shadow'
+                  : 'hover:bg-slate-800 text-indigo-300'
+              }`}
+              title="Mostrar ou ocultar o Histórico da Sociedade"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Histórico</span>
+            </button>
+
+            {!isTelaoTab && !isOnlineMobilePlayer && !initialJoinCode && (
+              <button
+                onClick={() => setShowMediatorPanel(!showMediatorPanel)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition whitespace-nowrap ${
+                  showMediatorPanel
+                    ? 'bg-amber-500 text-slate-950 shadow'
+                    : 'hover:bg-slate-800 text-amber-300'
+                }`}
+                title="Painel do Facilitador / Receita Federal"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">Facilitador</span>
+              </button>
+            )}
+          </div>
+
+          {/* Subgrupo: Visão do Tabuleiro (3D/2D + Trilha) */}
+          <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={() =>
+                setBoardVisualMode((prev) =>
+                  prev === '3d_world' ? '2d_classic' : '3d_world'
+                )
+              }
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-black flex items-center gap-1 transition whitespace-nowrap ${
+                boardVisualMode === '3d_world'
+                  ? 'bg-gradient-to-r from-emerald-500 to-sky-500 text-slate-950 shadow'
+                  : 'hover:bg-slate-800 text-amber-300'
+              }`}
+              title="Alternar entre Mundo 3D e Tabuleiro 2D"
+            >
+              <span>{boardVisualMode === '3d_world' ? '🌍 3D' : '🗺️ 2D'}</span>
+            </button>
+
+            <button
+              onClick={() => setShowPathOverlay(!showPathOverlay)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition whitespace-nowrap ${
+                showPathOverlay
+                  ? 'bg-sky-500 text-slate-950 shadow'
+                  : 'hover:bg-slate-800 text-sky-300'
+              }`}
+              title="Visualizar linhas da trilha e bifurcações"
+            >
+              <GitFork className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Trilha</span>
+            </button>
+          </div>
+
+          {/* Botão Único de Regras & Cartas (Inclui Regras, Cartões de Serviço, Cartas Azuis e Vermelhas com Zoom) */}
           <button
             onClick={() => setShowRulesModal(true)}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition"
+            className="px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-sky-500/20 to-emerald-500/20 hover:from-sky-500/30 hover:to-emerald-500/30 text-sky-200 border border-sky-400/50 flex items-center gap-1.5 shadow transition whitespace-nowrap cursor-pointer"
+            title="Consultar Regras, Cartões de Serviço, Cartas Azuis e Cartas Vermelhas (com zoom)"
           >
             <BookOpen className="w-3.5 h-3.5 text-sky-400" />
-            <span>Regras</span>
+            <span>Regras & Cartas</span>
           </button>
         </div>
       </header>
+
+      {/* BANNER DRAMÁTICO DO TELÃO QUANDO OCORREM SABOTAGENS OU MOVIMENTOS APÓS "JÁ VI MINHA CARTA" */}
+      {gameState.telaoAnnouncementBanner?.messages?.length > 0 &&
+        !gameState.pendingDecision && (
+          <div className="relative z-20 mx-auto mt-2 max-w-3xl w-full px-4 pointer-events-auto">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-950/95 via-slate-900/95 to-amber-950/95 border-2 border-amber-400 shadow-2xl flex items-center justify-between gap-3 animate-bounce">
+              <div className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-300 block">
+                  📢 Aconteceu Agora no Tabuleiro (Rodada #{gameState.telaoAnnouncementBanner.roundNumber})
+                </span>
+                {gameState.telaoAnnouncementBanner.messages.map((msg, idx) => (
+                  <div key={idx} className="text-xs sm:text-sm font-black text-white">
+                    {msg}
+                  </div>
+                ))}
+              </div>
+              {!isTelaoTab && (
+                <button
+                  onClick={handleDismissTelaoBanner}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-300 border border-amber-400/40 shrink-0"
+                >
+                  Ocultar ✕
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
       {/* PAINEL DO FACILITADOR */}
       {showMediatorPanel && (
@@ -728,12 +1025,93 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         </div>
       )}
 
-      {/* LAYOUT LATERAL: JOGADORES + CÉDULAS + CONTROLES DE DADO 3D */}
-      <div className="relative z-10 flex-1 flex flex-col md:flex-row justify-between p-4 pointer-events-none gap-4 overflow-hidden">
-        {/* COLUNA ESQUERDA: JOGADORES / EMPRESAS E DIÁRIO FISCAL (Ocultos por padrão para ampliar o tabuleiro, acionáveis na barra superior) */}
-        {(showPlayersPanel || showHistoryPanel) && (
-          <div className="w-full md:w-80 flex flex-col gap-3 pointer-events-auto max-h-full overflow-y-auto pr-1">
-            {showPlayersPanel && (
+      {/* LAYOUT LATERAL: QUADRO DE VEZ NO CANTO SUPERIOR ESQUERDO + PAINÉIS EXPANSÍVEIS */}
+      <div className="relative z-10 flex-1 flex flex-col md:flex-row justify-between items-start p-4 pointer-events-none gap-4 overflow-hidden">
+        {/* COLUNA SUPERIOR ESQUERDA: VEZ DE JOGAR OS DADOS + PAINÉIS DE JOGADORES / HISTÓRICO */}
+        <div className="w-full md:w-72 flex flex-col justify-start gap-3 pointer-events-auto max-h-full overflow-y-auto pr-1">
+          {gameState.status === 'playing' && gameState.phase === 'board_turns' && currentPlayer && (
+            <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl p-3.5 shadow-2xl">
+              <div className="mb-2.5">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
+                  Vez de Jogar os Dados
+                </span>
+                <h3 className="text-base font-extrabold flex items-center gap-2 mt-0.5">
+                  <span
+                    className="w-3.5 h-3.5 rounded-full shrink-0 ring-2 ring-white/20"
+                    style={{ backgroundColor: currentPlayer.color }}
+                  />
+                  <span className="truncate">{currentPlayer.name}</span>
+                </h3>
+              </div>
+
+              {!isPublicTelaoView &&
+                isMyTurn &&
+                !gameState.pendingDecision &&
+                currentPlayer.redCards > 0 &&
+                !currentPlayer.forbidSpontaneous && (
+                  <button
+                    onClick={() => handleSpontaneousDenunciation()}
+                    className="w-full mb-2 py-2 px-3 rounded-xl bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/60 text-emerald-200 text-xs font-bold flex items-center justify-between transition"
+                  >
+                    <span>🤝 Denúncia Espontânea ({currentPlayer.redCards}x)</span>
+                    <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-black">
+                      Quitar -${currentPlayer.redCards * 400}
+                    </span>
+                  </button>
+                )}
+
+              {!isPublicTelaoView &&
+                myPlayerObj &&
+                (myPlayerObj.blueCardsList?.some(
+                  (c) =>
+                    c.isActionCard ||
+                    ['jogada_bonus', 'nova_chance', 'troca_carta'].includes(c.type)
+                ) ||
+                  myPlayerObj.bonusRollPending > 0) && (
+                  <div className="mb-2.5">
+                    <BlueCardActionPanel
+                      player={myPlayerObj}
+                      allPlayers={gameState.players}
+                      currentRound={gameState.roundNumber}
+                      canUseActionsNow={
+                        isMyTurn && !gameState.pendingDecision && !isAnimatingRoll
+                      }
+                      onUseBlueCard={(payload) => handleUseBlueCard(payload)}
+                      disabled={isSyncing}
+                    />
+                  </div>
+                )}
+
+              {isAnimatingRoll ? (
+                <div className="text-center py-2.5 px-3 rounded-xl bg-amber-500/20 border border-amber-400/50 text-xs text-amber-300 font-black animate-pulse">
+                  🎲 Rolando o dado e movendo peão...
+                </div>
+              ) : !gameState.pendingDecision ? (
+                <button
+                  disabled={!isMyTurn && !isOnlineTelaoHost}
+                  onClick={handleRollDice}
+                  className={`w-full py-3 px-4 rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xl transition-all ${
+                    isMyTurn || isOnlineTelaoHost
+                      ? 'bg-gradient-to-r from-amber-400 via-emerald-400 to-sky-400 hover:brightness-110 text-slate-950 cursor-pointer active:scale-95'
+                      : 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  <Dices className="w-4 h-4" />
+                  {isMyTurn || isOnlineTelaoHost
+                    ? currentPlayer.skipTurns > 0
+                      ? 'CUMPRIR RODADA PARADO'
+                      : 'ROLAR O DADO'
+                    : `Aguardando ${currentPlayer.name}...`}
+                </button>
+              ) : (
+                <div className="text-center py-1.5 text-xs text-amber-300 font-semibold animate-pulse">
+                  ⚡ Confira a mensagem na tela...
+                </div>
+              )}
+            </div>
+          )}
+
+          {showPlayersPanel && (
               <>
                 <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-2xl p-3.5 shadow-xl">
                   <div className="flex items-center justify-between mb-2.5">
@@ -903,12 +1281,11 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                 </div>
               </div>
             )}
-          </div>
-        )}
+        </div>
 
-        {/* COLUNA DIREITA: CONTROLE DE JOGADA, DENÚNCIA ESPONTÂNEA E DADO 3D */}
-        <div className="w-full md:w-80 md:ml-auto flex flex-col justify-end gap-3 pointer-events-auto">
-          {selectedTileInfo && (
+        {/* COLUNA DIREITA: DETALHE DE CASA SELECIONADA NO TABULEIRO */}
+        {selectedTileInfo && (
+          <div className="w-full md:w-72 md:ml-auto flex flex-col justify-start gap-3 pointer-events-auto">
             <div className="bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl p-3.5 shadow-xl">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs font-bold text-sky-400">
@@ -923,78 +1300,8 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               </div>
               <h4 className="font-bold text-sm">{selectedTileInfo.title}</h4>
             </div>
-          )}
-
-          {gameState.status === 'playing' && gameState.phase === 'board_turns' && currentPlayer && (
-            <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl p-4 shadow-2xl">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">
-                    Vez de Jogar os Dados
-                  </span>
-                  <h3 className="text-base font-extrabold flex items-center gap-2">
-                    <span
-                      className="w-3 h-3 rounded-full"
-                      style={{ backgroundColor: currentPlayer.color }}
-                    />
-                    {currentPlayer.name}
-                  </h3>
-                  <span className="text-xs text-slate-400">
-                    Casa atual: <strong>#{currentPlayer.position} ({BOARD_TILES[currentPlayer.position]?.title})</strong>
-                  </span>
-                </div>
-                {gameState.lastDice && (
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 font-black text-xl flex flex-col items-center justify-center shadow-lg">
-                    <span>🎲 {gameState.lastDice}</span>
-                  </div>
-                )}
-              </div>
-
-              {!isPublicTelaoView &&
-                isMyTurn &&
-                !gameState.pendingDecision &&
-                currentPlayer.redCards > 0 &&
-                !currentPlayer.forbidSpontaneous && (
-                  <button
-                    onClick={() => handleSpontaneousDenunciation()}
-                    className="w-full mb-2.5 py-2 px-3 rounded-xl bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/60 text-emerald-200 text-xs font-bold flex items-center justify-between transition"
-                  >
-                    <span>🤝 Denúncia Espontânea ({currentPlayer.redCards}x)</span>
-                    <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-black">
-                      Quitar -${currentPlayer.redCards * 300}
-                    </span>
-                  </button>
-                )}
-
-              {isAnimatingRoll ? (
-                <div className="text-center py-3 px-4 rounded-xl bg-amber-500/20 border border-amber-400/50 text-xs text-amber-300 font-black animate-bounce">
-                  🎲 Rolando o Dado 3D e avançando pino...
-                </div>
-              ) : !gameState.pendingDecision ? (
-                <button
-                  disabled={!isMyTurn && !isOnlineTelaoHost}
-                  onClick={handleRollDice}
-                  className={`w-full py-3.5 px-4 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-xl transition-all ${
-                    isMyTurn || isOnlineTelaoHost
-                      ? 'bg-gradient-to-r from-amber-400 via-emerald-400 to-sky-400 hover:brightness-110 text-slate-950 cursor-pointer active:scale-95'
-                      : 'bg-slate-800 text-slate-400 cursor-not-allowed'
-                  }`}
-                >
-                  <Dices className="w-5 h-5" />
-                  {isMyTurn || isOnlineTelaoHost
-                    ? currentPlayer.skipTurns > 0
-                      ? 'CUMPRIR RODADA PARADO'
-                      : 'LANÇAR DADO 3D NA MESA!'
-                    : `Aguardando ${currentPlayer.name}...`}
-                </button>
-              ) : (
-                <div className="text-center py-2 text-xs text-amber-300 font-semibold animate-pulse">
-                  ⚡ Confira o resultado da jogada na tela...
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* CONSOLE DO MEDIADOR */}
@@ -1002,6 +1309,8 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         <MediatorConsoleOverlay
           gameState={gameState}
           onTaxVoteForPlayer={(playerId, payTax) => handleTaxVote(payTax, playerId)}
+          onRedCardChoiceForPlayer={(playerId, choice) => handleRedCardChoice(choice, playerId)}
+          onUseBlueCardForPlayer={(playerId, payload) => handleUseBlueCard(payload, playerId)}
           onConfirmRead={handleConfirmRead}
           onSpontaneousForPlayer={(playerId) => handleSpontaneousDenunciation(playerId)}
           onRollDice={handleRollDice}
@@ -1021,6 +1330,9 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
           myPlayer={myPlayerObj}
           isMyTurn={isMyTurn}
           onTaxVote={(payTax) => handleTaxVote(payTax)}
+          onRedCardChoice={(choice) => handleRedCardChoice(choice)}
+          onUseBlueCard={(payload) => handleUseBlueCard(payload)}
+          onDismissSabotageAlert={() => handleDismissSabotageAlert()}
           onConfirmRead={handleConfirmRead}
           onSpontaneousDenunciation={() => handleSpontaneousDenunciation()}
           onRollDice={handleRollDice}
@@ -1029,6 +1341,11 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
           onDenunciaAction={handleDenunciaAction}
           isAnimatingRoll={isAnimatingRoll}
           onToggleShowBoard={() => setMobileShowBoard(true)}
+          onRefreshSync={handleManualSync}
+          isSyncing={isSyncing}
+          syncStatusText={syncStatusText}
+          pendingLocalVote={pendingLocalVote}
+          pendingLocalReadConfirm={pendingLocalReadConfirm}
         />
       )}
 
@@ -1088,11 +1405,38 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                     </div>
                   )}
 
+                  {reclaimableTeams.length > 0 && (
+                    <div className="p-3.5 rounded-2xl bg-slate-950 border border-amber-400/50 space-y-2">
+                      <span className="text-[11px] font-black uppercase text-amber-300 block">
+                        🔄 Já estava jogando e saiu da tela? Toque na sua Equipe para reconectar:
+                      </span>
+                      <div className="grid grid-cols-1 gap-2">
+                        {reclaimableTeams.map((team) => (
+                          <button
+                            key={team.id}
+                            onClick={() => handleReclaimTeam(team.id)}
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 flex items-center justify-between text-xs font-bold text-white transition"
+                          >
+                            <span className="flex items-center gap-2">
+                              <span
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: team.color }}
+                              />
+                              {team.name}
+                            </span>
+                            <span className="text-emerald-400 font-black">Reconectar →</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <button
+                    disabled={isSyncing}
                     onClick={handleJoinOnlineRoom}
                     className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-400 to-sky-400 hover:brightness-110 text-slate-950 font-black text-base shadow-xl transition active:scale-95"
                   >
-                    🚀 ENTRAR NA PARTIDA AGORA
+                    {isSyncing ? '⏳ CONECTANDO À SALA...' : '🚀 ENTRAR NA PARTIDA AGORA'}
                   </button>
                 </div>
               ) : (
@@ -1697,30 +2041,73 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               </div>
 
               {isPublicTelaoView ? (
-                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center mb-5 space-y-2">
+                <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-center mb-5 space-y-2.5">
                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-black">
                     <Lock className="w-3.5 h-3.5" /> Sigilo Fiscal Ativo no Telão
                   </div>
                   <p className="text-xs text-slate-300">
-                    As Cartas Azuis e Vermelhas sorteadas nesta rodada foram entregues de forma <strong>secreta</strong> para cada equipe (no Console do Mediador ou no Celular de cada jogador).
+                    As Cartas Azuis e Vermelhas sorteadas nesta rodada foram entregues de forma <strong>secreta</strong> para cada equipe. Assim que todos clicarem em <strong>"Já vi minha carta"</strong> nos celulares, eventuais movimentos e sabotagens acontecerão ao vivo no tabuleiro!
                   </p>
-                  {gameState.pendingDecision.drawnCardsSummary?.some((i) => i.isPublicEvent) && (
-                    <div className="pt-2 border-t border-slate-800 space-y-1">
+                  {gameState.pendingDecision.publicAnnouncements?.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800 space-y-1 text-left">
                       <span className="text-[11px] font-bold text-amber-300 block">
-                        ⚡ Efeitos de Movimento Imediato no Tabuleiro:
+                        📢 Eventos e Sabotagens Registrados nesta Rodada (Sem revelar o sabotador!):
                       </span>
-                      {gameState.pendingDecision.drawnCardsSummary
-                        .filter((i) => i.isPublicEvent)
-                        .map((ev, idx) => (
-                          <div key={idx} className="text-xs text-slate-200 font-semibold">
-                            • <strong>{ev.playerName}</strong>: {ev.effectResult}
-                          </div>
-                        ))}
+                      {gameState.pendingDecision.publicAnnouncements.map((msg, idx) => (
+                        <div key={idx} className="text-xs text-white font-semibold">
+                          • {msg}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {gameState.mode === 'online' && (
+                    <div className="pt-2 border-t border-slate-800">
+                      <span className="text-[11px] font-bold text-sky-300 block mb-1.5">
+                        📱 Confirmação de Leitura nos Celulares:
+                      </span>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {gameState.players
+                          .filter((p) => !p.isBot)
+                          .map((p) => {
+                            const ready = (
+                              gameState.pendingDecision.readyPlayerIds || []
+                            ).includes(p.id);
+                            return (
+                              <span
+                                key={p.id}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border ${
+                                  ready
+                                    ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                                    : 'bg-slate-900 border-slate-800 text-amber-300 animate-pulse'
+                                }`}
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: p.color }}
+                                />
+                                {p.name}: {ready ? '✅ Pronto' : '⏳ Lendo...'}
+                              </span>
+                            );
+                          })}
+                      </div>
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="space-y-3 mb-5">
+                  {myPlayerObj?.sabotageAlerts?.length > 0 && (
+                    <div className="p-3.5 rounded-2xl bg-red-950/90 border-2 border-amber-400 space-y-1">
+                      <span className="text-xs font-black uppercase text-amber-300 block">
+                        🕵️ Você foi alvo de um sabotador!
+                      </span>
+                      {myPlayerObj.sabotageAlerts.map((al, i) => (
+                        <div key={i} className="text-xs text-white font-bold">
+                          {al}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {myPlayerObj?.lastDrawnCard && (
                     <div className="p-4 rounded-2xl bg-slate-950 border border-sky-500/40 flex flex-col sm:flex-row items-center gap-4">
                       {myPlayerObj.lastDrawnCard.card && (
@@ -1730,7 +2117,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                           className="w-28 h-40 object-contain rounded-xl shadow-lg shrink-0"
                         />
                       )}
-                      <div className="text-center sm:text-left">
+                      <div className="text-center sm:text-left flex-1">
                         <span
                           className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full ${
                             myPlayerObj.lastDrawnCard.paid
@@ -1744,30 +2131,35 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                             : 'SONEGOU (+$1.000 + Carta Vermelha)'}
                         </span>
                         <h4 className="font-black text-base text-white mt-2">
-                          {myPlayerObj.lastDrawnCard.card?.title}
+                          {myPlayerObj.lastDrawnCard.card?.title || 'Imposto Pago em Dia'}
                         </h4>
                         <p className="text-xs text-amber-300 mt-1 font-semibold">
                           {myPlayerObj.lastDrawnCard.effectResult}
                         </p>
+
+                        <RedCardInteractiveSelector
+                          actorPlayer={myPlayerObj}
+                          allPlayers={gameState.players}
+                          onSelectChoice={(choice) => handleRedCardChoice(choice)}
+                        />
+
                         <p className="text-[11px] text-slate-400 mt-2">
-                          🔒 As escolhas e cartas dos Bots permanecem ocultas sob sigilo fiscal!
+                          🔒 As escolhas e cartas dos demais jogadores permanecem ocultas sob sigilo fiscal!
                         </p>
                       </div>
                     </div>
                   )}
 
-                  {gameState.pendingDecision.drawnCardsSummary?.some((i) => i.isPublicEvent) && (
+                  {gameState.pendingDecision.publicAnnouncements?.length > 0 && (
                     <div className="p-3.5 rounded-2xl bg-amber-950/50 border border-amber-500/50 space-y-1">
                       <span className="text-xs font-black text-amber-300 block">
-                        ⚡ Efeitos Imediatos de Cartas no Tabuleiro nesta Rodada:
+                        📢 Eventos e Sabotagens da Rodada:
                       </span>
-                      {gameState.pendingDecision.drawnCardsSummary
-                        .filter((i) => i.isPublicEvent)
-                        .map((ev, idx) => (
-                          <div key={idx} className="text-xs text-slate-200 font-semibold">
-                            • <strong>{ev.playerName}</strong>: {ev.effectResult}
-                          </div>
-                        ))}
+                      {gameState.pendingDecision.publicAnnouncements.map((msg, idx) => (
+                        <div key={idx} className="text-xs text-slate-200 font-semibold">
+                          • {msg}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -1775,10 +2167,26 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
 
               {!isTelaoTab && (
                 <button
+                  disabled={
+                    !isPublicTelaoView &&
+                    Boolean(myPlayerObj?.lastDrawnCard?.pendingAction) &&
+                    !myPlayerObj.lastDrawnCard.pendingAction.completed
+                  }
                   onClick={handleConfirmRead}
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 hover:brightness-110 text-slate-950 font-black text-sm shadow-lg transition"
+                  className={`w-full py-3.5 rounded-xl font-black text-sm shadow-lg transition ${
+                    !isPublicTelaoView &&
+                    Boolean(myPlayerObj?.lastDrawnCard?.pendingAction) &&
+                    !myPlayerObj.lastDrawnCard.pendingAction.completed
+                      ? 'bg-slate-800 text-amber-300 border border-amber-400/50 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-emerald-500 to-sky-500 hover:brightness-110 text-slate-950'
+                  }`}
                 >
-                  ✅ JÁ LI • IR PARA O TABULEIRO (JOGAR OS DADOS 3D) →
+                  {isOnlineTelaoHost
+                    ? '✅ LIBERAR TABULEIRO E EXECUTAR MOVIMENTOS NO TELÃO →'
+                    : Boolean(myPlayerObj?.lastDrawnCard?.pendingAction) &&
+                      !myPlayerObj.lastDrawnCard.pendingAction.completed
+                    ? '☝️ FAÇA SUA ESCOLHA NA CARTA ACIMA PRIMEIRO!'
+                    : '✅ JÁ VI MINHA CARTA • IR PARA O TABULEIRO →'}
                 </button>
               )}
             </div>
@@ -1850,20 +2258,26 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
             <p className="text-sm text-slate-300 mt-2 mb-5">
               {gameState.pendingDecision.description}
             </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleCharityChoice(true)}
-                className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
-              >
-                SIM, DOAR $300 E JOGAR DE NOVO
-              </button>
-              <button
-                onClick={() => handleCharityChoice(false)}
-                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
-              >
-                Não doar (Passar a vez)
-              </button>
-            </div>
+            {isMyTurn || isOnlineTelaoHost ? (
+              <div className="flex gap-3">
+                <button
+                  onClick={() => handleCharityChoice(true)}
+                  className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs"
+                >
+                  SIM, DOAR $300 E JOGAR DE NOVO
+                </button>
+                <button
+                  onClick={() => handleCharityChoice(false)}
+                  className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
+                >
+                  Não doar (Passar a vez)
+                </button>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-bold text-pink-300">
+                ⏳ Aguardando <strong>{currentPlayer?.name}</strong> decidir sobre os Fundos de Caridade...
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1926,53 +2340,179 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         </div>
       )}
 
-      {/* MODAL 5: CONSEQUÊNCIA DA CASA + CARTÃO DE SERVIÇO OFICIAL */}
-      {!isAnimatingRoll && gameState.pendingDecision?.type === 'tile_summary' && (
-        <div className="absolute inset-0 z-30 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+      {/* MODAL 5: CONSEQUÊNCIA DA CASA (SEM IMAGEM DA CARTA FÍSICA — VISUAL LIMPO E FLUIDO PARA TELÃO E CELULAR) */}
+      {!isAnimatingRoll &&
+        gameState.pendingDecision?.type === 'tile_summary' &&
+        (!isOnlineMobilePlayer || mobileShowBoard) &&
+        (gameState.mode !== 'mediator' || isTelaoTab) && (
+        <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
           <div
-            className="bg-slate-900 border-2 rounded-3xl max-w-lg w-full p-6 shadow-2xl"
-            style={{ borderColor: gameState.pendingDecision.accentColor || '#38bdf8' }}
+            className={`bg-slate-900 rounded-3xl max-w-xl w-full p-6 shadow-2xl border-4 transition-all my-auto ${
+              gameState.stateHasResources
+                ? 'border-emerald-400 shadow-emerald-950/60'
+                : 'border-red-500 shadow-red-950/60'
+            }`}
           >
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span
-                className="text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-800"
-                style={{ color: gameState.pendingDecision.accentColor || '#38bdf8' }}
-              >
-                {gameState.pendingDecision.subtitle}
-              </span>
-              {gameState.pendingDecision.playerName && (
-                <span className="text-xs font-bold text-slate-300 bg-slate-950 px-2.5 py-1 rounded-full border border-slate-800">
-                  Turno de: <strong className="text-amber-300">{gameState.pendingDecision.playerName}</strong>
+            {/* 1. QUEM ESTÁ JOGANDO ("Vez de Jogador 1") */}
+            <div className="flex items-center justify-between gap-3 flex-wrap pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="w-4 h-4 rounded-full ring-2 ring-white shrink-0"
+                  style={{
+                    backgroundColor:
+                      gameState.pendingDecision.playerColor ||
+                      currentPlayer?.color ||
+                      '#38bdf8'
+                  }}
+                />
+                <span className="text-base sm:text-lg font-black uppercase tracking-wide text-amber-300">
+                  🎲 Vez de {gameState.pendingDecision.playerName || currentPlayer?.name}
+                </span>
+              </div>
+              {gameState.pendingDecision.tileId !== undefined && (
+                <span className="text-xs font-black px-3 py-1 rounded-full bg-slate-950 border border-slate-700 text-slate-300">
+                  Casa #{gameState.pendingDecision.tileId}
                 </span>
               )}
             </div>
 
-            <h3 className="text-xl font-black text-white mt-3">
-              {gameState.pendingDecision.title}
-            </h3>
-            <p className="text-sm text-slate-200 mt-2 whitespace-pre-line leading-relaxed">
-              {gameState.pendingDecision.description}
-            </p>
+            {/* 2. SE O ESTADO ESTÁ COM OU SEM RECURSOS (Ícone + Bordas Verde/Vermelha + Frase Clara) */}
+            <div
+              className={`mt-3.5 p-3 rounded-2xl border-2 flex items-center gap-3 ${
+                gameState.stateHasResources
+                  ? 'bg-emerald-950/80 border-emerald-400 text-emerald-200'
+                  : 'bg-red-950/80 border-red-500 text-red-200'
+              }`}
+            >
+              <div
+                className={`p-2 rounded-xl shrink-0 ${
+                  gameState.stateHasResources
+                    ? 'bg-emerald-500 text-slate-950'
+                    : 'bg-red-500 text-white'
+                }`}
+              >
+                {gameState.stateHasResources ? (
+                  <CheckCircle2 className="w-5 h-5" />
+                ) : (
+                  <ShieldAlert className="w-5 h-5" />
+                )}
+              </div>
+              <div className="text-left">
+                <div className="text-[10px] font-black uppercase tracking-wider opacity-85">
+                  Situação dos Cofres Públicos nesta Rodada
+                </div>
+                <div className="text-xs sm:text-sm font-black">
+                  {gameState.stateHasResources
+                    ? '🏛️ ESTADO COM RECURSOS SUFICIENTES (Serviços Públicos de Qualidade!)'
+                    : '🚨 ESTADO SEM RECURSOS (Serviços Públicos Precários por Sonegação!)'}
+                </div>
+              </div>
+            </div>
 
-            {gameState.pendingDecision.serviceImage && (
-              <div className="mt-4 rounded-xl overflow-hidden border border-slate-700 bg-slate-950">
-                <img
-                  src={gameState.pendingDecision.serviceImage}
-                  alt="Cartão de Serviço Oficial"
-                  className="w-full max-h-56 object-contain mx-auto"
-                />
+            {/* 3. EM QUAL CASA O JOGADOR CAIU (Ex: "Jogador 1 — Viajou de Carro!") */}
+            <div className="mt-4 text-center sm:text-left">
+              {gameState.pendingDecision.sectorName && (
+                <span
+                  className="inline-block text-[11px] font-black uppercase tracking-wider px-3 py-0.5 rounded-full mb-1.5"
+                  style={{
+                    backgroundColor: `${gameState.pendingDecision.sectorColor || '#38bdf8'}25`,
+                    color: gameState.pendingDecision.sectorColor || '#38bdf8',
+                    border: `1px solid ${gameState.pendingDecision.sectorColor || '#38bdf8'}60`
+                  }}
+                >
+                  Setor: {gameState.pendingDecision.sectorName} #{gameState.pendingDecision.sectorNum}
+                </span>
+              )}
+              <h3 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                {gameState.pendingDecision.tileTitle
+                  ? `${gameState.pendingDecision.playerName} caiu em: "${gameState.pendingDecision.tileTitle}"`
+                  : gameState.pendingDecision.title}
+              </h3>
+            </div>
+
+            {/* 4. CONSEQUÊNCIA / REGRA DA CARTA (Ex: "1 - A estrada estava esburacada e o carro quebrou...") */}
+            <div
+              className={`mt-3 p-4 rounded-2xl border-2 ${
+                gameState.stateHasResources
+                  ? 'bg-slate-950/90 border-emerald-500/50'
+                  : 'bg-slate-950/90 border-red-500/50'
+              }`}
+            >
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-1">
+                📋 Consequência / Regra Aplicada:
+              </span>
+              <p className="text-base sm:text-lg font-extrabold text-white whitespace-pre-line leading-snug">
+                {gameState.pendingDecision.description}
+              </p>
+
+              {gameState.pendingDecision.extraEffectNote && (
+                <div className="mt-2.5 pt-2.5 border-t border-slate-800 text-xs sm:text-sm font-black text-amber-300 flex items-center gap-1.5">
+                  <span>{gameState.pendingDecision.extraEffectNote}</span>
+                </div>
+              )}
+            </div>
+
+            {/* 5. PAINEL DE QUEM JÁ LEU E QUEM FALTA LER NO TELÃO (Modo Online / Celulares) */}
+            {gameState.mode === 'online' && (
+              <div className="mt-4 p-3 rounded-2xl bg-slate-950 border border-slate-800">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-300 mb-2">
+                  <span>📱 Acompanhamento de Leitura nos Celulares:</span>
+                  <span className="text-sky-400 font-black">
+                    {(gameState.pendingDecision.readyPlayerIds || []).length}/
+                    {gameState.players.filter((p) => !p.isBot).length} leram
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {gameState.players
+                    .filter((p) => !p.isBot)
+                    .map((p) => {
+                      const hasRead = (
+                        gameState.pendingDecision.readyPlayerIds || []
+                      ).includes(p.id);
+                      return (
+                        <span
+                          key={p.id}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border ${
+                            hasRead
+                              ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
+                              : 'bg-slate-900 border-amber-500/40 text-amber-300 animate-pulse'
+                          }`}
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: p.color }}
+                          />
+                          {p.name}: {hasRead ? '✅ Lido' : '⏳ Falta ler'}
+                        </span>
+                      );
+                    })}
+                </div>
               </div>
             )}
 
-            {!isTelaoTab && (
+            {/* 6. BOTÃO PARA FECHAR A MENSAGEM NO TELÃO E DISPARAR O MOVIMENTO DO PEÃO */}
+            {isOnlineMobilePlayer &&
+            (gameState.pendingDecision.readyPlayerIds || []).includes(myPlayerId) ? (
+              <div className="mt-5 p-3.5 rounded-2xl bg-emerald-950/70 border border-emerald-500/50 text-center text-xs font-black text-emerald-300">
+                ✅ Você já confirmou a leitura! Aguardando os demais jogadores ou o Telão...
+              </div>
+            ) : (
               <button
                 onClick={handleConfirmRead}
-                className="mt-5 w-full py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-emerald-500 hover:brightness-110 text-slate-950 font-black text-sm shadow-lg transition flex items-center justify-center gap-2"
+                className={`mt-5 w-full py-4 rounded-2xl font-black text-sm sm:text-base shadow-xl transition flex items-center justify-center gap-2 cursor-pointer active:scale-98 ${
+                  gameState.stateHasResources
+                    ? 'bg-gradient-to-r from-emerald-400 to-sky-400 hover:brightness-110 text-slate-950'
+                    : 'bg-gradient-to-r from-amber-400 to-red-400 hover:brightness-110 text-slate-950'
+                }`}
               >
                 <CheckCircle2 className="w-5 h-5" />
-                {gameState.pendingDecision.rollAgain
-                  ? '✅ LIDO • ROLAR O DADO NOVAMENTE!'
-                  : '✅ LIDO • AVANÇAR PARA O PRÓXIMO TURNO →'}
+                {gameState.pendingDecision.deferredMove
+                  ? gameState.pendingDecision.deferredMove.steps > 0
+                    ? `✅ MENSAGEM LIDA • AVANÇAR +${gameState.pendingDecision.deferredMove.steps} CASA(S) NO TABULEIRO! →`
+                    : `✅ MENSAGEM LIDA • VOLTAR ${Math.abs(gameState.pendingDecision.deferredMove.steps)} CASA(S) NO TABULEIRO! →`
+                  : gameState.pendingDecision.rollAgain
+                  ? '✅ MENSAGEM LIDA • ROLAR O DADO NOVAMENTE!'
+                  : '✅ MENSAGEM LIDA • CONTINUAR NO TABULEIRO →'}
               </button>
             )}
           </div>
@@ -2057,82 +2597,19 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         </div>
       )}
 
-      {/* MODAL DE CARTÕES DE SERVIÇO OFICIAIS (ANEXO 4) */}
-      {showServiceCardsModal && (
-        <div className="absolute inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-4xl w-full p-6 shadow-2xl max-h-[88vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-black text-white">
-                📋 Cartões de Serviço Oficiais (Anexo 4 — Suficientes vs Insuficientes)
-              </h3>
-              <button
-                onClick={() => setShowServiceCardsModal(false)}
-                className="text-sm text-slate-400 hover:text-white"
-              >
-                Fechar ✕
-              </button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.values(SERVICE_CARDS).map((sc) => (
-                <div key={sc.name} className="space-y-2 bg-slate-950 p-3 rounded-2xl border border-slate-800">
-                  <h4 className="font-black text-sm" style={{ color: sc.color }}>
-                    {sc.name}
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <img src={sc.sufficientImage} alt={`${sc.name} Suficiente`} className="w-full rounded-lg" />
-                    <img src={sc.insufficientImage} alt={`${sc.name} Insuficiente`} className="w-full rounded-lg" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL DE SÍNTESE DAS REGRAS OFICIAIS */}
-      {showRulesModal && (
-        <div className="absolute inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-xl w-full p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-black text-white">
-                📖 Síntese das Regras Oficiais ("Pago ou Não?")
-              </h3>
-              <button
-                onClick={() => setShowRulesModal(false)}
-                className="text-sm text-slate-400 hover:text-white"
-              >
-                Fechar ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <strong className="text-amber-400 block mb-1">1. A Escolha da Rodada (Pago ou Não?):</strong>
-                Sua empresa fatura <strong>$1.000</strong> por período e o tributo devido é de <strong>$300</strong>. Se decidir <strong>PAGAR</strong>, você recebe <strong>$700</strong> e 1 Carta Azul. Se decidir <strong>SONEGAR</strong>, fica com <strong>$1.000</strong> e recebe 1 Carta Vermelha de efeito imediato.
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <strong className="text-emerald-400 block mb-1">2. O Destino do Estado (Maioria da Mesa):</strong>
-                Se a <strong>maioria pagar</strong>, o Estado tem <strong>Investimentos Suficientes</strong> (as casas de Saúde, Educação, Transporte e Segurança dão bônus e avanços). Se a <strong>maioria sonegar ou empatar</strong>, o Estado fica com <strong>Investimentos Insuficientes</strong> (gerando multas, atrasos e perdas de rodada).
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <strong className="text-red-400 block mb-1">3. Malha Fina, Denúncia e Denúncia Espontânea:</strong>
-                Na Malha Fina ou quando denunciado na casa preta de <strong>DENÚNCIA!</strong>, o sonegador paga <strong>$300 de tributo + $450 de multa de ofício ($750 por período sonegado)</strong>. Antes de lançar os dados, você pode fazer <strong>Denúncia Espontânea</strong> quitando apenas os $300 sem multa!
-              </div>
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <strong className="text-sky-400 block mb-1">4. Chegada e Vencedor:</strong>
-                Quem cruzar a casa <strong>FINAL (#77)</strong> primeiro ganha <strong>+$1.000 de bônus</strong>, somam-se as Cartas Azuis de Restituição e vence quem tiver o <strong>Maior Saldo Bancário Final</strong>!
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowRulesModal(false)}
-              className="mt-5 w-full py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs"
-            >
-              VOLTAR AO JOGO
-            </button>
-          </div>
-        </div>
-      )}
+      {/* CENTRAL UNIFICADA DE REGRAS, CARTÕES DE SERVIÇO, CARTAS AZUIS E VERMELHAS */}
+      <RulesAndCardsModal
+        isOpen={showRulesModal || showServiceCardsModal}
+        initialTab={showServiceCardsModal ? 'servicos' : 'regras'}
+        onClose={() => {
+          setShowRulesModal(false);
+          setShowServiceCardsModal(false);
+        }}
+        onOpenSlides={() => {
+          setIntroSlide(1);
+          setShowIntroModal(true);
+        }}
+      />
     </div>
   );
 }

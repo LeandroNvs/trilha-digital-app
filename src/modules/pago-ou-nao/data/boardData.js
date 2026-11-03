@@ -12,7 +12,8 @@ export const CONSTANTS = {
   MALHA_FINA_TAX: 300,
   MALHA_FINA_FINE: 450,
   MALHA_FINA_TOTAL: 750,
-  SPONTANEOUS_TOTAL: 300,
+  SPONTANEOUS_FINE: 100,
+  SPONTANEOUS_TOTAL: 400,
   FINISH_LINE_BONUS: 1000
 };
 
@@ -247,26 +248,29 @@ export const BLUE_CARDS = [
   {
     id: 'jogada_bonus',
     title: 'Jogada Bônus!',
-    description: 'Jogue o dado novamente! (+ $100 ao final)',
+    description: 'Carta de Ação (!): Use a partir da rodada seguinte para jogar o dado novamente!',
     image: '/assets/cartas_azuis/image7.png',
     type: 'jogada_bonus',
-    restitutionValue: 100
+    isActionCard: true,
+    restitutionValue: 0
   },
   {
     id: 'nova_chance',
     title: 'Nova Chance!',
-    description: 'Embaralhe suas Cartas Azuis e melhore sua Restituição (+ $150 garantidos)!',
+    description: 'Carta de Ação (!): Troque suas outras Cartas Azuis por outras do baralho na mesma quantidade!',
     image: '/assets/cartas_azuis/image8.png',
     type: 'nova_chance',
-    restitutionValue: 150
+    isActionCard: true,
+    restitutionValue: 0
   },
   {
     id: 'troca_carta',
     title: 'Troca de Carta!',
-    description: 'Troque uma Carta Azul e receba bônus de regularidade fiscal (+ $150 ao final)!',
+    description: 'Carta de Ação (!): Troque uma outra Carta Azul sua com uma Carta Azul de um adversário!',
     image: '/assets/cartas_azuis/image6.png',
     type: 'troca_carta',
-    restitutionValue: 150
+    isActionCard: true,
+    restitutionValue: 0
   }
 ];
 

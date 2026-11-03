@@ -494,10 +494,13 @@ function SteppingPlayerPawn3D({ player, totalAtTile, offsetIndex, isCurrentTurn,
 
     if (rollChanged && diceRollId > 0) {
       st.lastRollId = diceRollId;
-      st.waitUntilTime = performance.now() + 1150;
+      // O dado rola por 1150ms; aguardamos 1350ms para o dado parar completamente na mesa antes do peão dar o 1º passo!
+      st.waitUntilTime = performance.now() + 1350;
     } else {
       st.lastRollId = diceRollId || 0;
-      st.waitUntilTime = 0;
+      if (performance.now() >= st.waitUntilTime) {
+        st.waitUntilTime = 0;
+      }
     }
   }, [player.position, player.lastMoveId, player.stepQueue, diceRollId]);
 
@@ -507,20 +510,23 @@ function SteppingPlayerPawn3D({ player, totalAtTile, offsetIndex, isCurrentTurn,
     const dt = Math.min(delta, 0.1);
     const now = performance.now();
 
+    // Sincronismo imediato no próprio frame caso diceRollId tenha acabado de incrementar antes do commit do useEffect:
+    if ((diceRollId || 0) !== st.lastRollId && diceRollId > 0) {
+      st.lastRollId = diceRollId;
+      st.waitUntilTime = now + 1350;
+    }
+
     // Frequência 4.5 idêntica para o pulo parado na espera e para cada passo entre casas!
     // Um pulo completo (de 0 a Math.PI) dura Math.PI / 4.5 ≈ 0.698s (~700ms).
     const HOP_FREQ = 4.5;
     const STEP_SPEED = HOP_FREQ / Math.PI;
     const HOP_HEIGHT = 0.22;
 
-    // Enquanto aguarda o dado 3D terminar de quicar na mesa:
+    // Enquanto o dado 3D está rolando na mesa, o peão aguarda imóvel na casa de origem!
+    // Somente após o dado parar de rolar é que o peão inicia a caminhada casa por casa.
     if (now < st.waitUntilTime) {
-      if (isCurrentTurn) {
-        st.idlePhase += dt * HOP_FREQ;
-        groupRef.current.position.y = PAWN_GROUND_Y + Math.abs(Math.sin(st.idlePhase)) * HOP_HEIGHT;
-      } else {
-        groupRef.current.position.y = PAWN_GROUND_Y;
-      }
+      st.idlePhase = 0;
+      groupRef.current.position.y = PAWN_GROUND_Y;
       return;
     }
 

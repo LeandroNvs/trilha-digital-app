@@ -55,8 +55,11 @@ export function createPlayer({ id, name, isBot = false, colorIndex = 0 }) {
     redCardsList: [],
     blueCardsList: [],
     lastDrawnCard: null,
+    sabotageAlerts: [], // Alertas privados de sabotagem sofrida nesta rodada (sem revelar quem foi o sabotador!)
+    bonusRollPending: 0, // Jogadas extras ativadas pela Carta Azul "Jogada Bônus!"
     skipTurns: 0,
     forbidSpontaneous: false,
+    forbidNextBlueCard: false,
     totalRevenue: CONSTANTS.INITIAL_MONEY,
     taxesPaidCount: 0,
     taxesPaidAmount: 0,
@@ -188,7 +191,12 @@ export function submitRoundTaxVote(state, playerId, payTax) {
 
   let players = state.players.map((p) => {
     const paid = roundVotes[p.id];
-    let updated = { ...p, forbidSpontaneous: false, stepQueue: [] };
+    let updated = {
+      ...p,
+      forbidSpontaneous: false,
+      stepQueue: [],
+      sabotageAlerts: []
+    };
 
     if (paid) {
       updated.money += CONSTANTS.NET_WHEN_PAYING;
@@ -197,20 +205,46 @@ export function submitRoundTaxVote(state, playerId, payTax) {
       updated.taxesPaidAmount += CONSTANTS.TAX_AMOUNT;
       publicTreasury += CONSTANTS.TAX_AMOUNT;
 
-      const blueCard = BLUE_CARDS[Math.floor(Math.random() * BLUE_CARDS.length)];
-      updated.blueCardsList = [...updated.blueCardsList, blueCard];
-      updated.lastDrawnCard = {
-        roundNumber: state.roundNumber,
-        paid: true,
-        card: blueCard,
-        effectResult: 'Guardada na sua mão até o Balanço Final!'
-      };
-      drawnCardsSummary.push({
-        playerId: p.id,
-        playerName: p.name,
-        paid: true,
-        card: blueCard
-      });
+      if (updated.forbidNextBlueCard) {
+        updated.forbidNextBlueCard = false;
+        updated.lastDrawnCard = {
+          roundNumber: state.roundNumber,
+          paid: true,
+          card: null,
+          effectResult:
+            'Cumpriu a penalidade da Carta Negada anterior: pagou o imposto em dia (+$700), mas não pôde retirar Carta Azul nesta rodada.',
+          pendingAction: null
+        };
+        drawnCardsSummary.push({
+          playerId: p.id,
+          playerName: p.name,
+          paid: true,
+          card: null
+        });
+      } else {
+        const rawBlueCard = BLUE_CARDS[Math.floor(Math.random() * BLUE_CARDS.length)];
+        const blueCard = {
+          ...rawBlueCard,
+          acquiredRound: state.roundNumber,
+          instanceId: `${state.roundNumber}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+        };
+        updated.blueCardsList = [...updated.blueCardsList, blueCard];
+        updated.lastDrawnCard = {
+          roundNumber: state.roundNumber,
+          paid: true,
+          card: blueCard,
+          effectResult: blueCard.isActionCard
+            ? 'Carta de Ação (!): Guardada na sua carteira! Poderá ser usada a partir da próxima rodada na sua vez!'
+            : 'Carta de Restituição ($): Guardada na sua mão até o Balanço Final!',
+          pendingAction: null
+        };
+        drawnCardsSummary.push({
+          playerId: p.id,
+          playerName: p.name,
+          paid: true,
+          card: blueCard
+        });
+      }
     } else {
       updated.money += CONSTANTS.NET_WHEN_EVADING;
       updated.totalRevenue += CONSTANTS.ROUND_REVENUE;
@@ -224,7 +258,8 @@ export function submitRoundTaxVote(state, playerId, payTax) {
         roundNumber: state.roundNumber,
         paid: false,
         card: redCard,
-        effectResult: ''
+        effectResult: '',
+        pendingAction: null
       };
       drawnCardsSummary.push({
         playerId: p.id,
@@ -236,14 +271,20 @@ export function submitRoundTaxVote(state, playerId, payTax) {
     return updated;
   });
 
-  // Aplica efeitos imediatos das Cartas Vermelhas usando o grafo sem saltos!
+  // Aplica efeitos imediatos ou prepara escolhas interativas das Cartas Vermelhas!
+  // Os movimentos de peão (Má Sorte, Passou a Perna, Troca) ficam em `pendingBoardMoves`
+  // para acontecerem visivelmente no Telão APÓS todos clicarem em "Já vi minha carta"!
   let moveCounter = state.moveCounter || 0;
+  let pendingBoardMoves = [];
+  let publicAnnouncements = [];
+
   for (const item of drawnCardsSummary) {
     if (!item.paid && item.card) {
       const idx = players.findIndex((pl) => pl.id === item.playerId);
       if (idx === -1) continue;
       let pl = { ...players[idx] };
       const c = item.card;
+      let pendingAction = null;
 
       if (c.effect === 'malha_fina') {
         const count = pl.redCards;
@@ -255,106 +296,153 @@ export function submitRoundTaxVote(state, playerId, payTax) {
         publicTreasury += penalty;
         item.effectResult = `Caiu na MALHA FINA! Pagou -$${penalty} (${count}x $750)!`;
         item.isPublicEvent = true;
-        logs = addLog(logs, `🦁 [Carta Vermelha] ${pl.name} caiu na MALHA FINA e pagou -$${penalty}!`, 'bad');
+        const msg = `🦁 [Malha Fina] ${pl.name} caiu na fiscalização da Receita Federal e pagou -$${penalty}!`;
+        publicAnnouncements.push(msg);
+        logs = addLog(logs, msg, 'bad');
       } else if (c.effect === 'investigado') {
         pl.skipTurns += 1;
         pl.forbidSpontaneous = true;
-        item.effectResult = `INVESTIGADO! Ficará parado nesta rodada e sem denúncia espontânea.`;
+        item.effectResult = `INVESTIGADO! Ficará parado nesta rodada e não poderá usar denúncia espontânea.`;
       } else if (c.effect === 'carta_negada') {
         if (pl.blueCardsList.length > 0) {
-          pl.blueCardsList = pl.blueCardsList.slice(0, -1);
-          item.effectResult = `Perdeu 1 Carta Azul da mão!`;
+          if (pl.isBot) {
+            const removed = pl.blueCardsList[pl.blueCardsList.length - 1];
+            pl.blueCardsList = pl.blueCardsList.slice(0, -1);
+            item.effectResult = `Descartou a Carta Azul "${removed?.title || 'Azul'}" da mão.`;
+          } else {
+            pendingAction = {
+              type: 'discard_own_blue',
+              completed: false
+            };
+            item.effectResult = `Escolha abaixo qual Carta Azul da sua mão você deseja descartar!`;
+          }
         } else {
-          item.effectResult = `Não tinha Carta Azul para descartar.`;
+          pl.forbidNextBlueCard = true;
+          item.effectResult = `Como não possui Carta Azul agora, ficará sem receber Carta Azul na próxima vez que pagar imposto!`;
         }
       } else if (c.effect === 'ma_sorte') {
         if (pl.position > 0) {
-          const prevPos = pl.position;
-          const backRes = walkGraphBackward(pl, 3);
-          pl.position = backRes.newPosition;
-          pl.pathHistory = backRes.newHistory;
-          pl.stepQueue = backRes.stepQueue;
-          moveCounter += 1;
-          pl.lastMoveId = moveCounter;
-          item.effectResult = `MÁ SORTE! Voltou da Casa #${prevPos} para a Casa #${pl.position}!`;
+          pendingBoardMoves.push({
+            type: 'back_3',
+            targetId: pl.id,
+            isSabotage: false
+          });
+          item.effectResult = `MÁ SORTE! Seu peão voltará 3 casas no tabuleiro assim que todos fecharem suas cartas!`;
           item.isPublicEvent = true;
-          logs = addLog(
-            logs,
-            `⚡ [Carta Vermelha: Má Sorte] ${pl.name} teve de voltar 3 casas (da Casa #${prevPos} para a Casa #${pl.position})!`,
-            'warn'
-          );
+          const msg = `⚡ [Má Sorte] O peão de ${pl.name} voltará 3 casas no tabuleiro!`;
+          publicAnnouncements.push(msg);
         } else {
           item.effectResult = `MÁ SORTE! Como já estava no Início (Casa #0), permaneceu na Casa #0.`;
         }
       } else if (c.effect === 'trapaceiro') {
-        const victimIdx = players.findIndex((other, oIdx) => oIdx !== idx && other.blueCardsList.length > 0);
-        if (victimIdx !== -1) {
-          const victim = { ...players[victimIdx] };
-          victim.blueCardsList = victim.blueCardsList.slice(0, -1);
-          players[victimIdx] = victim;
-          item.effectResult = `Descartou 1 Carta Azul de ${victim.name}!`;
-          item.isPublicEvent = true;
+        const eligibleTargets = players.filter(
+          (other, oIdx) => oIdx !== idx && other.blueCardsList.length > 0
+        );
+        if (eligibleTargets.length > 0) {
+          if (pl.isBot) {
+            const target = eligibleTargets[Math.floor(Math.random() * eligibleTargets.length)];
+            const tIdx = players.findIndex((p) => p.id === target.id);
+            const victim = { ...players[tIdx] };
+            const randCardIdx = Math.floor(Math.random() * victim.blueCardsList.length);
+            const removedCard = victim.blueCardsList[randCardIdx];
+            victim.blueCardsList = victim.blueCardsList.filter((_, i) => i !== randCardIdx);
+            victim.sabotageAlerts = [
+              ...(victim.sabotageAlerts || []),
+              `🕵️ VOCÊ FOI SABOTADO! Um sabotador anônimo usou a carta "TRAPACEIRO!" e descartou 1 Carta Azul (${removedCard?.title || 'Carta Azul'}) da sua mão!`
+            ];
+            players[tIdx] = victim;
+            item.effectResult = `Sabotagem concluída! Você tirou 1 Carta Azul de ${victim.name}.`;
+            const anonMsg = `🕵️ Um sabotador descartou uma Carta Azul do jogador '${victim.name}'!`;
+            publicAnnouncements.push(anonMsg);
+            logs = addLog(logs, anonMsg, 'warn');
+          } else {
+            pendingAction = {
+              type: 'sabotage_discard_blue',
+              completed: false
+            };
+            item.effectResult = `Escolha abaixo de qual jogador adversário você vai descartar 1 Carta Azul!`;
+          }
         } else {
-          item.effectResult = `Nenhum adversário tinha Carta Azul.`;
+          item.effectResult = `Nenhum adversário possui Carta Azul na mão neste momento.`;
         }
       } else if (c.effect === 'passou_perna') {
-        const leaderIdx = players
-          .map((other, oIdx) => ({ other, oIdx }))
-          .filter((x) => x.oIdx !== idx && x.other.position > 0)
-          .sort((a, b) => b.other.pathHistory.length - a.other.pathHistory.length)[0]?.oIdx;
-        if (leaderIdx !== undefined) {
-          const leader = { ...players[leaderIdx] };
-          const prevPos = leader.position;
-          const backRes = walkGraphBackward(leader, 3);
-          leader.position = backRes.newPosition;
-          leader.pathHistory = backRes.newHistory;
-          leader.stepQueue = backRes.stepQueue;
-          moveCounter += 1;
-          leader.lastMoveId = moveCounter;
-          players[leaderIdx] = leader;
-          item.effectResult = `PASSOU A PERNA! Mandou ${leader.name} voltar da Casa #${prevPos} para a Casa #${leader.position}!`;
-          item.isPublicEvent = true;
-          logs = addLog(
-            logs,
-            `⚡ [Carta Vermelha: Passou a Perna] ${leader.name} foi obrigado a voltar da Casa #${prevPos} para a Casa #${leader.position}!`,
-            'warn'
-          );
+        const eligibleTargets = players.filter((other, oIdx) => oIdx !== idx && other.position > 0);
+        const fallbackTargets = players.filter((other, oIdx) => oIdx !== idx);
+        const pool = eligibleTargets.length > 0 ? eligibleTargets : fallbackTargets;
+
+        if (pool.length > 0) {
+          if (pl.isBot) {
+            const target = [...pool].sort((a, b) => b.pathHistory.length - a.pathHistory.length)[0];
+            const tIdx = players.findIndex((p) => p.id === target.id);
+            const victim = { ...players[tIdx] };
+            victim.sabotageAlerts = [
+              ...(victim.sabotageAlerts || []),
+              `🕵️ VOCÊ FOI SABOTADO! Um sabotador anônimo usou a carta "PASSOU A PERNA!" e mandou seu peão voltar 3 casas no tabuleiro!`
+            ];
+            players[tIdx] = victim;
+            pendingBoardMoves.push({
+              type: 'back_3',
+              targetId: victim.id,
+              isSabotage: true
+            });
+            item.effectResult = `Sabotagem preparada! ${victim.name} voltará 3 casas assim que as cartas forem fechadas!`;
+            const anonMsg = `🕵️ Um sabotador mandou o jogador '${victim.name}' voltar 3 casas no tabuleiro!`;
+            publicAnnouncements.push(anonMsg);
+          } else {
+            pendingAction = {
+              type: 'sabotage_back_3',
+              completed: false
+            };
+            item.effectResult = `Escolha abaixo qual jogador adversário deverá voltar 3 casas no tabuleiro!`;
+          }
         } else {
-          item.effectResult = `Nenhum concorrente avançado no tabuleiro para recuar.`;
+          item.effectResult = `Nenhum concorrente disponível para recuar.`;
         }
       } else if (c.effect === 'troca') {
-        const aheadIdx = players.findIndex(
-          (other, oIdx) => oIdx !== idx && other.pathHistory.length > pl.pathHistory.length
-        );
-        if (aheadIdx !== -1) {
-          const ahead = { ...players[aheadIdx] };
-          const tempPos = pl.position;
-          const tempHist = pl.pathHistory;
-          pl.position = ahead.position;
-          pl.pathHistory = ahead.pathHistory;
-          pl.stepQueue = [pl.position];
-          moveCounter += 1;
-          pl.lastMoveId = moveCounter;
-          ahead.position = tempPos;
-          ahead.pathHistory = tempHist;
-          ahead.stepQueue = [ahead.position];
-          moveCounter += 1;
-          ahead.lastMoveId = moveCounter;
-          players[aheadIdx] = ahead;
-          item.effectResult = `TROCA! Trocou de lugar no tabuleiro com ${ahead.name} (foi para a Casa #${pl.position}, e ${ahead.name} foi para #${ahead.position})!`;
-          item.isPublicEvent = true;
-          logs = addLog(
-            logs,
-            `⚡ [Carta Vermelha: Troca] ${pl.name} trocou de lugar no tabuleiro com ${ahead.name}!`,
-            'warn'
-          );
+        const opponents = players.filter((other, oIdx) => oIdx !== idx);
+        if (opponents.length > 0) {
+          if (pl.isBot) {
+            const ahead = [...opponents].sort(
+              (a, b) => b.pathHistory.length - a.pathHistory.length
+            )[0];
+            if (ahead && ahead.pathHistory.length > pl.pathHistory.length) {
+              const tIdx = players.findIndex((p) => p.id === ahead.id);
+              const victim = { ...players[tIdx] };
+              victim.sabotageAlerts = [
+                ...(victim.sabotageAlerts || []),
+                `🕵️ VOCÊ FOI SABOTADO! Um sabotador anônimo usou a carta "TROCA!" e trocou de lugar com o seu peão no tabuleiro!`
+              ];
+              players[tIdx] = victim;
+              pendingBoardMoves.push({
+                type: 'swap',
+                actorId: pl.id,
+                targetId: victim.id,
+                isSabotage: true
+              });
+              item.effectResult = `Sabotagem preparada! Você trocará de lugar com ${victim.name} assim que as cartas forem fechadas!`;
+              const anonMsg = `🕵️ Um sabotador trocou de lugar no tabuleiro com o jogador '${victim.name}'!`;
+              publicAnnouncements.push(anonMsg);
+            } else {
+              item.effectResult = `Já está na liderança e optou por manter a posição.`;
+            }
+          } else {
+            pendingAction = {
+              type: 'sabotage_swap',
+              completed: false
+            };
+            item.effectResult = `Escolha abaixo com qual jogador você deseja trocar de lugar no tabuleiro!`;
+          }
         } else {
-          item.effectResult = `Já está na liderança, manteve a posição.`;
+          item.effectResult = `Nenhum adversário disponível para troca.`;
         }
       }
 
       if (pl.lastDrawnCard) {
-        pl.lastDrawnCard = { ...pl.lastDrawnCard, effectResult: item.effectResult };
+        pl.lastDrawnCard = {
+          ...pl.lastDrawnCard,
+          effectResult: item.effectResult,
+          pendingAction
+        };
       }
       players[idx] = pl;
     }
@@ -377,6 +465,7 @@ export function submitRoundTaxVote(state, playerId, payTax) {
     publicTreasury,
     moveCounter,
     players,
+    telaoAnnouncementBanner: null,
     logs,
     pendingDecision: {
       type: 'round_reveal',
@@ -385,15 +474,213 @@ export function submitRoundTaxVote(state, playerId, payTax) {
       evadersCount,
       stateHasResources,
       drawnCardsSummary,
+      pendingBoardMoves,
+      publicAnnouncements,
       readyPlayerIds: []
     }
   };
 }
 
-export function closeRoundReveal(state) {
+// Aplica a escolha interativa das Cartas Vermelhas #3 (Carta Negada), #5 (Trapaceiro), #6 (Passou a Perna) e #7 (Troca)
+export function applyRedCardInteractiveChoice(state, playerId, choicePayload) {
+  if (state.pendingDecision?.type !== 'round_reveal') return state;
+
+  const idx = state.players.findIndex((p) => p.id === playerId);
+  if (idx === -1) return state;
+
+  let players = [...state.players];
+  let actor = { ...players[idx] };
+  const pendingAction = actor.lastDrawnCard?.pendingAction;
+  if (!pendingAction || pendingAction.completed) return state;
+
+  let logs = [...state.logs];
+  let pendingBoardMoves = [...(state.pendingDecision.pendingBoardMoves || [])];
+  let publicAnnouncements = [...(state.pendingDecision.publicAnnouncements || [])];
+  let newEffectResult = actor.lastDrawnCard.effectResult;
+
+  if (pendingAction.type === 'discard_own_blue') {
+    const cardIndex =
+      typeof choicePayload === 'number' ? choicePayload : Number(choicePayload) || 0;
+    const removedCard = actor.blueCardsList[cardIndex] || actor.blueCardsList[0];
+    actor.blueCardsList = actor.blueCardsList.filter((_, i) => i !== cardIndex);
+    newEffectResult = `Você descartou a Carta Azul "${removedCard?.title || 'Carta Azul'}" da sua mão.`;
+  } else if (pendingAction.type === 'sabotage_discard_blue') {
+    const targetId = choicePayload;
+    const tIdx = players.findIndex((p) => p.id === targetId && p.id !== actor.id);
+    if (tIdx === -1) return state;
+    let victim = { ...players[tIdx] };
+    if (victim.blueCardsList.length > 0) {
+      const randIdx = Math.floor(Math.random() * victim.blueCardsList.length);
+      const removedCard = victim.blueCardsList[randIdx];
+      victim.blueCardsList = victim.blueCardsList.filter((_, i) => i !== randIdx);
+      victim.sabotageAlerts = [
+        ...(victim.sabotageAlerts || []),
+        `🕵️ VOCÊ FOI SABOTADO! Um sabotador anônimo tirou 1 Carta Azul (${removedCard?.title || 'Carta Azul'}) da sua mão!`
+      ];
+      players[tIdx] = victim;
+      newEffectResult = `Sabotagem concluída! Você descartou 1 Carta Azul de ${victim.name} (em segredo).`;
+      const anonMsg = `🕵️ Um sabotador descartou uma Carta Azul do jogador '${victim.name}'!`;
+      publicAnnouncements.push(anonMsg);
+      logs = addLog(logs, anonMsg, 'warn');
+    } else {
+      newEffectResult = `${victim.name} não tinha Carta Azul para descartar.`;
+    }
+  } else if (pendingAction.type === 'sabotage_back_3') {
+    const targetId = choicePayload;
+    const tIdx = players.findIndex((p) => p.id === targetId && p.id !== actor.id);
+    if (tIdx === -1) return state;
+    let victim = { ...players[tIdx] };
+    victim.sabotageAlerts = [
+      ...(victim.sabotageAlerts || []),
+      `🕵️ VOCÊ FOI SABOTADO! Um sabotador anônimo mandou o seu peão voltar 3 casas no tabuleiro!`
+    ];
+    players[tIdx] = victim;
+    pendingBoardMoves.push({
+      type: 'back_3',
+      targetId: victim.id,
+      isSabotage: true
+    });
+    newEffectResult = `Sabotagem confirmada! O peão de ${victim.name} voltará 3 casas no tabuleiro assim que todos clicarem em "Já vi minha carta"!`;
+    const anonMsg = `🕵️ Um sabotador mandou o jogador '${victim.name}' voltar 3 casas no tabuleiro!`;
+    publicAnnouncements.push(anonMsg);
+  } else if (pendingAction.type === 'sabotage_swap') {
+    if (choicePayload === 'SKIP_SWAP') {
+      newEffectResult = `Você optou por manter sua posição atual no tabuleiro.`;
+    } else {
+      const targetId = choicePayload;
+      const tIdx = players.findIndex((p) => p.id === targetId && p.id !== actor.id);
+      if (tIdx === -1) return state;
+      let victim = { ...players[tIdx] };
+      victim.sabotageAlerts = [
+        ...(victim.sabotageAlerts || []),
+        `🕵️ VOCÊ FOI SABOTADO! Um sabotador anônimo trocou de lugar com o seu peão no tabuleiro!`
+      ];
+      players[tIdx] = victim;
+      pendingBoardMoves.push({
+        type: 'swap',
+        actorId: actor.id,
+        targetId: victim.id,
+        isSabotage: true
+      });
+      newEffectResult = `Sabotagem confirmada! Seu peão trocará de lugar com ${victim.name} assim que todos clicarem em "Já vi minha carta"!`;
+      const anonMsg = `🕵️ Um sabotador trocou de lugar com o jogador '${victim.name}'!`;
+      publicAnnouncements.push(anonMsg);
+    }
+  }
+
+  actor.lastDrawnCard = {
+    ...actor.lastDrawnCard,
+    effectResult: newEffectResult,
+    pendingAction: {
+      ...pendingAction,
+      completed: true,
+      choice: choicePayload
+    }
+  };
+  players[idx] = actor;
+
+  const drawnCardsSummary = (state.pendingDecision.drawnCardsSummary || []).map((item) =>
+    item.playerId === actor.id ? { ...item, effectResult: newEffectResult } : item
+  );
+
   return {
     ...state,
-    players: state.players.map((p) => ({ ...p, stepQueue: [] })),
+    players,
+    logs,
+    pendingDecision: {
+      ...state.pendingDecision,
+      drawnCardsSummary,
+      pendingBoardMoves,
+      publicAnnouncements
+    }
+  };
+}
+
+// Quando todos clicam em "Já vi minha carta", fecha o modal e EXECUTA os movimentos dos peões ao vivo no Telão!
+export function closeRoundReveal(state) {
+  let players = state.players.map((p) => ({ ...p, stepQueue: [] }));
+  let moveCounter = state.moveCounter || 0;
+  let logs = [...state.logs];
+  const pendingMoves = state.pendingDecision?.pendingBoardMoves || [];
+  const publicAnnouncements = [...(state.pendingDecision?.publicAnnouncements || [])];
+  const executedHeadlines = [];
+
+  for (const move of pendingMoves) {
+    if (move.type === 'back_3') {
+      const tIdx = players.findIndex((p) => p.id === move.targetId);
+      if (tIdx !== -1) {
+        let target = { ...players[tIdx] };
+        if (target.position > 0) {
+          const prevPos = target.position;
+          const backRes = walkGraphBackward(target, 3);
+          target.position = backRes.newPosition;
+          target.pathHistory = backRes.newHistory;
+          target.stepQueue = [...(target.stepQueue || []), ...backRes.stepQueue];
+          moveCounter += 1;
+          target.lastMoveId = moveCounter;
+          players[tIdx] = target;
+
+          const logMsg = move.isSabotage
+            ? `🕵️ SABOTAGEM NO TABULEIRO! Um sabotador mandou o jogador '${target.name}' voltar 3 casas (da Casa #${prevPos} para a Casa #${target.position})!`
+            : `⚡ [Má Sorte] ${target.name} voltou 3 casas no tabuleiro (da Casa #${prevPos} para a Casa #${target.position})!`;
+          executedHeadlines.push(logMsg);
+          logs = addLog(logs, logMsg, 'warn');
+        }
+      }
+    } else if (move.type === 'swap') {
+      const aIdx = players.findIndex((p) => p.id === move.actorId);
+      const tIdx = players.findIndex((p) => p.id === move.targetId);
+      if (aIdx !== -1 && tIdx !== -1 && aIdx !== tIdx) {
+        let actor = { ...players[aIdx] };
+        let victim = { ...players[tIdx] };
+        const actorOldPos = actor.position;
+        const actorOldHist = actor.pathHistory;
+        const victimOldPos = victim.position;
+        const victimOldHist = victim.pathHistory;
+
+        actor.position = victimOldPos;
+        actor.pathHistory = victimOldHist;
+        actor.stepQueue = [actor.position];
+        moveCounter += 1;
+        actor.lastMoveId = moveCounter;
+
+        victim.position = actorOldPos;
+        victim.pathHistory = actorOldHist;
+        victim.stepQueue = [victim.position];
+        moveCounter += 1;
+        victim.lastMoveId = moveCounter;
+
+        players[aIdx] = actor;
+        players[tIdx] = victim;
+
+        // Mantém o anonimato no texto público do Telão!
+        const logMsg = `🕵️ SABOTAGEM NO TABULEIRO! Um sabotador trocou de lugar com o jogador '${victim.name}' (foi para a Casa #${victim.position})!`;
+        executedHeadlines.push(logMsg);
+        logs = addLog(logs, logMsg, 'warn');
+      }
+    }
+  }
+
+  // Inclui também anúncios públicos que não eram de movimento de peão (ex: Trapaceiro ou Malha Fina)
+  for (const ann of publicAnnouncements) {
+    if (ann.includes('Carta Azul') || ann.includes('Malha Fina')) {
+      executedHeadlines.push(ann);
+    }
+  }
+
+  return {
+    ...state,
+    players,
+    moveCounter,
+    logs,
+    telaoAnnouncementBanner:
+      executedHeadlines.length > 0
+        ? {
+            id: Date.now(),
+            roundNumber: state.roundNumber,
+            messages: executedHeadlines
+          }
+        : null,
     pendingDecision: null
   };
 }
@@ -415,17 +702,140 @@ export function performSpontaneousDenunciation(state, playerId) {
   const players = [...state.players];
   players[idx] = player;
 
-  const logs = addLog(
-    state.logs,
-    `🤝 DENÚNCIA ESPONTÂNEA: ${player.name} regularizou ${count} imposto(s) antes da fiscalização pagando -$${totalCost} (sem multa de $450)!`,
-    'good'
-  );
+  const headline = `🤝 DENÚNCIA ESPONTÂNEA: ${player.name} confessou e regularizou ${count} período(s) sonegado(s) pagando -$${totalCost} ($300 de tributo + $100 de multa por período)!`;
+  const logs = addLog(state.logs, headline, 'good');
 
   return {
     ...state,
     players,
     publicTreasury: state.publicTreasury + totalCost,
+    telaoAnnouncementBanner: {
+      id: Date.now(),
+      roundNumber: state.roundNumber,
+      messages: [headline]
+    },
     logs
+  };
+}
+
+// ============================================================================
+// USO DE CARTAS AZUIS DE AÇÃO (!) ANTES DE ROLAR O DADO (Slides 11 e 12)
+// Regra Oficial: "Cartas de ação (!): podem ser usadas a partir da próxima rodada, quando o jogador quiser."
+// - jogada_bonus: Jogue o dado novamente neste turno!
+// - nova_chance: Troque suas outras Cartas Azuis por outras do baralho na mesma quantidade!
+// - troca_carta: Troque uma outra Carta Azul sua com uma Carta Azul de um adversário!
+// ============================================================================
+export function useBlueActionCard(state, playerId, actionPayload) {
+  if (state.status !== 'playing' || state.phase !== 'board_turns' || state.pendingDecision) {
+    return state;
+  }
+
+  const idx = state.players.findIndex((p) => p.id === playerId);
+  if (idx === -1) return state;
+
+  let players = state.players.map((p) => ({ ...p }));
+  let player = {
+    ...players[idx],
+    blueCardsList: [...(players[idx].blueCardsList || [])]
+  };
+
+  const { actionCardIndex, myGiveCardIndex = null, targetPlayerId = null } = actionPayload || {};
+  const actionCard = player.blueCardsList[actionCardIndex];
+  if (!actionCard) return state;
+
+  // Regra Oficial (Slides 11 e 12): só pode ser usada a partir da rodada seguinte à que foi adquirida!
+  if ((actionCard.acquiredRound || 0) >= state.roundNumber) {
+    return state;
+  }
+
+  let logs = [...state.logs];
+  let bannerMsg = null;
+
+  if (actionCard.type === 'jogada_bonus') {
+    player.blueCardsList = player.blueCardsList.filter((_, i) => i !== actionCardIndex);
+    player.bonusRollPending = (player.bonusRollPending || 0) + 1;
+    players[idx] = player;
+
+    bannerMsg = `🟦⚡ ${player.name} usou a Carta Azul "JOGADA BÔNUS!" e jogará o dado 2 vezes neste turno!`;
+    logs = addLog(logs, bannerMsg, 'good');
+  } else if (actionCard.type === 'nova_chance') {
+    const otherCardsCount = player.blueCardsList.length - 1;
+    if (otherCardsCount <= 0) {
+      return state;
+    }
+
+    const newCards = [];
+    for (let i = 0; i < otherCardsCount; i++) {
+      const raw = BLUE_CARDS[Math.floor(Math.random() * BLUE_CARDS.length)];
+      newCards.push({
+        ...raw,
+        acquiredRound: state.roundNumber,
+        instanceId: `${state.roundNumber}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`
+      });
+    }
+
+    player.blueCardsList = newCards;
+    players[idx] = player;
+
+    bannerMsg = `🟦🔄 ${player.name} usou a Carta Azul "NOVA CHANCE!" e trocou ${otherCardsCount} Carta(s) Azul(is) por novas cartas do baralho!`;
+    logs = addLog(logs, bannerMsg, 'good');
+  } else if (actionCard.type === 'troca_carta') {
+    if (
+      myGiveCardIndex === null ||
+      myGiveCardIndex === undefined ||
+      myGiveCardIndex === actionCardIndex
+    ) {
+      return state;
+    }
+
+    const giveCard = player.blueCardsList[myGiveCardIndex];
+    const tIdx = players.findIndex((p) => p.id === targetPlayerId);
+    if (!giveCard || tIdx === -1 || tIdx === idx) return state;
+
+    let targetPlayer = {
+      ...players[tIdx],
+      blueCardsList: [...(players[tIdx].blueCardsList || [])]
+    };
+    if (targetPlayer.blueCardsList.length === 0) return state;
+
+    const randOppIdx = Math.floor(Math.random() * targetPlayer.blueCardsList.length);
+    const takenCard = targetPlayer.blueCardsList[randOppIdx];
+
+    // Remove a carta "Troca de Carta!" e a carta cedida da mão do jogador atual, e adiciona a carta recebida do adversário
+    player.blueCardsList = player.blueCardsList.filter(
+      (_, i) => i !== actionCardIndex && i !== myGiveCardIndex
+    );
+    player.blueCardsList.push({ ...takenCard });
+
+    // Substitui a carta sorteada do adversário pela carta cedida pelo jogador atual
+    targetPlayer.blueCardsList = targetPlayer.blueCardsList.map((c, i) =>
+      i === randOppIdx ? { ...giveCard } : c
+    );
+    targetPlayer.sabotageAlerts = [
+      ...(targetPlayer.sabotageAlerts || []),
+      `🟦🤝 TROCA DE CARTA AZUL! O jogador '${player.name}' usou a carta "TROCA DE CARTA!", levou sua carta "${takenCard.title}" e entregou "${giveCard.title}" para sua mão!`
+    ];
+
+    players[idx] = player;
+    players[tIdx] = targetPlayer;
+
+    bannerMsg = `🟦🤝 ${player.name} usou a Carta Azul "TROCA DE CARTA!" e trocou uma Carta Azul com '${targetPlayer.name}'!`;
+    logs = addLog(logs, bannerMsg, 'info');
+  } else {
+    return state;
+  }
+
+  return {
+    ...state,
+    players,
+    logs,
+    telaoAnnouncementBanner: bannerMsg
+      ? {
+          id: Date.now(),
+          roundNumber: state.roundNumber,
+          messages: [bannerMsg]
+        }
+      : state.telaoAnnouncementBanner
   };
 }
 
@@ -460,6 +870,10 @@ export function performRollDice(state) {
         type: 'tile_summary',
         playerId: currentPlayer.id,
         playerName: currentPlayer.name,
+        playerColor: currentPlayer.color,
+        tileId: currentPlayer.position,
+        tileTitle: 'Cumprindo Rodada Parado',
+        stateHasResources: state.stateHasResources,
         title: `⏳ ${currentPlayer.name} cumpriu 1 rodada parado`,
         subtitle: 'Penalidade de Espera',
         description: `${currentPlayer.name} ficou sem jogar nesta rodada devido a um contratempo anterior e poderá avançar na próxima rodada.`,
@@ -590,6 +1004,8 @@ export function applyForkChoice(state, playerId, chosenNextTileId) {
 
 // ============================================================================
 // RESOLUÇÃO DAS CASAS (Usa `walkGraphForward`/`walkGraphBackward` sem saltos!)
+// Os movimentos extras ("avance x casas" / "volte n casas") ficam em `deferredMove`
+// para animarem no tabuleiro 3D APÓS a leitura da mensagem!
 // ============================================================================
 export function resolveOfficialTile(state, playerId, tile) {
   const idx = state.players.findIndex((p) => p.id === playerId);
@@ -607,6 +1023,7 @@ export function resolveOfficialTile(state, playerId, tile) {
     const isSufficient = state.stateHasResources;
     const outcome = isSufficient ? eventPair.sufficient : eventPair.insufficient;
 
+    let deferredMove = null;
     let extraEffectNote = '';
 
     if (outcome.money) {
@@ -620,25 +1037,17 @@ export function resolveOfficialTile(state, playerId, tile) {
     }
 
     if (outcome.move) {
-      if (outcome.move > 0) {
-        // Se passar por uma bifurcação durante bônus de casa, segue o primeiro ramo padrão
-        const curTile = getTileById(player.position);
-        const defaultBranch = curTile.next?.[0] ?? null;
-        const fwd = walkGraphForward(player, outcome.move, defaultBranch);
-        player.position = fwd.newPosition;
-        player.pathHistory = fwd.newHistory;
-        player.stepQueue = [...(player.stepQueue || []), ...fwd.stepQueue];
-      } else {
-        const bwd = walkGraphBackward(player, Math.abs(outcome.move));
-        player.position = bwd.newPosition;
-        player.pathHistory = bwd.newHistory;
-        player.stepQueue = [...(player.stepQueue || []), ...bwd.stepQueue];
-        if (!isSufficient) player.harmedTilesCount += 1;
+      if (outcome.move < 0 && !isSufficient) {
+        player.harmedTilesCount += 1;
       }
-      moveCounter += 1;
-      player.lastMoveId = moveCounter;
-      const destTile = getTileById(player.position);
-      extraEffectNote = `\n📍 Movimento da consequência: pino foi para a Casa #${destTile.id} (${destTile.title}).`;
+      deferredMove = {
+        playerId: player.id,
+        steps: outcome.move
+      };
+      extraEffectNote =
+        outcome.move > 0
+          ? `⚡ Após confirmar a leitura, o peão avançará +${outcome.move} casa(s) no tabuleiro!`
+          : `⚡ Após confirmar a leitura, o peão voltará ${Math.abs(outcome.move)} casa(s) no tabuleiro!`;
     }
 
     if (outcome.skipTurns) {
@@ -659,22 +1068,25 @@ export function resolveOfficialTile(state, playerId, tile) {
       isSufficient ? 'good' : 'bad'
     );
 
-    if (player.position === 77) {
-      return finishGameOfficial({ ...state, players, moveCounter, logs }, player.id);
-    }
-
     pendingDecision = {
       type: 'tile_summary',
       playerId: player.id,
       playerName: player.name,
-      title: `${player.name} em: ${tile.title} (${serviceCard.name} ${tile.num})`,
-      subtitle: isSufficient
-        ? '🏛️ ESTADO COM INVESTIMENTOS SUFICIENTES'
-        : '🚨 ESTADO COM INVESTIMENTOS INSUFICIENTES (EFEITO DA SONEGAÇÃO)',
-      description: `${outcome.text}${extraEffectNote}`,
-      serviceImage: isSufficient ? serviceCard.sufficientImage : serviceCard.insufficientImage,
+      playerColor: player.color,
+      tileId: tile.id,
+      tileTitle: tile.title,
+      sectorName: serviceCard.name,
+      sectorNum: tile.num,
+      sectorColor: serviceCard.color,
+      isServiceTile: true,
+      stateHasResources: isSufficient,
+      title: `${player.name} — ${tile.title}`,
+      subtitle: `${serviceCard.name} ${tile.num}`,
+      description: outcome.text,
+      extraEffectNote,
+      deferredMove,
       rollAgain: !!outcome.rollAgain,
-      accentColor: isSufficient ? serviceCard.color : '#ef4444',
+      accentColor: isSufficient ? '#10b981' : '#ef4444',
       readyPlayerIds: []
     };
   } else if (tile.type === 'denuncia') {
@@ -683,6 +1095,8 @@ export function resolveOfficialTile(state, playerId, tile) {
       type: 'denuncia_choice',
       playerId: player.id,
       playerName: player.name,
+      playerColor: player.color,
+      tileId: tile.id,
       title: '🕵️ CASA DE DENÚNCIA!',
       subtitle: 'Fiscalização perante a Receita Federal',
       description:
@@ -699,7 +1113,11 @@ export function resolveOfficialTile(state, playerId, tile) {
       type: 'tile_summary',
       playerId: player.id,
       playerName: player.name,
-      title: `🍀 LOTERIA! (${player.name})`,
+      playerColor: player.color,
+      tileId: tile.id,
+      tileTitle: tile.title,
+      stateHasResources: state.stateHasResources,
+      title: `${player.name} — ${tile.title}`,
       subtitle: `Prêmio Sorteado: +$${prize}`,
       description: `${player.name} tentou a sorte na Loteria e ganhou +$${prize}!`,
       accentColor: '#10b981',
@@ -711,6 +1129,8 @@ export function resolveOfficialTile(state, playerId, tile) {
         type: 'charity_choice',
         playerId: player.id,
         playerName: player.name,
+        playerColor: player.color,
+        tileId: tile.id,
         title: `🤝 FUNDOS DE CARIDADE (${player.name})`,
         subtitle: 'Doe $300 para rolar o dado novamente',
         description: 'Deseja doar $300 aos Fundos de Caridade para ganhar uma nova jogada de dado imediatamente?'
@@ -720,7 +1140,11 @@ export function resolveOfficialTile(state, playerId, tile) {
         type: 'tile_summary',
         playerId: player.id,
         playerName: player.name,
-        title: `Fundos de Caridade (${player.name})`,
+        playerColor: player.color,
+        tileId: tile.id,
+        tileTitle: tile.title,
+        stateHasResources: state.stateHasResources,
+        title: `${player.name} — ${tile.title}`,
         subtitle: 'Saldo insuficiente para doar',
         description: `${player.name} passou pelos Fundos de Caridade, mas não tinha $300 para doar.`,
         accentColor: '#94a3b8',
@@ -728,22 +1152,21 @@ export function resolveOfficialTile(state, playerId, tile) {
       };
     }
   } else {
+    let deferredMove = null;
     let extraNote = '';
     if (tile.money) {
       player.money += tile.money;
       if (tile.money > 0) player.totalRevenue += tile.money;
     }
     if (tile.move) {
-      const curTile = getTileById(player.position);
-      const defaultBranch = curTile.next?.[0] ?? null;
-      const fwd = walkGraphForward(player, tile.move, defaultBranch);
-      player.position = fwd.newPosition;
-      player.pathHistory = fwd.newHistory;
-      player.stepQueue = [...(player.stepQueue || []), ...fwd.stepQueue];
-      moveCounter += 1;
-      player.lastMoveId = moveCounter;
-      const destTile = getTileById(player.position);
-      extraNote = `\n📍 Movimento extra: pino avançou para a Casa #${destTile.id} (${destTile.title}).`;
+      deferredMove = {
+        playerId: player.id,
+        steps: tile.move
+      };
+      extraNote =
+        tile.move > 0
+          ? `⚡ Após confirmar a leitura, o peão avançará +${tile.move} casa(s) no tabuleiro!`
+          : `⚡ Após confirmar a leitura, o peão voltará ${Math.abs(tile.move)} casa(s) no tabuleiro!`;
     }
     if (tile.skipTurns) {
       player.skipTurns += tile.skipTurns;
@@ -752,21 +1175,40 @@ export function resolveOfficialTile(state, playerId, tile) {
     players[idx] = player;
     logs = addLog(logs, `📌 ${player.name}: ${tile.title} (${tile.subtitle})`, tile.money < 0 ? 'warn' : 'info');
 
-    if (player.position === 77) {
-      return finishGameOfficial({ ...state, players, moveCounter, logs }, player.id);
-    }
-
     pendingDecision = {
       type: 'tile_summary',
       playerId: player.id,
       playerName: player.name,
-      title: `${player.name} em: ${tile.title}`,
+      playerColor: player.color,
+      tileId: tile.id,
+      tileTitle: tile.title,
+      stateHasResources: state.stateHasResources,
+      title: `${player.name} — ${tile.title}`,
       subtitle: tile.subtitle,
-      description: `${tile.title} — ${tile.subtitle}.${extraNote}`,
+      description: `${tile.title} — ${tile.subtitle}.`,
+      extraEffectNote: extraNote,
+      deferredMove,
       rollAgain: !!tile.rollAgain,
-      accentColor: tile.money > 0 ? '#10b981' : tile.money < 0 ? '#f97316' : '#38bdf8',
+      accentColor: tile.money > 0 ? '#10b981' : tile.money < 0 ? '#ef4444' : '#38bdf8',
       readyPlayerIds: []
     };
+  }
+
+  // Se o jogador ativou a Carta Azul "Jogada Bônus!" neste turno, garante a rolagem extra após ler a casa!
+  if (
+    pendingDecision?.type === 'tile_summary' &&
+    !pendingDecision.rollAgain &&
+    (players[idx]?.bonusRollPending || 0) > 0
+  ) {
+    players[idx] = {
+      ...players[idx],
+      bonusRollPending: players[idx].bonusRollPending - 1
+    };
+    pendingDecision.rollAgain = true;
+    const bonusNote = `🎲 JOGADA BÔNUS ATIVA: Após confirmar a leitura, ${players[idx].name} jogará o dado novamente!`;
+    pendingDecision.extraEffectNote = pendingDecision.extraEffectNote
+      ? `${pendingDecision.extraEffectNote}\n${bonusNote}`
+      : bonusNote;
   }
 
   return {
@@ -806,6 +1248,10 @@ export function applyCharityChoice(state, playerId, donate) {
       type: 'tile_summary',
       playerId: player.id,
       playerName: player.name,
+      playerColor: player.color,
+      tileId: player.position,
+      tileTitle: 'Fundos de Caridade!',
+      stateHasResources: state.stateHasResources,
       title: `${player.name} nos Fundos de Caridade`,
       subtitle: 'Optou por não doar $300',
       description: `${player.name} decidiu economizar os $300 e encerrar sua jogada.`,
@@ -853,6 +1299,10 @@ export function applyDenunciaAction(state, playerId, actionType, targetPlayerId 
             type: 'tile_summary',
             playerId: player.id,
             playerName: player.name,
+            playerColor: player.color,
+            tileId: player.position,
+            tileTitle: 'DENÚNCIA!',
+            stateHasResources: state.stateHasResources,
             title: `🚨 DENÚNCIA CONFIRMADA CONTRA ${target.name.toUpperCase()}!`,
             subtitle: `Malha Fina Aplicada (-$${totalPenalty})`,
             description: `${player.name} denunciou ${target.name} à Receita Federal! A auditoria encontrou ${count} período(s) de sonegação e cobrou $${CONSTANTS.MALHA_FINA_TAX} de tributo + $${CONSTANTS.MALHA_FINA_FINE} de multa de ofício por cada infração, totalizando -$${totalPenalty}!`,
@@ -875,6 +1325,10 @@ export function applyDenunciaAction(state, playerId, actionType, targetPlayerId 
             type: 'tile_summary',
             playerId: player.id,
             playerName: player.name,
+            playerColor: player.color,
+            tileId: player.position,
+            tileTitle: 'DENÚNCIA!',
+            stateHasResources: state.stateHasResources,
             title: `✅ ${target.name.toUpperCase()} ESTÁ EM DIA!`,
             subtitle: 'Auditoria sem irregularidades',
             description: `${player.name} denunciou ${target.name}, mas a Receita Federal verificou que todos os tributos de ${target.name} foram pagos corretamente!`,
@@ -894,6 +1348,10 @@ export function applyDenunciaAction(state, playerId, actionType, targetPlayerId 
       type: 'tile_summary',
       playerId: player.id,
       playerName: player.name,
+      playerColor: player.color,
+      tileId: player.position,
+      tileTitle: 'DENÚNCIA!',
+      stateHasResources: state.stateHasResources,
       title: `Casa de Denúncia (${player.name})`,
       subtitle: 'Nenhuma denúncia realizada',
       description: `${player.name} optou por não denunciar nenhum concorrente nesta rodada.`,
@@ -910,6 +1368,18 @@ export function confirmReadDecision(state, playerId) {
   // Se era o modal de revelação do início da rodada:
   if (state.pendingDecision.type === 'round_reveal') {
     const humanPlayers = state.players.filter((p) => !p.isBot);
+
+    // Impede que o jogador confirme "Já vi minha carta" se ainda não fez a escolha obrigatória da Carta Vermelha
+    if (playerId !== 'FORCE_ALL') {
+      const myPl = state.players.find((p) => p.id === playerId);
+      if (
+        myPl?.lastDrawnCard?.pendingAction &&
+        !myPl.lastDrawnCard.pendingAction.completed
+      ) {
+        return state;
+      }
+    }
+
     const currentReady = state.pendingDecision.readyPlayerIds || [];
     const nextReady = currentReady.includes(playerId)
       ? currentReady
@@ -933,20 +1403,137 @@ export function confirmReadDecision(state, playerId) {
     return closeRoundReveal(state);
   }
 
-  // Para resumos de casa (tile_summary), confirmar leitura avança imediatamente para o próximo turno
-  // e limpa a fila de passos (stepQueue) de todos os peões para nunca re-animarem!
+  // Para resumos de casa (tile_summary):
+  // Registra a confirmação de leitura em `readyPlayerIds` para que o Telão exiba quem já leu e quem falta ler!
+  // Quando todos os jogadores humanos confirmarem a leitura (ou quando clicarem diretamente no botão do Telão / Mediador),
+  // fecha o modal, EXECUTA eventual movimento de "avance/volte x casas" (`deferredMove`) ao vivo no tabuleiro e passa o turno!
+  if (state.pendingDecision.type === 'tile_summary') {
+    const humanPlayers = state.players.filter((p) => !p.isBot);
+    const currentReady = state.pendingDecision.readyPlayerIds || [];
+    const nextReady =
+      playerId && playerId !== 'FORCE_ALL' && !currentReady.includes(playerId)
+        ? [...currentReady, playerId]
+        : currentReady;
+
+    const allHumansConfirmed =
+      state.mode !== 'online' ||
+      playerId === 'FORCE_ALL' ||
+      humanPlayers.length === 0 ||
+      humanPlayers.every((hp) => nextReady.includes(hp.id));
+
+    if (!allHumansConfirmed) {
+      return {
+        ...state,
+        pendingDecision: {
+          ...state.pendingDecision,
+          readyPlayerIds: nextReady
+        }
+      };
+    }
+
+    return advanceTurn({
+      ...state,
+      pendingDecision: {
+        ...state.pendingDecision,
+        readyPlayerIds: nextReady
+      }
+    });
+  }
+
   return advanceTurn(state);
+}
+
+// Permite ao jogador fechar o alerta privado de sabotagem no seu próprio celular
+export function dismissPlayerSabotageAlert(state, playerId) {
+  const idx = state.players.findIndex((p) => p.id === playerId);
+  if (idx === -1) return state;
+  const players = state.players.map((p, i) =>
+    i === idx ? { ...p, sabotageAlerts: [] } : p
+  );
+  return {
+    ...state,
+    players
+  };
 }
 
 export function advanceTurn(state) {
   if (state.status !== 'playing') return state;
 
-  const cleanedPlayers = state.players.map((p) => ({ ...p, stepQueue: [] }));
+  let cleanedPlayers = state.players.map((p) => ({ ...p, stepQueue: [] }));
+  let moveCounter = state.moveCounter || 0;
+  let logs = [...state.logs];
+  let telaoAnnouncementBanner = state.telaoAnnouncementBanner || null;
+
+  // Se a casa onde o jogador caiu tinha efeito de "Avance X casas" ou "Volte N casas",
+  // executa o movimento AGORA (após fechar a mensagem lida) para que todos assistam o peão andando no Telão!
+  const deferredMove = state.pendingDecision?.deferredMove;
+  if (deferredMove && deferredMove.steps) {
+    const pIdx = cleanedPlayers.findIndex((p) => p.id === deferredMove.playerId);
+    if (pIdx !== -1) {
+      let movingPlayer = { ...cleanedPlayers[pIdx] };
+      const prevPos = movingPlayer.position;
+      if (deferredMove.steps > 0) {
+        const curTile = getTileById(movingPlayer.position);
+        const defaultBranch = curTile.next?.[0] ?? null;
+        const fwd = walkGraphForward(movingPlayer, deferredMove.steps, defaultBranch);
+        movingPlayer.position = fwd.newPosition;
+        movingPlayer.pathHistory = fwd.newHistory;
+        movingPlayer.stepQueue = fwd.stepQueue;
+      } else {
+        const bwd = walkGraphBackward(movingPlayer, Math.abs(deferredMove.steps));
+        movingPlayer.position = bwd.newPosition;
+        movingPlayer.pathHistory = bwd.newHistory;
+        movingPlayer.stepQueue = bwd.stepQueue;
+      }
+      moveCounter += 1;
+      movingPlayer.lastMoveId = moveCounter;
+      cleanedPlayers[pIdx] = movingPlayer;
+
+      const destTile = getTileById(movingPlayer.position);
+      const moveText =
+        deferredMove.steps > 0
+          ? `🚀 ${movingPlayer.name} avançou +${deferredMove.steps} casa(s) (da Casa #${prevPos} para a Casa #${destTile.id}: ${destTile.title})!`
+          : `↩️ ${movingPlayer.name} voltou ${Math.abs(deferredMove.steps)} casa(s) (da Casa #${prevPos} para a Casa #${destTile.id}: ${destTile.title})!`;
+
+      logs = addLog(logs, moveText, deferredMove.steps > 0 ? 'good' : 'warn');
+      telaoAnnouncementBanner = {
+        id: Date.now(),
+        roundNumber: state.roundNumber,
+        messages: [moveText]
+      };
+
+      if (movingPlayer.position === 77) {
+        return finishGameOfficial(
+          { ...state, players: cleanedPlayers, moveCounter, logs },
+          movingPlayer.id
+        );
+      }
+    }
+  }
 
   if (state.pendingDecision?.rollAgain) {
     return {
       ...state,
       players: cleanedPlayers,
+      moveCounter,
+      logs,
+      telaoAnnouncementBanner,
+      pendingDecision: null
+    };
+  }
+
+  const currentTurnPlayer = cleanedPlayers[state.turnIndex];
+  if (currentTurnPlayer && (currentTurnPlayer.bonusRollPending || 0) > 0) {
+    cleanedPlayers[state.turnIndex] = {
+      ...currentTurnPlayer,
+      bonusRollPending: currentTurnPlayer.bonusRollPending - 1
+    };
+    return {
+      ...state,
+      players: cleanedPlayers,
+      moveCounter,
+      logs,
+      telaoAnnouncementBanner,
       pendingDecision: null
     };
   }
@@ -957,6 +1544,9 @@ export function advanceTurn(state) {
     return {
       ...state,
       players: cleanedPlayers,
+      moveCounter,
+      logs,
+      telaoAnnouncementBanner,
       phase: 'tax_vote',
       turnIndex: 0,
       roundNumber: state.roundNumber + 1,
@@ -968,6 +1558,9 @@ export function advanceTurn(state) {
   return {
     ...state,
     players: cleanedPlayers,
+    moveCounter,
+    logs,
+    telaoAnnouncementBanner,
     turnIndex: nextTurnIndex,
     pendingDecision: null
   };
@@ -976,7 +1569,7 @@ export function advanceTurn(state) {
 export function finishGameOfficial(state, finisherId = null) {
   const finalPlayers = state.players.map((p) => {
     const arrivalBonus = p.id === finisherId ? CONSTANTS.FINISH_LINE_BONUS : 0;
-    const restitutionTotal = p.blueCardsList.reduce((acc, c) => acc + (c.restitutionValue || 100), 0);
+    const restitutionTotal = p.blueCardsList.reduce((acc, c) => acc + (c.restitutionValue ?? 0), 0);
     const finalBalance = p.money + arrivalBonus + restitutionTotal;
 
     return {
