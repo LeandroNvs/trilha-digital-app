@@ -348,6 +348,23 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     return () => clearTimeout(timer);
   }, [gameState.diceRollId]);
 
+  // Chegada ao FINAL via "Avance X casas" (sem novo dado): aguarda o peão caminhar até a casa #77
+  // antes de exibir a mensagem de chegada (o jogo só encerra após a confirmação da leitura).
+  const lastArrivalDiceIdRef = useRef(gameState.diceRollId);
+  useEffect(() => {
+    const diceChanged = gameState.diceRollId !== lastArrivalDiceIdRef.current;
+    lastArrivalDiceIdRef.current = gameState.diceRollId;
+    if (diceChanged || !gameState.pendingDecision?.finishOnConfirm) return;
+    const finisher = gameState.players.find(
+      (p) => p.id === gameState.pendingDecision.finisherId
+    );
+    const steps = finisher?.stepQueue?.length || 0;
+    if (steps === 0) return;
+    setIsAnimatingRoll(true);
+    const timer = setTimeout(() => setIsAnimatingRoll(false), steps * 700 + 350);
+    return () => clearTimeout(timer);
+  }, [gameState.moveCounter, gameState.diceRollId]);
+
   useEffect(() => {
     if (gameState.status === 'finished') {
       confetti({ particleCount: 140, spread: 90, origin: { y: 0.6 } });
@@ -1028,7 +1045,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       {/* LAYOUT LATERAL: QUADRO DE VEZ NO CANTO SUPERIOR ESQUERDO + PAINÉIS EXPANSÍVEIS */}
       <div className="relative z-10 flex-1 flex flex-col md:flex-row justify-between items-start p-4 pointer-events-none gap-4 overflow-hidden">
         {/* COLUNA SUPERIOR ESQUERDA: VEZ DE JOGAR OS DADOS + PAINÉIS DE JOGADORES / HISTÓRICO */}
-        <div className="w-full md:w-72 flex flex-col justify-start gap-3 pointer-events-auto max-h-full overflow-y-auto pr-1">
+        <div className="w-full md:w-80 flex flex-col justify-start gap-3 pointer-events-auto max-h-full overflow-y-auto pr-1">
           {gameState.status === 'playing' && gameState.phase === 'board_turns' && currentPlayer && (
             <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-2xl p-3.5 shadow-2xl">
               <div className="mb-2.5">
@@ -1051,7 +1068,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                 !currentPlayer.forbidSpontaneous && (
                   <button
                     onClick={() => handleSpontaneousDenunciation()}
-                    className="w-full mb-2 py-2 px-3 rounded-xl bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/60 text-emerald-200 text-xs font-bold flex items-center justify-between transition"
+                    className="w-full mb-2 py-2 px-3 rounded-xl bg-emerald-950/90 hover:bg-emerald-900 border border-emerald-400/60 text-emerald-200 text-xs font-bold flex items-center justify-between transition cursor-pointer"
                   >
                     <span>🤝 Denúncia Espontânea ({currentPlayer.redCards}x)</span>
                     <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-black">
@@ -1062,12 +1079,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
 
               {!isPublicTelaoView &&
                 myPlayerObj &&
-                (myPlayerObj.blueCardsList?.some(
-                  (c) =>
-                    c.isActionCard ||
-                    ['jogada_bonus', 'nova_chance', 'troca_carta'].includes(c.type)
-                ) ||
-                  myPlayerObj.bonusRollPending > 0) && (
+                (myPlayerObj.blueCardsList?.length > 0 || myPlayerObj.bonusRollPending > 0) && (
                   <div className="mb-2.5">
                     <BlueCardActionPanel
                       player={myPlayerObj}
@@ -2506,7 +2518,9 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                 }`}
               >
                 <CheckCircle2 className="w-5 h-5" />
-                {gameState.pendingDecision.deferredMove
+                {gameState.pendingDecision.finishOnConfirm
+                  ? '🏁 MENSAGEM LIDA • VER RESULTADO FINAL DA PARTIDA! →'
+                  : gameState.pendingDecision.deferredMove
                   ? gameState.pendingDecision.deferredMove.steps > 0
                     ? `✅ MENSAGEM LIDA • AVANÇAR +${gameState.pendingDecision.deferredMove.steps} CASA(S) NO TABULEIRO! →`
                     : `✅ MENSAGEM LIDA • VOLTAR ${Math.abs(gameState.pendingDecision.deferredMove.steps)} CASA(S) NO TABULEIRO! →`

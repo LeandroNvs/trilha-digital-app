@@ -949,10 +949,45 @@ export function performRollDice(state) {
   };
 
   if (landedTile.id === 77) {
-    return finishGameOfficial(nextState, player.id);
+    // NÃO encerra ainda: o dado precisa rolar e o peão caminhar até a chegada no Telão!
+    return buildFinishArrivalState(nextState, player);
   }
 
   return resolveOfficialTile(nextState, player.id, landedTile);
+}
+
+// ============================================================================
+// CHEGADA NA CASA FINAL (#77): exibe a mensagem de chegada APÓS a animação do peão.
+// O jogo só é encerrado (finishGameOfficial) quando a mensagem for confirmada.
+// ============================================================================
+export function buildFinishArrivalState(state, player) {
+  const finalTile = getTileById(77);
+  const logs = addLog(
+    state.logs,
+    `🏁 ${player.name} cruzou a LINHA DE CHEGADA (Casa #77)! Bônus de +$${CONSTANTS.FINISH_LINE_BONUS}.`,
+    'good'
+  );
+  return {
+    ...state,
+    logs,
+    pendingDecision: {
+      type: 'tile_summary',
+      finishOnConfirm: true,
+      finisherId: player.id,
+      playerId: player.id,
+      playerName: player.name,
+      playerColor: player.color,
+      tileId: 77,
+      tileTitle: finalTile?.title || 'FINAL',
+      stateHasResources: state.stateHasResources,
+      title: `🏁 ${player.name} chegou ao FINAL!`,
+      subtitle: 'Linha de Chegada',
+      description: `${player.name} foi o primeiro a cruzar a linha de chegada e recebe +$${CONSTANTS.FINISH_LINE_BONUS} de bônus!\nAo confirmar, o jogo será encerrado e o Balanço Final (com as Cartas Azuis de Restituição) será apurado.`,
+      extraEffectNote: '🏆 Confirme para ver o resultado final da partida!',
+      accentColor: '#f59e0b',
+      readyPlayerIds: []
+    }
+  };
 }
 
 // Quando o jogador escolhe um dos 2 caminhos na Bifurcação (#13 ou #35):
@@ -996,7 +1031,7 @@ export function applyForkChoice(state, playerId, chosenNextTileId) {
   };
 
   if (landedTile.id === 77) {
-    return finishGameOfficial(nextState, player.id);
+    return buildFinishArrivalState(nextState, player);
   }
 
   return resolveOfficialTile(nextState, player.id, landedTile);
@@ -1459,6 +1494,17 @@ export function dismissPlayerSabotageAlert(state, playerId) {
 export function advanceTurn(state) {
   if (state.status !== 'playing') return state;
 
+  // Mensagem de chegada lida → agora sim encerra a partida!
+  if (state.pendingDecision?.finishOnConfirm) {
+    return finishGameOfficial(
+      {
+        ...state,
+        players: state.players.map((p) => ({ ...p, stepQueue: [] }))
+      },
+      state.pendingDecision.finisherId
+    );
+  }
+
   let cleanedPlayers = state.players.map((p) => ({ ...p, stepQueue: [] }));
   let moveCounter = state.moveCounter || 0;
   let logs = [...state.logs];
@@ -1503,9 +1549,10 @@ export function advanceTurn(state) {
       };
 
       if (movingPlayer.position === 77) {
-        return finishGameOfficial(
-          { ...state, players: cleanedPlayers, moveCounter, logs },
-          movingPlayer.id
+        // Peão anda até a chegada no Telão e SÓ DEPOIS a mensagem final aparece.
+        return buildFinishArrivalState(
+          { ...state, players: cleanedPlayers, moveCounter, logs, telaoAnnouncementBanner },
+          movingPlayer
         );
       }
     }

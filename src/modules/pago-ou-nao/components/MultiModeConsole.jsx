@@ -19,7 +19,10 @@ import {
   BookOpen,
   Layers,
   ZoomIn,
-  X
+  X,
+  ChevronDown,
+  ChevronUp,
+  Briefcase
 } from 'lucide-react';
 import { BOARD_TILES, SERVICE_CARDS, BLUE_CARDS, RED_CARDS } from '../data/boardData.js';
 
@@ -185,8 +188,10 @@ export function BlueCardActionPanel({
   currentRound,
   canUseActionsNow,
   onUseBlueCard,
-  disabled = false
+  disabled = false,
+  defaultExpanded = false
 }) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [tradeActionIdx, setTradeActionIdx] = useState(null);
   const [selectedGiveIdx, setSelectedGiveIdx] = useState(null);
 
@@ -203,190 +208,285 @@ export function BlueCardActionPanel({
     (p) => p.id !== player.id && (p.blueCardsList?.length || 0) > 0
   );
 
+  const actionCards = blueCards.filter(
+    (c) => c.isActionCard || ['jogada_bonus', 'nova_chance', 'troca_carta'].includes(c.type)
+  );
+  const restitutionCards = blueCards.filter(
+    (c) => !c.isActionCard && !['jogada_bonus', 'nova_chance', 'troca_carta'].includes(c.type)
+  );
+  const readyActions = actionCards.filter(
+    (c) => (c.acquiredRound || 0) < currentRound
+  );
+
   return (
-    <div className="p-3.5 rounded-2xl bg-slate-950/90 border border-sky-500/40 space-y-3">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-xs font-black uppercase tracking-wider text-sky-400">
-          🟦 Suas Cartas Azuis ({blueCards.length})
-        </span>
-        {player.bonusRollPending > 0 && (
-          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[11px] font-black animate-pulse">
-            🎲 Jogada Bônus Ativa (+{player.bonusRollPending} dado extra!)
+    <div className="rounded-2xl bg-slate-950/95 border border-sky-500/40 shadow-xl overflow-hidden transition-all">
+      {/* CABEÇALHO INTERATIVO EM SANFONA (ACCORDION) */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded((prev) => !prev)}
+        className="w-full flex items-center justify-between p-3 bg-gradient-to-r from-slate-900/90 via-slate-900/95 to-sky-950/40 hover:from-slate-850 hover:to-sky-900/40 transition text-left cursor-pointer group"
+        title={isExpanded ? 'Recolher sanfona de recursos' : 'Abrir sanfona para ver seus recursos e cartas'}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+            <Layers className="w-4 h-4 text-sky-400" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-black uppercase tracking-wider text-sky-400 truncate">
+                Recursos & Cartas
+              </span>
+              <span className="px-1.5 py-0.2 rounded-full bg-sky-500/25 border border-sky-400/40 text-sky-300 text-[10px] font-black">
+                {blueCards.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 truncate">
+              {actionCards.length > 0 && (
+                <span className="text-amber-300 font-bold flex items-center gap-0.5">
+                  ⚡ {actionCards.length} {actionCards.length === 1 ? 'Ação' : 'Ações'}
+                </span>
+              )}
+              {actionCards.length > 0 && restitutionCards.length > 0 && <span className="text-slate-600">•</span>}
+              {restitutionCards.length > 0 && (
+                <span className="text-emerald-300 font-bold flex items-center gap-0.5">
+                  💰 {restitutionCards.length} Restituição
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+          {readyActions.length > 0 && canUseActionsNow && (
+            <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] shadow animate-pulse">
+              ⚡ Usar Ação
+            </span>
+          )}
+          {player.bonusRollPending > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black animate-pulse">
+              🎲 +{player.bonusRollPending}
+            </span>
+          )}
+          <span className="text-[11px] font-bold text-sky-400 group-hover:text-white transition flex items-center gap-0.5 pl-1">
+            {isExpanded ? (
+              <>
+                <span className="hidden sm:inline">Recolher</span>
+                <ChevronUp className="w-4 h-4 text-sky-400 group-hover:-translate-y-0.5 transition" />
+              </>
+            ) : (
+              <>
+                <span className="hidden sm:inline">Ver</span>
+                <ChevronDown className="w-4 h-4 text-sky-400 group-hover:translate-y-0.5 transition" />
+              </>
+            )}
           </span>
-        )}
-      </div>
+        </div>
+      </button>
 
-      {blueCards.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {blueCards.map((card, idx) => {
-            const isAction =
-              card.isActionCard ||
-              ['jogada_bonus', 'nova_chance', 'troca_carta'].includes(card.type);
-            const unlockedByRound = (card.acquiredRound || 0) < currentRound;
-            const canUseThisCard = isAction && unlockedByRound && canUseActionsNow && !disabled;
-            const otherCardsCount = blueCards.length - 1;
+      {/* CONTEÚDO EXPANDIDO DA SANFONA */}
+      {isExpanded && (
+        <div className="p-3 border-t border-slate-800 space-y-2.5 bg-slate-950/70 max-h-[420px] overflow-y-auto">
+          {player.bonusRollPending > 0 && (
+            <div className="p-2 rounded-xl bg-emerald-950/70 border border-emerald-400/50 flex items-center justify-between text-xs">
+              <span className="font-bold text-emerald-300 flex items-center gap-1.5">
+                🎲 Jogada Bônus Ativa:
+              </span>
+              <span className="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-black text-[11px]">
+                +{player.bonusRollPending} dado extra neste turno!
+              </span>
+            </div>
+          )}
 
-            return (
-              <div
-                key={card.instanceId || `bc-${idx}`}
-                className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${
-                  isAction
-                    ? unlockedByRound
-                      ? 'bg-sky-950/50 border-sky-400/70'
-                      : 'bg-slate-900/80 border-slate-700'
-                    : 'bg-slate-900/70 border-slate-800'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <img
-                    src={card.image}
-                    alt={card.title}
-                    className="w-12 h-18 object-contain rounded border border-sky-400/40 shrink-0"
-                  />
-                  <div className="text-left min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
-                          isAction
-                            ? 'bg-amber-400 text-slate-950'
-                            : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        }`}
-                      >
-                        {isAction ? '⚡ Carta de Ação (!)' : '💰 Restituição ($)'}
-                      </span>
-                    </div>
-                    <div className="font-black text-xs text-white mt-1 truncate">
-                      {card.title}
-                    </div>
-                    <div className="text-[10px] text-slate-300 leading-snug mt-0.5">
-                      {card.description}
-                    </div>
-                  </div>
-                </div>
+          {blueCards.length > 0 ? (
+            <div className="flex flex-col gap-2.5">
+              {blueCards.map((card, idx) => {
+                const isAction =
+                  card.isActionCard ||
+                  ['jogada_bonus', 'nova_chance', 'troca_carta'].includes(card.type);
+                const unlockedByRound = (card.acquiredRound || 0) < currentRound;
+                const canUseThisCard = isAction && unlockedByRound && canUseActionsNow && !disabled;
+                const otherCardsCount = blueCards.length - 1;
 
-                {isAction && (
-                  <div className="pt-1.5 border-t border-slate-800/80">
-                    {!unlockedByRound ? (
-                      <div className="text-[10px] font-bold text-amber-300 text-center">
-                        ⏳ Ganha nesta rodada (Disponível a partir da Rodada #{currentRound + 1})
-                      </div>
-                    ) : !canUseActionsNow ? (
-                      <div className="text-[10px] font-semibold text-sky-300 text-center">
-                        ✅ Pronta para usar na sua vez (antes de rolar o dado)
-                      </div>
-                    ) : card.type === 'jogada_bonus' ? (
-                      <button
-                        disabled={!canUseThisCard}
-                        onClick={() => onUseBlueCard({ actionCardIndex: idx })}
-                        className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-amber-400 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-[11px] shadow transition active:scale-95"
-                      >
-                        ⚡ USAR AGORA (Jogar Dado 2x neste turno!)
-                      </button>
-                    ) : card.type === 'nova_chance' ? (
-                      otherCardsCount > 0 ? (
-                        <button
-                          disabled={!canUseThisCard}
-                          onClick={() => onUseBlueCard({ actionCardIndex: idx })}
-                          className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-sky-400 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-[11px] shadow transition active:scale-95"
-                        >
-                          🔄 USAR AGORA (Trocar minhas outras {otherCardsCount} carta(s) no baralho!)
-                        </button>
-                      ) : (
-                        <div className="text-[10px] text-slate-400 text-center">
-                          Precisa ter outra Carta Azul na mão para trocar com o baralho.
-                        </div>
-                      )
-                    ) : card.type === 'troca_carta' ? (
-                      otherCardsCount <= 0 ? (
-                        <div className="text-[10px] text-slate-400 text-center">
-                          Precisa ter pelo menos 1 outra Carta Azul sua para trocar.
-                        </div>
-                      ) : opponentsWithBlue.length === 0 ? (
-                        <div className="text-[10px] text-slate-400 text-center">
-                          Nenhum adversário possui Carta Azul para trocar no momento.
-                        </div>
-                      ) : tradeActionIdx === idx ? (
-                        <div className="space-y-2 bg-slate-950 p-2 rounded-lg border border-amber-400">
-                          <div className="text-[10px] font-black text-amber-300">
-                            1º) Qual outra Carta Azul sua você vai entregar?
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {blueCards.map((otherC, oIdx) => {
-                              if (oIdx === idx) return null;
-                              const isSel = selectedGiveIdx === oIdx;
-                              return (
-                                <button
-                                  key={`give-${oIdx}`}
-                                  onClick={() => setSelectedGiveIdx(oIdx)}
-                                  className={`px-2 py-1 rounded text-[10px] font-bold border transition ${
-                                    isSel
-                                      ? 'bg-amber-400 text-slate-950 border-white font-black'
-                                      : 'bg-slate-900 text-slate-200 border-slate-700 hover:border-amber-400'
-                                  }`}
-                                >
-                                  {otherC.title}
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          {selectedGiveIdx !== null && (
-                            <>
-                              <div className="text-[10px] font-black text-emerald-300 pt-1">
-                                2º) Com qual adversário deseja trocar?
-                              </div>
-                              <div className="space-y-1">
-                                {opponentsWithBlue.map((opp) => (
-                                  <button
-                                    key={`opp-trade-${opp.id}`}
-                                    onClick={() => {
-                                      onUseBlueCard({
-                                        actionCardIndex: idx,
-                                        myGiveCardIndex: selectedGiveIdx,
-                                        targetPlayerId: opp.id
-                                      });
-                                      setTradeActionIdx(null);
-                                      setSelectedGiveIdx(null);
-                                    }}
-                                    className="w-full px-2.5 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] flex items-center justify-between"
-                                  >
-                                    <span>Trocar com {opp.name}</span>
-                                    <span>({opp.blueCardsList.length} carta(s)) →</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </>
-                          )}
-
-                          <button
-                            onClick={() => {
-                              setTradeActionIdx(null);
-                              setSelectedGiveIdx(null);
-                            }}
-                            className="w-full py-1 rounded bg-slate-800 text-[10px] text-slate-300 font-bold"
+                return (
+                  <div
+                    key={card.instanceId || `bc-${idx}`}
+                    className={`p-2.5 rounded-xl border flex flex-col gap-2 transition ${
+                      isAction
+                        ? unlockedByRound
+                          ? 'bg-sky-950/50 border-sky-400/70 shadow-md'
+                          : 'bg-slate-900/80 border-slate-700'
+                        : 'bg-slate-900/70 border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <img
+                        src={card.image}
+                        alt={card.title}
+                        className="w-14 h-20 object-contain rounded border border-sky-400/40 bg-slate-950 shrink-0 shadow"
+                      />
+                      <div className="text-left min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded whitespace-nowrap ${
+                              isAction
+                                ? 'bg-amber-400 text-slate-950'
+                                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            }`}
                           >
-                            Cancelar
-                          </button>
+                            {isAction ? '⚡ Carta de Ação (!)' : '💰 Restituição ($)'}
+                          </span>
+                          {card.acquiredRound && (
+                            <span className="text-[9px] text-slate-400 font-bold">
+                              R#{card.acquiredRound}
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <button
-                          disabled={!canUseThisCard}
-                          onClick={() => {
-                            const firstOtherIdx = blueCards.findIndex((_, i) => i !== idx);
-                            setTradeActionIdx(idx);
-                            setSelectedGiveIdx(firstOtherIdx !== -1 ? firstOtherIdx : null);
-                          }}
-                          className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-amber-400 to-sky-400 hover:brightness-110 text-slate-950 font-black text-[11px] shadow transition active:scale-95"
-                        >
-                          🤝 USAR AGORA (Trocar 1 Carta Azul com Adversário)
-                        </button>
-                      )
-                    ) : null}
+                        <div className="font-extrabold text-xs text-white mt-1 leading-snug">
+                          {card.title}
+                        </div>
+                        <div className="text-[10px] text-slate-300 leading-snug mt-1">
+                          {card.description}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isAction && (
+                      <div className="pt-2 border-t border-slate-800/80">
+                        {!unlockedByRound ? (
+                          <div className="text-[10px] font-bold text-amber-300 text-center py-1 bg-amber-500/10 rounded border border-amber-500/20">
+                            ⏳ Ganha nesta rodada (Disponível a partir da Rodada #{currentRound + 1})
+                          </div>
+                        ) : !canUseActionsNow ? (
+                          <div className="text-[10px] font-semibold text-sky-300 text-center py-1 bg-sky-500/10 rounded border border-sky-500/20">
+                            ✅ Pronta para usar na sua vez (antes de rolar o dado)
+                          </div>
+                        ) : card.type === 'jogada_bonus' ? (
+                          <button
+                            disabled={!canUseThisCard}
+                            onClick={() => onUseBlueCard({ actionCardIndex: idx })}
+                            className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-amber-400 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-[11px] shadow transition active:scale-95 cursor-pointer"
+                          >
+                            ⚡ USAR AGORA (Jogar Dado 2x neste turno!)
+                          </button>
+                        ) : card.type === 'nova_chance' ? (
+                          otherCardsCount > 0 ? (
+                            <button
+                              disabled={!canUseThisCard}
+                              onClick={() => onUseBlueCard({ actionCardIndex: idx })}
+                              className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-sky-400 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-[11px] shadow transition active:scale-95 cursor-pointer"
+                            >
+                              🔄 USAR AGORA (Trocar {otherCardsCount} outra(s) carta(s) no baralho!)
+                            </button>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 text-center py-1">
+                              Precisa ter outra Carta Azul na mão para trocar com o baralho.
+                            </div>
+                          )
+                        ) : card.type === 'troca_carta' ? (
+                          otherCardsCount <= 0 ? (
+                            <div className="text-[10px] text-slate-400 text-center py-1">
+                              Precisa ter pelo menos 1 outra Carta Azul sua para trocar.
+                            </div>
+                          ) : opponentsWithBlue.length === 0 ? (
+                            <div className="text-[10px] text-slate-400 text-center py-1">
+                              Nenhum adversário possui Carta Azul para trocar no momento.
+                            </div>
+                          ) : tradeActionIdx === idx ? (
+                            <div className="space-y-2 bg-slate-950 p-2.5 rounded-lg border border-amber-400">
+                              <div className="text-[10px] font-black text-amber-300">
+                                1º) Qual outra Carta Azul sua você vai entregar?
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {blueCards.map((otherC, oIdx) => {
+                                  if (oIdx === idx) return null;
+                                  const isSel = selectedGiveIdx === oIdx;
+                                  return (
+                                    <button
+                                      key={`give-${oIdx}`}
+                                      onClick={() => setSelectedGiveIdx(oIdx)}
+                                      className={`px-2 py-1 rounded text-[10px] font-bold border transition ${
+                                        isSel
+                                          ? 'bg-amber-400 text-slate-950 border-white font-black'
+                                          : 'bg-slate-900 text-slate-200 border-slate-700 hover:border-amber-400'
+                                      }`}
+                                    >
+                                      {otherC.title}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              {selectedGiveIdx !== null && (
+                                <>
+                                  <div className="text-[10px] font-black text-emerald-300 pt-1">
+                                    2º) Com qual adversário deseja trocar?
+                                  </div>
+                                  <div className="space-y-1">
+                                    {opponentsWithBlue.map((opp) => (
+                                      <button
+                                        key={`opp-trade-${opp.id}`}
+                                        onClick={() => {
+                                          onUseBlueCard({
+                                            actionCardIndex: idx,
+                                            myGiveCardIndex: selectedGiveIdx,
+                                            targetPlayerId: opp.id
+                                          });
+                                          setTradeActionIdx(null);
+                                          setSelectedGiveIdx(null);
+                                        }}
+                                        className="w-full px-2.5 py-1.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] flex items-center justify-between transition cursor-pointer"
+                                      >
+                                        <span>Trocar com {opp.name}</span>
+                                        <span>({opp.blueCardsList.length} carta(s)) →</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+
+                              <button
+                                onClick={() => {
+                                  setTradeActionIdx(null);
+                                  setSelectedGiveIdx(null);
+                                }}
+                                className="w-full py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 font-bold transition cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              disabled={!canUseThisCard}
+                              onClick={() => {
+                                const firstOtherIdx = blueCards.findIndex((_, i) => i !== idx);
+                                setTradeActionIdx(idx);
+                                setSelectedGiveIdx(firstOtherIdx !== -1 ? firstOtherIdx : null);
+                              }}
+                              className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-amber-400 to-sky-400 hover:brightness-110 text-slate-950 font-black text-[11px] shadow transition active:scale-95 cursor-pointer"
+                            >
+                              🤝 USAR AGORA (Trocar 1 Carta Azul com Adversário)
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-2 text-xs text-slate-400">
+              Nenhuma carta azul na sua mão ainda.
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsExpanded(false)}
+            className="w-full py-1 text-center text-[10px] font-bold text-slate-400 hover:text-white flex items-center justify-center gap-1 transition cursor-pointer pt-1 border-t border-slate-800/60"
+          >
+            <span>▲ Recolher recursos</span>
+          </button>
         </div>
       )}
     </div>
@@ -1021,7 +1121,9 @@ export function MediatorConsoleOverlay({
                   onClick={onConfirmRead}
                   className="w-full py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-emerald-500 text-slate-950 font-black text-sm"
                 >
-                  {gameState.pendingDecision.deferredMove
+                  {gameState.pendingDecision.finishOnConfirm
+                    ? '🏁 LIDO • VER RESULTADO FINAL DA PARTIDA!'
+                    : gameState.pendingDecision.deferredMove
                     ? gameState.pendingDecision.deferredMove.steps > 0
                       ? `✅ MENSAGEM LIDA • AVANÇAR +${gameState.pendingDecision.deferredMove.steps} CASA(S) NO TABULEIRO! →`
                       : `✅ MENSAGEM LIDA • VOLTAR ${Math.abs(gameState.pendingDecision.deferredMove.steps)} CASA(S) NO TABULEIRO! →`
@@ -1563,7 +1665,9 @@ export function MobilePlayerController({
                         : 'bg-gradient-to-r from-amber-400 to-red-400 text-slate-950'
                     }`}
                   >
-                    {gameState.pendingDecision.deferredMove
+                    {gameState.pendingDecision.finishOnConfirm
+                    ? '🏁 LIDO • VER RESULTADO FINAL DA PARTIDA!'
+                    : gameState.pendingDecision.deferredMove
                       ? gameState.pendingDecision.deferredMove.steps > 0
                         ? `✅ JÁ LI • LIBERAR AVANÇO DE +${gameState.pendingDecision.deferredMove.steps} CASA(S)!`
                         : `✅ JÁ LI • LIBERAR RECUO DE ${Math.abs(gameState.pendingDecision.deferredMove.steps)} CASA(S)!`
