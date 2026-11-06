@@ -124,6 +124,10 @@ function Sidebar({ perfilUsuario, aberta, setSidebarAberta }) {
                 <Link to="/adm-si/governanca" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Matriz Transacional</Link>
                 <Link to="/adm-si/tatica" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Matriz Tática</Link>
                 <Link to="/adm-si/cargos-digitais" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-white hover:bg-gray-700">Cargos Digitais & Canvas</Link>
+                <Link to="/adm-si/analise-estrategica" onClick={handleFecharMobile} className="block w-full text-left px-4 py-2 rounded-lg text-sm text-amber-300 font-bold hover:bg-gray-700 flex items-center justify-between">
+                  <span>Análise Estratégica</span>
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-black border border-amber-500/30">NOVO</span>
+                </Link>
               </div>
             )}
           </div>

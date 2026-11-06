@@ -35,6 +35,7 @@ import AdmSIOrganizacao from './pages/AdmSIOrganizacao';
 import AdmSIGovernanca from './pages/AdmSIGovernanca';
 import AdmSITatica from './pages/AdmSITatica';
 import AdmSICargosDigitais from './pages/AdmSICargosDigitais';
+import AdmSIAnaliseEstrategica from './pages/AdmSIAnaliseEstrategica';
 import PulsoDigital from './pages/PulsoDigital';
 import PulsoAluno from './pages/PulsoAluno';
 import PagoOuNao3D from './pages/PagoOuNao3D';
@@ -64,6 +65,7 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         if (pathname === '/adm-si/governanca') { return 'Adm SI - Matriz Transacional'; }
         if (pathname === '/adm-si/tatica') { return 'Adm SI - Matriz Tática'; }
         if (pathname === '/adm-si/cargos-digitais') { return 'Adm SI - Cargos Digitais & Canvas'; }
+        if (pathname === '/adm-si/analise-estrategica') { return 'Adm SI - Análise Estratégica'; }
         if (pathname === '/pulso-digital') { return 'Pulso Digital'; }
         if (pathname === '/pago-ou-nao') { return 'Pago ou Não? 3D (Receita Federal)'; }
         const nomeDaPagina = pathname.split('/').pop().replace(/-/g, ' ') || 'dashboard';
@@ -238,6 +240,7 @@ function App() {
                 <Route path="adm-si/governanca" element={<AdmSIGovernanca />} />
                 <Route path="adm-si/tatica" element={<AdmSITatica />} />
                 <Route path="adm-si/cargos-digitais" element={<AdmSICargosDigitais />} />
+                <Route path="adm-si/analise-estrategica" element={<AdmSIAnaliseEstrategica />} />
 
                 {/* Rotas de Admin/Professor do Simulador */}
                  <Route element={<ProfessorAdminRoute perfilUsuario={perfilUsuario} />}>
