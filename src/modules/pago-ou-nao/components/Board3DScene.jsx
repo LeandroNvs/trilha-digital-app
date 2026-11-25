@@ -16,6 +16,7 @@ import {
   NatureAndBirds3D,
   RoadAndTiles3D
 } from './World3DElements.jsx';
+import { soundEngine } from '../logic/soundEngine.js';
 
 // ============================================================================
 // 1. DADO 3D FÍSICO ANIMADO (Salta, gira em X/Y/Z, rebate nos prédios e para no valor sorteado!)
@@ -539,6 +540,7 @@ function SteppingPlayerPawn3D({ player, totalAtTile, offsetIndex, isCurrentTurn,
       st.fromPos.copy(groupRef.current.position);
       st.toPos.copy(computeTileVec(nextTile, isLastStep));
       st.toTile = nextTile;
+      soundEngine.playPawnHopSfx();
     }
 
     // Executa o salto suave de uma casa para a próxima exatamente na frequência 4.5
@@ -620,6 +622,278 @@ function SteppingPlayerPawn3D({ player, totalAtTile, offsetIndex, isCurrentTurn,
   );
 }
 
+// ============================================================================
+// CÉU DINÂMICO EM DEGRADÊ + NUVENS LOW-POLY + SOMBRAS + RAIOS (Estado COM/SEM Recursos)
+// ============================================================================
+const CLOUD_PRESETS = [
+  // Nuvens visíveis ao fundo e nas laterais do tabuleiro (y=2.0..6.2, sem nunca passar na frente!)
+  { pos: [-16, 2.8, -15], scale: 1.55, speed: 0.28, castShadow: false },
+  { pos: [11, 3.6, -17], scale: 1.85, speed: 0.22, castShadow: false },
+  { pos: [-5, 4.4, -19], scale: 2.0, speed: 0.19, castShadow: false },
+  { pos: [19, 3.0, -12], scale: 1.5, speed: 0.25, castShadow: false },
+  { pos: [-21, 3.8, -6], scale: 1.45, speed: 0.31, castShadow: false },
+  { pos: [21, 4.5, -2], scale: 1.55, speed: 0.24, castShadow: false },
+  { pos: [-19, 5.2, 3], scale: 1.4, speed: 0.27, castShadow: false },
+  { pos: [2, 2.2, -16], scale: 1.65, speed: 0.30, castShadow: false },
+  // Nuvens bem altas acima da câmera (y=20..21) e abaixo da luz (y=24) para projetar sombra suave no tabuleiro!
+  { pos: [4, 20.5, 10], scale: 2.1, speed: 0.42, castShadow: true, shadowLoopMin: -12, shadowLoopMax: 26 },
+  { pos: [18, 21.2, 13], scale: 1.85, speed: 0.36, castShadow: true, shadowLoopMin: -12, shadowLoopMax: 26 }
+];
+
+function LowPolyCloud({
+  initialPos,
+  scale,
+  speed,
+  cloudColor,
+  castShadow = false,
+  shadowLoopMin = -34,
+  shadowLoopMax = 34,
+  flashIntensityRef
+}) {
+  const groupRef = useRef();
+  const matRefs = useRef([]);
+
+  useFrame((_, delta) => {
+    if (!groupRef.current) return;
+    const dt = Math.min(delta, 0.1);
+    groupRef.current.position.x += speed * dt;
+    if (groupRef.current.position.x > shadowLoopMax) {
+      groupRef.current.position.x = shadowLoopMin;
+    }
+
+    const flash = flashIntensityRef?.current || 0;
+    for (let i = 0; i < matRefs.current.length; i++) {
+      const mat = matRefs.current[i];
+      if (mat) {
+        mat.emissiveIntensity = flash;
+      }
+    }
+  });
+
+  const setMatRef = (idx) => (el) => {
+    matRefs.current[idx] = el;
+  };
+
+  return (
+    <group ref={groupRef} position={initialPos} scale={scale}>
+      <mesh position={[0, 0, 0]} castShadow={castShadow}>
+        <sphereGeometry args={[1.15, 12, 10]} />
+        <meshStandardMaterial
+          ref={setMatRef(0)}
+          color={cloudColor}
+          emissive="#e0f2fe"
+          emissiveIntensity={0}
+          roughness={0.95}
+          metalness={0}
+        />
+      </mesh>
+      <mesh position={[-1.05, -0.22, 0.15]} castShadow={castShadow}>
+        <sphereGeometry args={[0.85, 12, 10]} />
+        <meshStandardMaterial
+          ref={setMatRef(1)}
+          color={cloudColor}
+          emissive="#e0f2fe"
+          emissiveIntensity={0}
+          roughness={0.95}
+          metalness={0}
+        />
+      </mesh>
+      <mesh position={[1.05, -0.18, -0.1]} castShadow={castShadow}>
+        <sphereGeometry args={[0.9, 12, 10]} />
+        <meshStandardMaterial
+          ref={setMatRef(2)}
+          color={cloudColor}
+          emissive="#e0f2fe"
+          emissiveIntensity={0}
+          roughness={0.95}
+          metalness={0}
+        />
+      </mesh>
+      <mesh position={[0.35, 0.38, 0.22]} castShadow={castShadow}>
+        <sphereGeometry args={[0.78, 12, 10]} />
+        <meshStandardMaterial
+          ref={setMatRef(3)}
+          color={cloudColor}
+          emissive="#e0f2fe"
+          emissiveIntensity={0}
+          roughness={0.95}
+          metalness={0}
+        />
+      </mesh>
+      <mesh position={[-0.45, 0.28, -0.2]} castShadow={castShadow}>
+        <sphereGeometry args={[0.72, 12, 10]} />
+        <meshStandardMaterial
+          ref={setMatRef(4)}
+          color={cloudColor}
+          emissive="#e0f2fe"
+          emissiveIntensity={0}
+          roughness={0.95}
+          metalness={0}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+function SkyAndClouds3D({ stateHasResources }) {
+  const skyUniforms = useMemo(
+    () => ({
+      topColor: { value: new THREE.Color('#0ea5e9') },
+      bottomColor: { value: new THREE.Color('#e0f2fe') }
+    }),
+    []
+  );
+
+  // Refs para o efeito de relâmpago nas nuvens quando o Estado está SEM recursos
+  const lightningLightRef = useRef();
+  const cloudFlashRefs = useRef(CLOUD_PRESETS.map(() => ({ current: 0 })));
+  const stormStateRef = useRef({
+    nextStrikeIn: 2.0,
+    elapsedInStrike: -1,
+    activeCloudIdx: 0
+  });
+
+  useEffect(() => {
+    if (stateHasResources) {
+      skyUniforms.topColor.value.set('#0284c7');
+      skyUniforms.bottomColor.value.set('#38bdf8');
+      stormStateRef.current.elapsedInStrike = -1;
+      cloudFlashRefs.current.forEach((r) => {
+        r.current = 0;
+      });
+      if (lightningLightRef.current) lightningLightRef.current.intensity = 0;
+    } else {
+      skyUniforms.topColor.value.set('#334155');
+      skyUniforms.bottomColor.value.set('#94a3b8');
+      stormStateRef.current.nextStrikeIn = 1.5;
+    }
+  }, [stateHasResources, skyUniforms]);
+
+  useFrame((_, delta) => {
+    if (stateHasResources) return;
+    const dt = Math.min(delta, 0.1);
+    const st = stormStateRef.current;
+
+    if (st.elapsedInStrike < 0) {
+      st.nextStrikeIn -= dt;
+      if (st.nextStrikeIn <= 0) {
+        st.elapsedInStrike = 0;
+        // Escolhe uma das nuvens do horizonte (indices 0..7) para piscar como raio
+        st.activeCloudIdx = Math.floor(Math.random() * 8);
+        if (lightningLightRef.current) {
+          const targetCloud = CLOUD_PRESETS[st.activeCloudIdx];
+          lightningLightRef.current.position.set(
+            targetCloud.pos[0] * 0.6,
+            targetCloud.pos[1] + 2,
+            targetCloud.pos[2] * 0.7
+          );
+        }
+      }
+      return;
+    }
+
+    st.elapsedInStrike += dt;
+    const t = st.elapsedInStrike;
+    // Pulso duplo rápido de relâmpago (0.00-0.09s forte, pausa, 0.14-0.28s forte e decai)
+    let pulse = 0;
+    if (t < 0.09) {
+      pulse = 1.0;
+    } else if (t < 0.14) {
+      pulse = 0.15;
+    } else if (t < 0.25) {
+      pulse = 1.25;
+    } else if (t < 0.48) {
+      pulse = Math.max(0, 1.25 * (1 - (t - 0.25) / 0.23));
+    } else {
+      st.elapsedInStrike = -1;
+      st.nextStrikeIn = 2.8 + Math.random() * 3.8;
+      pulse = 0;
+    }
+
+    cloudFlashRefs.current.forEach((r, idx) => {
+      if (idx === st.activeCloudIdx) {
+        r.current = pulse * 2.1;
+      } else {
+        // Nuvens vizinhas recebem um reflexo suave
+        r.current = pulse * 0.35;
+      }
+    });
+
+    if (lightningLightRef.current) {
+      lightningLightRef.current.intensity = pulse * 2.8;
+    }
+  });
+
+  const cloudColor = stateHasResources ? '#ffffff' : '#94a3b8';
+
+  return (
+    <group>
+      {/* Domo de Céu em Degradê */}
+      <mesh>
+        <sphereGeometry args={[75, 24, 16]} />
+        <shaderMaterial
+          side={THREE.BackSide}
+          depthWrite={false}
+          uniforms={skyUniforms}
+          vertexShader={`
+            varying vec3 vWorldPosition;
+            void main() {
+              vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+              vWorldPosition = worldPosition.xyz;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `}
+          fragmentShader={`
+            uniform vec3 topColor;
+            uniform vec3 bottomColor;
+            varying vec3 vWorldPosition;
+            void main() {
+              float h = normalize(vWorldPosition).y;
+              float factor = smoothstep(-0.35, 0.28, h);
+              gl_FragColor = vec4(mix(bottomColor, topColor, factor), 1.0);
+              #include <tonemapping_fragment>
+              #include <colorspace_fragment>
+            }
+          `}
+        />
+      </mesh>
+
+      {/* Sol (quando o Estado está com recursos) */}
+      {stateHasResources && (
+        <mesh position={[26, 28, -36]}>
+          <sphereGeometry args={[2.8, 16, 16]} />
+          <meshBasicMaterial color="#fde047" />
+        </mesh>
+      )}
+
+      {/* Luz de relâmpago para iluminar as nuvens no estado SEM recursos */}
+      <pointLight
+        ref={lightningLightRef}
+        position={[0, 14, -16]}
+        color="#bae6fd"
+        intensity={0}
+        distance={75}
+        decay={1.4}
+      />
+
+      {/* Nuvens Low-Poly Flutuantes (altas no horizonte + nuvens sombreadoras acima da câmera) */}
+      {CLOUD_PRESETS.map((c, idx) => (
+        <LowPolyCloud
+          key={idx}
+          initialPos={c.pos}
+          scale={c.scale}
+          speed={c.speed}
+          cloudColor={cloudColor}
+          castShadow={c.castShadow}
+          shadowLoopMin={c.shadowLoopMin}
+          shadowLoopMax={c.shadowLoopMax}
+          flashIntensityRef={cloudFlashRefs.current[idx]}
+        />
+      ))}
+    </group>
+  );
+}
+
 export default function Board3DScene({
   gameState,
   onSelectTile,
@@ -648,19 +922,31 @@ export default function Board3DScene({
         camera={{ position: [0, 16.5, 13.5], fov: 44 }}
         gl={{ antialias: true }}
       >
-        <color attach="background" args={['#07111e']} />
-        <fog attach="fog" args={['#07111e', 28, 52]} />
+        <color
+          attach="background"
+          args={[gameState.stateHasResources ? '#38bdf8' : '#64748b']}
+        />
+        <fog
+          attach="fog"
+          args={[gameState.stateHasResources ? '#7dd3fc' : '#94a3b8', 42, 85]}
+        />
 
-        <ambientLight intensity={0.85} />
+        <SkyAndClouds3D stateHasResources={gameState.stateHasResources} />
+
+        <ambientLight intensity={gameState.stateHasResources ? 0.95 : 0.72} />
         <directionalLight
           castShadow
           position={[12, 24, 14]}
-          intensity={1.45}
+          intensity={gameState.stateHasResources ? 1.55 : 1.05}
+          color={gameState.stateHasResources ? '#fffbeb' : '#e2e8f0'}
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-15}
-          shadow-camera-right={15}
-          shadow-camera-top={12}
-          shadow-camera-bottom={-12}
+          shadow-camera-near={1}
+          shadow-camera-far={65}
+          shadow-camera-left={-16}
+          shadow-camera-right={16}
+          shadow-camera-top={13}
+          shadow-camera-bottom={-13}
+          shadow-bias={-0.0004}
         />
 
         <Suspense fallback={null}>

@@ -662,7 +662,13 @@ export function MediatorConsoleOverlay({
         {/* ================================================================= */}
         {/* CONTEÚDO DA ETAPA 1: VOTAÇÃO SECRETA "PAGO OU NÃO?"               */}
         {/* ================================================================= */}
-        {gameState.phase === 'tax_vote' && (
+        {gameState.phase === 'tax_vote' && isAnimatingRoll && (
+          <div className="p-6 rounded-2xl bg-amber-500/20 border border-amber-400 text-center text-sm font-black text-amber-300 animate-pulse">
+            🎲 Aguarde o peão terminar de pular as casas no Telão...
+          </div>
+        )}
+
+        {gameState.phase === 'tax_vote' && !isAnimatingRoll && (
           <div>
             {mediatorSubMode === 'representative' ? (
               nextUnvotedPlayer ? (
@@ -1292,7 +1298,18 @@ export function MobilePlayerController({
         )}
 
         {/* ETAPA 1 NO CELULAR: VOTAÇÃO SECRETA "PAGO OU NÃO?" */}
-        {gameState.phase === 'tax_vote' && (
+        {gameState.phase === 'tax_vote' && isAnimatingRoll && (
+          <div className="p-5 rounded-3xl bg-amber-500/20 border-2 border-amber-400 text-center space-y-1.5 shadow-2xl">
+            <div className="text-sm font-black text-amber-300">
+              👀 Olhe para o Telão!
+            </div>
+            <div className="text-xs font-bold text-white">
+              O peão está pulando as casas no tabuleiro antes da próxima rodada...
+            </div>
+          </div>
+        )}
+
+        {gameState.phase === 'tax_vote' && !isAnimatingRoll && (
           <div className="p-5 rounded-3xl bg-slate-900 border-2 border-amber-400 shadow-2xl">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase text-amber-300">

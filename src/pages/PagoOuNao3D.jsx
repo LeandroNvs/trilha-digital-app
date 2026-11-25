@@ -26,8 +26,11 @@ import {
   ExternalLink,
   Trash2,
   Lock,
-  ArrowLeft
+  ArrowLeft,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
+import { soundEngine } from '../modules/pago-ou-nao/logic/soundEngine.js';
 import Board3DScene from '../modules/pago-ou-nao/components/Board3DScene.jsx';
 import {
   MediatorConsoleOverlay,
@@ -103,6 +106,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   const initialJoinCode = urlCodigoParam || urlParams.get('join'); // Código da sala se aberto via QR Code no celular
 
   const [isTelaoTab] = useState(initialRole === 'telao');
+  const [isSoundMuted, setIsSoundMuted] = useState(Boolean(initialJoinCode));
   // 3 Modos de Jogo: 'solo' (Contra Bots) | 'mediator' (2 Telas: Mediador + Telão) | 'online' (Telão + Celulares via Firebase)
   const [selectedLobbyMode, setSelectedLobbyMode] = useState(
     initialJoinCode ? 'online' : 'mediator'
@@ -146,7 +150,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [showPathOverlay, setShowPathOverlay] = useState(false);
   const [boardVisualMode, setBoardVisualMode] = useState('3d_world'); // '3d_world' | '2d_classic'
-  const [isAnimatingRoll, setIsAnimatingRoll] = useState(false);
+  const [isAnimatingRollState, setIsAnimatingRollState] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusText, setSyncStatusText] = useState('');
   const [pendingLocalVote, setPendingLocalVote] = useState(null);
@@ -336,40 +340,152 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     window.open(url, 'PagoOuNaoTelao', 'noopener');
   };
 
-  // Quando o dado 3D é lançado (diceRollId aumenta), aguarda o dado rolar (1.35s) + o pino caminhar pelas casas antes de abrir a janela da casa!
-  useEffect(() => {
-    if (!gameState.diceRollId) return;
-    setIsAnimatingRoll(true);
-    const steps = gameState.lastDice || 3;
-    const totalAnimMs = 1350 + steps * 700 + 350;
-    const timer = setTimeout(() => {
-      setIsAnimatingRoll(false);
-    }, totalAnimMs);
-    return () => clearTimeout(timer);
-  }, [gameState.diceRollId]);
+  // Quando o dado 3D é lançado (diceRollId aumenta) OU ocorre movimento no tabuleiro sem novo dado
+  // (bifurcação, "avance X casas", "volte N casas", carta vermelha ou chegada à #77),
+  // aguarda o dado rolar (se aplicável) e o peão pular casa por casa antes de abrir modais ou a próxima votação!
+  const lastHandledDiceIdRef = useRef(gameState.diceRollId || 0);
+  const lastHandledMoveCounterRef = useRef(gameState.moveCounter || 0);
+  const animTimerRef = useRef(null);
 
-  // Chegada ao FINAL via "Avance X casas" (sem novo dado): aguarda o peão caminhar até a casa #77
-  // antes de exibir a mensagem de chegada (o jogo só encerra após a confirmação da leitura).
-  const lastArrivalDiceIdRef = useRef(gameState.diceRollId);
+  // Avaliação síncrona no próprio render para impedir "piscada" de 1 frame do modal antes do useEffect rodar!
+  const hasUnstartedAnimation =
+    (gameState.diceRollId || 0) !== lastHandledDiceIdRef.current ||
+    ((gameState.moveCounter || 0) !== lastHandledMoveCounterRef.current &&
+      (gameState.players || []).some((p) => (p.stepQueue?.length || 0) > 0));
+  const isAnimatingRoll = isAnimatingRollState || hasUnstartedAnimation;
+
   useEffect(() => {
-    const diceChanged = gameState.diceRollId !== lastArrivalDiceIdRef.current;
-    lastArrivalDiceIdRef.current = gameState.diceRollId;
-    if (diceChanged || !gameState.pendingDecision?.finishOnConfirm) return;
-    const finisher = gameState.players.find(
-      (p) => p.id === gameState.pendingDecision.finisherId
+    const diceChanged = (gameState.diceRollId || 0) !== lastHandledDiceIdRef.current;
+    const moveChanged = (gameState.moveCounter || 0) !== lastHandledMoveCounterRef.current;
+
+    lastHandledDiceIdRef.current = gameState.diceRollId || 0;
+    lastHandledMoveCounterRef.current = gameState.moveCounter || 0;
+
+    if (!diceChanged && !moveChanged) return;
+
+    const maxQueueSteps = Math.max(
+      0,
+      ...(gameState.players || []).map((p) => p.stepQueue?.length || 0)
     );
-    const steps = finisher?.stepQueue?.length || 0;
-    if (steps === 0) return;
-    setIsAnimatingRoll(true);
-    const timer = setTimeout(() => setIsAnimatingRoll(false), steps * 700 + 350);
-    return () => clearTimeout(timer);
-  }, [gameState.moveCounter, gameState.diceRollId]);
+
+    let totalAnimMs = 0;
+    if (diceChanged) {
+      const steps = maxQueueSteps > 0 ? maxQueueSteps : gameState.lastDice || 3;
+      totalAnimMs = 1350 + steps * 700 + 400;
+    } else if (moveChanged && maxQueueSteps > 0) {
+      totalAnimMs = maxQueueSteps * 700 + 450;
+    }
+
+    if (totalAnimMs > 0) {
+      if (animTimerRef.current) clearTimeout(animTimerRef.current);
+      setIsAnimatingRollState(true);
+      animTimerRef.current = setTimeout(() => {
+        setIsAnimatingRollState(false);
+        animTimerRef.current = null;
+      }, totalAnimMs);
+    }
+  }, [gameState.diceRollId, gameState.moveCounter]);
+
+  useEffect(() => {
+    return () => {
+      if (animTimerRef.current) clearTimeout(animTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (gameState.status === 'finished') {
       confetti({ particleCount: 140, spread: 90, origin: { y: 0.6 } });
+      soundEngine.playVictorySfx();
     }
   }, [gameState.status]);
+
+  // Destrava o Web Audio API no primeiro clique/toque do usuário (política de autoplay dos navegadores)
+  useEffect(() => {
+    const handleUnlock = () => soundEngine.unlock();
+    window.addEventListener('pointerdown', handleUnlock, { passive: true });
+    window.addEventListener('keydown', handleUnlock, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleUnlock);
+      window.removeEventListener('keydown', handleUnlock);
+      soundEngine.stopLoop();
+    };
+  }, []);
+
+  // Controle dinâmico da Música de Fundo (Opção B: calma com recursos, tensa sem recursos, pulso na votação)
+  const isMobileClientView = Boolean(
+    initialJoinCode || (gameState.mode === 'online' && !gameState.isTelaoHost)
+  );
+  // Garante que no celular dos alunos o áudio inicie 100% silenciado (sem música nem efeitos)
+  useEffect(() => {
+    if (isMobileClientView) {
+      setIsSoundMuted(true);
+    }
+  }, [isMobileClientView]);
+
+  useEffect(() => {
+    const mood =
+      gameState.phase === 'tax_vote'
+        ? 'vote'
+        : gameState.stateHasResources
+        ? 'calm'
+        : 'tense';
+    const shouldPlayMusic = gameState.status === 'playing' && !isMobileClientView;
+    soundEngine.setConfig({
+      muted: isSoundMuted,
+      musicEnabled: shouldPlayMusic,
+      mood
+    });
+  }, [
+    gameState.status,
+    gameState.phase,
+    gameState.stateHasResources,
+    isSoundMuted,
+    isMobileClientView
+  ]);
+
+  // Efeitos sonoros de Dado, Mensagem na Tela e Banner de Aviso
+  const lastSoundDiceRef = useRef(gameState.diceRollId || 0);
+  useEffect(() => {
+    const curr = gameState.diceRollId || 0;
+    if (curr > lastSoundDiceRef.current) {
+      soundEngine.playDiceRollSfx();
+    }
+    lastSoundDiceRef.current = curr;
+  }, [gameState.diceRollId]);
+
+  const lastSoundBannerIdRef = useRef(gameState.telaoAnnouncementBanner?.id || 0);
+  useEffect(() => {
+    const bannerId = gameState.telaoAnnouncementBanner?.id || 0;
+    if (bannerId && bannerId !== lastSoundBannerIdRef.current && !isAnimatingRoll) {
+      soundEngine.playMessageSfx();
+      lastSoundBannerIdRef.current = bannerId;
+    }
+  }, [gameState.telaoAnnouncementBanner?.id, isAnimatingRoll]);
+
+  const lastSoundDecisionKeyRef = useRef('');
+  useEffect(() => {
+    if (isAnimatingRoll || !gameState.pendingDecision) {
+      if (!gameState.pendingDecision) lastSoundDecisionKeyRef.current = '';
+      return;
+    }
+    const key = `${gameState.roundNumber}-${gameState.turnIndex}-${gameState.pendingDecision.type}-${gameState.pendingDecision.tileId || ''}`;
+    if (key !== lastSoundDecisionKeyRef.current) {
+      lastSoundDecisionKeyRef.current = key;
+      if (
+        gameState.pendingDecision.type === 'denuncia_choice' ||
+        gameState.pendingDecision.type === 'red_card_choice'
+      ) {
+        soundEngine.playAlertSfx();
+      } else {
+        soundEngine.playMessageSfx();
+      }
+    }
+  }, [
+    gameState.pendingDecision,
+    gameState.roundNumber,
+    gameState.turnIndex,
+    isAnimatingRoll
+  ]);
 
   // Automação dos Bots durante os turnos de movimento no tabuleiro
   useEffect(() => {
@@ -808,8 +924,28 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
 
       {/* BARRA SUPERIOR EM LINHA ÚNICA (AGRUPADA DE FORMA COMPACTA E FLUIDA) */}
       <header className="relative z-10 flex items-center justify-between gap-2 px-3 py-2 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 shadow-lg flex-nowrap overflow-x-auto">
-        {/* GRUPO 1: BOTÃO VOLTAR + TÍTULO + SALA E RODADA */}
+        {/* GRUPO 1: BOTÃO VOLTAR / CARTEIRA (1ª OPÇÃO NO CELULAR) + TÍTULO + SALA E RODADA */}
         <div className="flex items-center gap-2 shrink-0">
+          {isOnlineMobilePlayer && gameState.status === 'playing' && (
+            <button
+              onClick={() => setMobileShowBoard((prev) => !prev)}
+              className="px-2.5 py-1.5 rounded-xl text-xs font-black bg-sky-400 hover:bg-sky-300 text-slate-950 flex items-center gap-1.5 shadow-md transition active:scale-95 whitespace-nowrap shrink-0"
+              title={mobileShowBoard ? 'Voltar para sua Carteira Secreta' : 'Visualizar o Mapa 3D'}
+            >
+              {mobileShowBoard ? (
+                <>
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Carteira</span>
+                </>
+              ) : (
+                <>
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Ver Mapa</span>
+                </>
+              )}
+            </button>
+          )}
           {!isEmbeddedInLayout && !isTelaoTab && !initialJoinCode && (
             <button
               onClick={() => navigate('/dashboard')}
@@ -869,24 +1005,15 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
           )}
 
           {isOnlineMobilePlayer && gameState.status === 'playing' && (
-            <>
-              <button
-                onClick={handleManualSync}
-                disabled={isSyncing}
-                className="px-2 py-1 rounded-lg text-[11px] font-black bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow transition whitespace-nowrap"
-                title="Sincronizar estado com a sala agora"
-              >
-                <RotateCcw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isSyncing ? 'Sinc...' : 'Atualizar'}</span>
-              </button>
-              <button
-                onClick={() => setMobileShowBoard((prev) => !prev)}
-                className="px-2.5 py-1 rounded-lg text-[11px] font-black bg-sky-400 text-slate-950 flex items-center gap-1 shadow whitespace-nowrap"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>{mobileShowBoard ? 'Carteira' : 'Ver Mapa'}</span>
-              </button>
-            </>
+            <button
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="px-2 py-1 rounded-lg text-[11px] font-black bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow transition whitespace-nowrap"
+              title="Sincronizar estado com a sala agora"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sinc...' : 'Atualizar'}</span>
+            </button>
           )}
 
           {/* Subgrupo: Painéis da Partida (Jogadores, Histórico, Facilitador) */}
@@ -934,6 +1061,21 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                 <span className="hidden xl:inline">Facilitador</span>
               </button>
             )}
+            <button
+              onClick={() => {
+                soundEngine.unlock();
+                setIsSoundMuted((prev) => !prev);
+              }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition whitespace-nowrap ${
+                !isSoundMuted
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'
+              }`}
+              title={isSoundMuted ? 'Ativar música e efeitos sonoros' : 'Silenciar música e efeitos sonoros'}
+            >
+              {isSoundMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              <span className="hidden md:inline">{isSoundMuted ? 'Mudo' : 'Som'}</span>
+            </button>
           </div>
 
           {/* Subgrupo: Visão do Tabuleiro (3D/2D + Trilha) */}
@@ -984,7 +1126,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       {gameState.telaoAnnouncementBanner?.messages?.length > 0 &&
         !gameState.pendingDecision && (
           <div className="relative z-20 mx-auto mt-2 max-w-3xl w-full px-4 pointer-events-auto">
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-950/95 via-slate-900/95 to-amber-950/95 border-2 border-amber-400 shadow-2xl flex items-center justify-between gap-3 animate-bounce">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-950/95 via-slate-900/95 to-amber-950/95 border-2 border-amber-400 shadow-2xl flex items-center justify-between gap-3">
               <div className="space-y-1">
                 <span className="text-[10px] font-black uppercase tracking-widest text-amber-300 block">
                   📢 Aconteceu Agora no Tabuleiro (Rodada #{gameState.telaoAnnouncementBanner.roundNumber})
@@ -998,9 +1140,9 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               {!isTelaoTab && (
                 <button
                   onClick={handleDismissTelaoBanner}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-amber-300 border border-amber-400/40 shrink-0"
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-xs font-black text-slate-950 border border-amber-300 shadow shrink-0 transition cursor-pointer"
                 >
-                  Ocultar ✕
+                  Entendido ✓
                 </button>
               )}
             </div>
@@ -1921,6 +2063,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       {/* MODAL 2: O GRANDE DILEMA DA RODADA: "PAGO OU NÃO?" */}
       {gameState.status === 'playing' &&
         gameState.phase === 'tax_vote' &&
+        !isAnimatingRoll &&
         (gameState.mode === 'solo' || isTelaoTab || isOnlineTelaoHost) && (
           <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
             <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-2xl w-full p-6 md:p-7 shadow-2xl">
