@@ -763,8 +763,8 @@ function SkyAndClouds3D({ stateHasResources }) {
       });
       if (lightningLightRef.current) lightningLightRef.current.intensity = 0;
     } else {
-      skyUniforms.topColor.value.set('#334155');
-      skyUniforms.bottomColor.value.set('#94a3b8');
+      skyUniforms.topColor.value.set('#1e293b');
+      skyUniforms.bottomColor.value.set('#475569');
       stormStateRef.current.nextStrikeIn = 1.5;
     }
   }, [stateHasResources, skyUniforms]);
@@ -778,8 +778,16 @@ function SkyAndClouds3D({ stateHasResources }) {
       st.nextStrikeIn -= dt;
       if (st.nextStrikeIn <= 0) {
         st.elapsedInStrike = 0;
-        // Escolhe uma das nuvens do horizonte (indices 0..7) para piscar como raio
-        st.activeCloudIdx = Math.floor(Math.random() * 8);
+        // Escolhe aleatoriamente uma nuvem diferente da anterior (indices 0..7)
+        let nextIdx = Math.floor(Math.random() * 8);
+        if (nextIdx === st.activeCloudIdx) {
+          nextIdx = (nextIdx + 1 + Math.floor(Math.random() * 6)) % 8;
+        }
+        st.activeCloudIdx = nextIdx;
+        // 45% de chance de um segundo raio saltar em outra nuvem aleatória logo depois
+        st.secondaryCloudIdx =
+          Math.random() < 0.45 ? (nextIdx + 2 + Math.floor(Math.random() * 5)) % 8 : -1;
+
         if (lightningLightRef.current) {
           const targetCloud = CLOUD_PRESETS[st.activeCloudIdx];
           lightningLightRef.current.position.set(
@@ -806,16 +814,17 @@ function SkyAndClouds3D({ stateHasResources }) {
       pulse = Math.max(0, 1.25 * (1 - (t - 0.25) / 0.23));
     } else {
       st.elapsedInStrike = -1;
-      st.nextStrikeIn = 2.8 + Math.random() * 3.8;
+      st.nextStrikeIn = 1.6 + Math.random() * 3.4;
       pulse = 0;
     }
 
     cloudFlashRefs.current.forEach((r, idx) => {
       if (idx === st.activeCloudIdx) {
-        r.current = pulse * 2.1;
+        r.current = pulse * 2.2;
+      } else if (idx === st.secondaryCloudIdx && t >= 0.13) {
+        r.current = pulse * 1.6;
       } else {
-        // Nuvens vizinhas recebem um reflexo suave
-        r.current = pulse * 0.35;
+        r.current = 0;
       }
     });
 
@@ -824,7 +833,7 @@ function SkyAndClouds3D({ stateHasResources }) {
     }
   });
 
-  const cloudColor = stateHasResources ? '#ffffff' : '#94a3b8';
+  const cloudColor = stateHasResources ? '#ffffff' : '#64748b';
 
   return (
     <group>
@@ -896,6 +905,7 @@ function SkyAndClouds3D({ stateHasResources }) {
 
 export default function Board3DScene({
   gameState,
+  isAnimatingRoll = false,
   onSelectTile,
   showPathOverlay = false,
   boardVisualMode = '3d_world'
@@ -924,20 +934,20 @@ export default function Board3DScene({
       >
         <color
           attach="background"
-          args={[gameState.stateHasResources ? '#38bdf8' : '#64748b']}
+          args={[gameState.stateHasResources ? '#38bdf8' : '#334155']}
         />
         <fog
           attach="fog"
-          args={[gameState.stateHasResources ? '#7dd3fc' : '#94a3b8', 42, 85]}
+          args={[gameState.stateHasResources ? '#7dd3fc' : '#475569', 42, 85]}
         />
 
         <SkyAndClouds3D stateHasResources={gameState.stateHasResources} />
 
-        <ambientLight intensity={gameState.stateHasResources ? 0.95 : 0.72} />
+        <ambientLight intensity={gameState.stateHasResources ? 0.95 : 0.68} />
         <directionalLight
           castShadow
           position={[12, 24, 14]}
-          intensity={gameState.stateHasResources ? 1.55 : 1.05}
+          intensity={gameState.stateHasResources ? 1.55 : 0.95}
           color={gameState.stateHasResources ? '#fffbeb' : '#e2e8f0'}
           shadow-mapSize={[2048, 2048]}
           shadow-camera-near={1}
@@ -953,11 +963,11 @@ export default function Board3DScene({
           <BoardWorldContainer
             stateHasResources={gameState.stateHasResources}
             onSelectTile={onSelectTile}
-            currentPlayerPos={currentPlayer?.position}
+            currentPlayerPos={isAnimatingRoll ? null : currentPlayer?.position}
             showPathOverlay={showPathOverlay}
             boardVisualMode={boardVisualMode}
             forkOptions={
-              gameState.pendingDecision?.type === 'fork_choice'
+              !isAnimatingRoll && gameState.pendingDecision?.type === 'fork_choice'
                 ? gameState.pendingDecision.options
                 : null
             }

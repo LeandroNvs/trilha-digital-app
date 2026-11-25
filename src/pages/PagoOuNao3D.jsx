@@ -97,6 +97,80 @@ function setClientPlayerIdStorage(newId) {
   }
 }
 
+// Wrapper reutilizável para entrada/saída suave (fade-in 240ms + fade-out 180ms) sem bloquear cliques
+function SmoothOverlay({
+  show,
+  render,
+  variant = 'modal',
+  backdropClassName = 'bg-slate-950/80 backdrop-blur-md p-4 overflow-y-auto'
+}) {
+  const [shouldRender, setShouldRender] = useState(show);
+  const [isVisible, setIsVisible] = useState(false);
+  const lastContentRef = useRef(null);
+
+  if (show && render) {
+    lastContentRef.current = render();
+  }
+
+  useEffect(() => {
+    if (show) {
+      setShouldRender(true);
+      let raf2 = 0;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setIsVisible(true));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        if (raf2) cancelAnimationFrame(raf2);
+      };
+    }
+    setIsVisible(false);
+    const timer = setTimeout(() => {
+      setShouldRender(false);
+      lastContentRef.current = null;
+    }, 190);
+    return () => clearTimeout(timer);
+  }, [show]);
+
+  if (!shouldRender && !show) return null;
+  const content = show && render ? render() : lastContentRef.current;
+  if (!content) return null;
+
+  if (variant === 'banner') {
+    return (
+      <div
+        className={`relative z-20 mx-auto mt-2 max-w-3xl w-full px-4 transition-all duration-200 ease-out ${
+          isVisible
+            ? 'opacity-100 translate-y-0 scale-100 pointer-events-auto'
+            : 'opacity-0 -translate-y-3 scale-95 pointer-events-none'
+        }`}
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`absolute inset-0 z-30 flex items-center justify-center transition-opacity ease-out ${
+        isVisible
+          ? 'opacity-100 duration-200 pointer-events-auto'
+          : 'opacity-0 duration-150 pointer-events-none'
+      } ${backdropClassName}`}
+    >
+      <div
+        className={`w-full flex justify-center transition-all ease-out ${
+          isVisible
+            ? 'opacity-100 scale-100 translate-y-0 duration-200'
+            : 'opacity-0 scale-95 translate-y-2 duration-150'
+        }`}
+      >
+        {content}
+      </div>
+    </div>
+  );
+}
+
 export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   const { codigo: urlCodigoParam } = useParams();
   const navigate = useNavigate();
@@ -916,6 +990,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       <div className="absolute inset-0 z-0">
         <Board3DScene
           gameState={gameState}
+          isAnimatingRoll={isAnimatingRoll}
           onSelectTile={(tile) => setSelectedTileInfo(tile)}
           showPathOverlay={showPathOverlay}
           boardVisualMode={boardVisualMode}
@@ -1123,31 +1198,36 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       </header>
 
       {/* BANNER DRAMÁTICO DO TELÃO QUANDO OCORREM SABOTAGENS OU MOVIMENTOS APÓS "JÁ VI MINHA CARTA" */}
-      {gameState.telaoAnnouncementBanner?.messages?.length > 0 &&
-        !gameState.pendingDecision && (
-          <div className="relative z-20 mx-auto mt-2 max-w-3xl w-full px-4 pointer-events-auto">
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-950/95 via-slate-900/95 to-amber-950/95 border-2 border-amber-400 shadow-2xl flex items-center justify-between gap-3">
-              <div className="space-y-1">
-                <span className="text-[10px] font-black uppercase tracking-widest text-amber-300 block">
-                  📢 Aconteceu Agora no Tabuleiro (Rodada #{gameState.telaoAnnouncementBanner.roundNumber})
-                </span>
-                {gameState.telaoAnnouncementBanner.messages.map((msg, idx) => (
-                  <div key={idx} className="text-xs sm:text-sm font-black text-white">
-                    {msg}
-                  </div>
-                ))}
-              </div>
-              {!isTelaoTab && (
-                <button
-                  onClick={handleDismissTelaoBanner}
-                  className="px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-xs font-black text-slate-950 border border-amber-300 shadow shrink-0 transition cursor-pointer"
-                >
-                  Entendido ✓
-                </button>
-              )}
+      <SmoothOverlay
+        variant="banner"
+        show={Boolean(
+          gameState.telaoAnnouncementBanner?.messages?.length > 0 &&
+          gameState.phase === 'board_turns' &&
+          gameState.status === 'playing'
+        )}
+        render={() => (
+          <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-950/95 via-slate-900/95 to-amber-950/95 border-2 border-amber-400 shadow-2xl flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-300 block">
+                📢 Aconteceu Agora no Tabuleiro (Rodada #{gameState.telaoAnnouncementBanner.roundNumber})
+              </span>
+              {gameState.telaoAnnouncementBanner.messages.map((msg, idx) => (
+                <div key={idx} className="text-xs sm:text-sm font-black text-white">
+                  {msg}
+                </div>
+              ))}
             </div>
+            {!isTelaoTab && (
+              <button
+                onClick={handleDismissTelaoBanner}
+                className="px-3.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-xs font-black text-slate-950 border border-amber-300 shadow shrink-0 transition cursor-pointer"
+              >
+                Entendido ✓
+              </button>
+            )}
           </div>
         )}
+      />
 
       {/* PAINEL DO FACILITADOR */}
       {showMediatorPanel && (
@@ -2061,11 +2141,15 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
       )}
 
       {/* MODAL 2: O GRANDE DILEMA DA RODADA: "PAGO OU NÃO?" */}
-      {gameState.status === 'playing' &&
-        gameState.phase === 'tax_vote' &&
-        !isAnimatingRoll &&
-        (gameState.mode === 'solo' || isTelaoTab || isOnlineTelaoHost) && (
-          <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+      <SmoothOverlay
+        show={
+          gameState.status === 'playing' &&
+          gameState.phase === 'tax_vote' &&
+          !isAnimatingRoll &&
+          (gameState.mode === 'solo' || isTelaoTab || isOnlineTelaoHost)
+        }
+        backdropClassName="bg-slate-950/80 backdrop-blur-md p-4"
+        render={() => (
             <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-2xl w-full p-6 md:p-7 shadow-2xl">
               <div className="text-center mb-5">
                 <span className="px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-black uppercase tracking-wider">
@@ -2167,14 +2251,18 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                 </div>
               )}
             </div>
-          </div>
         )}
+      />
 
       {/* MODAL 2B: REVELAÇÃO DO DESTINO DO ESTADO E SUA CARTA SECRETA */}
-      {gameState.pendingDecision?.type === 'round_reveal' &&
-        !isOnlineMobilePlayer &&
-        (gameState.mode !== 'mediator' || isTelaoTab) && (
-          <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+      <SmoothOverlay
+        show={
+          gameState.pendingDecision?.type === 'round_reveal' &&
+          !isOnlineMobilePlayer &&
+          (gameState.mode !== 'mediator' || isTelaoTab)
+        }
+        backdropClassName="bg-slate-950/85 backdrop-blur-md p-4 overflow-y-auto"
+        render={() => (
             <div className="bg-slate-900 border-2 border-sky-400 rounded-3xl max-w-2xl w-full p-6 shadow-2xl my-auto">
               <div className="text-center mb-4">
                 <span className="text-xs font-black uppercase tracking-widest text-sky-400">
@@ -2345,12 +2433,14 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                 </button>
               )}
             </div>
-          </div>
         )}
+      />
 
       {/* MODAL 2C: ESCOLHA DE CAMINHO NA BIFURCAÇÃO */}
-      {!isAnimatingRoll && gameState.pendingDecision?.type === 'fork_choice' && (
-        <div className="absolute inset-0 z-30 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <SmoothOverlay
+        show={!isAnimatingRoll && gameState.pendingDecision?.type === 'fork_choice'}
+        backdropClassName="bg-slate-950/75 backdrop-blur-sm p-4"
+        render={() => (
           <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-lg w-full p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-3">
               <div className="p-2.5 rounded-xl bg-amber-400/20 border border-amber-400 text-amber-300">
@@ -2399,12 +2489,14 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      />
 
       {/* MODAL 3: CASA DE CARIDADE */}
-      {!isAnimatingRoll && gameState.pendingDecision?.type === 'charity_choice' && (
-        <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+      <SmoothOverlay
+        show={!isAnimatingRoll && gameState.pendingDecision?.type === 'charity_choice'}
+        backdropClassName="bg-slate-950/80 backdrop-blur-md p-4"
+        render={() => (
           <div className="bg-slate-900 border-2 border-pink-400 rounded-3xl max-w-md w-full p-6 shadow-2xl text-center">
             <HandCoins className="w-10 h-10 text-pink-400 mx-auto mb-2" />
             <h3 className="text-xl font-black text-white">
@@ -2434,12 +2526,14 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      />
 
       {/* MODAL 4: CASA PRETA DE DENÚNCIA! */}
-      {!isAnimatingRoll && gameState.pendingDecision?.type === 'denuncia_choice' && (
-        <div className="absolute inset-0 z-30 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+      <SmoothOverlay
+        show={!isAnimatingRoll && gameState.pendingDecision?.type === 'denuncia_choice'}
+        backdropClassName="bg-slate-950/85 backdrop-blur-md p-4"
+        render={() => (
           <div className="bg-slate-900 border-2 border-indigo-500 rounded-3xl max-w-lg w-full p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-3">
               <div className="p-2.5 rounded-xl bg-indigo-600/30 border border-indigo-400 text-indigo-300">
@@ -2492,15 +2586,19 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      />
 
       {/* MODAL 5: CONSEQUÊNCIA DA CASA (SEM IMAGEM DA CARTA FÍSICA — VISUAL LIMPO E FLUIDO PARA TELÃO E CELULAR) */}
-      {!isAnimatingRoll &&
-        gameState.pendingDecision?.type === 'tile_summary' &&
-        (!isOnlineMobilePlayer || mobileShowBoard) &&
-        (gameState.mode !== 'mediator' || isTelaoTab) && (
-        <div className="absolute inset-0 z-30 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+      <SmoothOverlay
+        show={
+          !isAnimatingRoll &&
+          gameState.pendingDecision?.type === 'tile_summary' &&
+          (!isOnlineMobilePlayer || mobileShowBoard) &&
+          (gameState.mode !== 'mediator' || isTelaoTab)
+        }
+        backdropClassName="bg-slate-950/80 backdrop-blur-md p-4 overflow-y-auto"
+        render={() => (
           <div
             className={`bg-slate-900 rounded-3xl max-w-xl w-full p-6 shadow-2xl border-4 transition-all my-auto ${
               gameState.stateHasResources
@@ -2673,8 +2771,8 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               </button>
             )}
           </div>
-        </div>
-      )}
+        )}
+      />
 
       {/* MODAL 6: FIM DE JOGO + MATRIZ DE CONTROLE DOS RESULTADOS */}
       {gameState.status === 'finished' && (
