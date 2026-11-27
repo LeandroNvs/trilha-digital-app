@@ -72,25 +72,49 @@ function Layout({ perfilUsuario, sidebarAberta, setSidebarAberta }) {
         return nomeDaPagina.replace(/(^\w|\s\w)/g, m => m.toUpperCase());
     };
     const tituloDaPagina = formatarTitulo(location.pathname);
+    const isPublicGameRoute = location.pathname === '/pago-ou-nao';
 
-    if (!perfilUsuario) { return <Navigate to="/login" replace />; }
+    if (!perfilUsuario && !isPublicGameRoute) { return <Navigate to="/login" replace />; }
 
     return (
         <div className="flex h-screen bg-gray-900 text-white">
-            <Sidebar perfilUsuario={perfilUsuario} aberta={sidebarAberta} setSidebarAberta={setSidebarAberta} />
+            {perfilUsuario && !isPublicGameRoute && (
+                <Sidebar perfilUsuario={perfilUsuario} aberta={sidebarAberta} setSidebarAberta={setSidebarAberta} />
+            )}
             <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="bg-gray-800 shadow-md px-4 py-3 flex justify-between items-center h-16 border-b border-gray-700 flex-shrink-0">
-                    <div className="flex items-center gap-3">
-                        <button 
-                            onClick={() => setSidebarAberta(!sidebarAberta)} 
-                            className="lg:hidden p-2 rounded-md hover:bg-gray-700 text-white focus:outline-none"
-                            title="Menu"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-                        </button>
+                <header className="relative bg-gray-800 shadow-md px-4 py-2.5 flex justify-between items-center h-16 border-b border-gray-700 flex-shrink-0 gap-3">
+                    <div className="flex items-center gap-3 shrink-0">
+                        {perfilUsuario && !isPublicGameRoute && (
+                            <button 
+                                onClick={() => setSidebarAberta(!sidebarAberta)} 
+                                className="lg:hidden p-2 rounded-md hover:bg-gray-700 text-white focus:outline-none"
+                                title="Menu"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                            </button>
+                        )}
                         <h1 className="text-xl md:text-2xl font-extrabold text-white whitespace-nowrap"><span className="text-cyan-400">Trilha</span>Digital</h1>
                     </div>
-                    <h2 className="text-sm md:text-lg font-semibold capitalize text-gray-300 truncate max-w-[180px] sm:max-w-xs">{tituloDaPagina}</h2>
+
+                    {isPublicGameRoute && (
+                        <a
+                            href="https://unifai.edu.br/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Acessar Centro Universitário Assunção (unifai.edu.br)"
+                            className="md:absolute md:left-1/2 md:-translate-x-1/2 bg-white/95 hover:bg-white px-3 py-1 rounded-xl shadow-md transition-transform hover:scale-[1.02] flex items-center shrink-0"
+                        >
+                            <img
+                                src="/assets/logo_assuncao.png"
+                                alt="Centro Universitário Assunção"
+                                className="h-7 sm:h-9 w-auto object-contain"
+                            />
+                        </a>
+                    )}
+
+                    <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+                        <h2 className="hidden sm:block text-sm md:text-lg font-semibold capitalize text-gray-300 truncate max-w-[180px] sm:max-w-xs">{tituloDaPagina}</h2>
+                    </div>
                 </header>
                 <main className={`flex-1 ${location.pathname === '/pago-ou-nao' ? 'p-1 sm:p-2' : 'p-3 sm:p-8'} overflow-y-auto bg-gray-900`}><Outlet /></main>
             </div>

@@ -22,9 +22,11 @@ import {
   X,
   ChevronDown,
   ChevronUp,
-  Briefcase
+  Briefcase,
+  BarChart3
 } from 'lucide-react';
 import { BOARD_TILES, SERVICE_CARDS, BLUE_CARDS, RED_CARDS } from '../data/boardData.js';
+import LotteryWheelWidget from './LotteryWheelWidget.jsx';
 
 // ============================================================================
 // AUXILIAR: SELETOR INTERATIVO DE CARTAS VERMELHAS (#3, #5, #6 e #7)
@@ -506,9 +508,12 @@ export function MediatorConsoleOverlay({
   onRollDice,
   onForkChoice,
   onCharityChoice,
+  onLotteryChoice,
+  onLotterySpin,
   onDenunciaAction,
   onForceFinish,
   onOpenTelaoTab,
+  onOpenSocialDashboard,
   isAnimatingRoll
 }) {
   // 'representative' (1 equipe por vez com tela de bloqueio) | 'teacher_fast' (lista rápida p/ mediador)
@@ -570,6 +575,17 @@ export function MediatorConsoleOverlay({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {onOpenSocialDashboard && (
+              <button
+                onClick={onOpenSocialDashboard}
+                className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 text-xs font-black flex items-center gap-1.5 transition cursor-pointer"
+                title="Abrir Dashboard de Impacto Social das Partidas"
+              >
+                <BarChart3 className="w-4 h-4 text-amber-400" />
+                <span>Dashboard Social</span>
+              </button>
+            )}
+
             <button
               onClick={onOpenTelaoTab}
               className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-lg transition"
@@ -1059,13 +1075,91 @@ export function MediatorConsoleOverlay({
                   </button>
                 </div>
               </div>
+            ) : gameState.pendingDecision.type === 'lottery' ? (
+              <div className="p-4 rounded-2xl bg-slate-950 border-2 border-amber-400 text-center space-y-3">
+                <h4 className="font-black text-base text-amber-300">
+                  🎰 Roleta da Loteria — {gameState.pendingDecision.playerName}
+                </h4>
+
+                {gameState.pendingDecision.stage === 'decide' ? (
+                  <>
+                    <p className="text-xs text-slate-200 leading-relaxed">
+                      {gameState.pendingDecision.description}
+                    </p>
+                    <div className="grid grid-cols-4 gap-1.5 text-[11px] font-mono font-bold">
+                      <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400">4x $0</div>
+                      <div className="p-1.5 rounded-lg bg-sky-950/60 border border-sky-500/40 text-sky-300">2x $100</div>
+                      <div className="p-1.5 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300">1x $350</div>
+                      <div className="p-1.5 rounded-lg bg-amber-950/60 border border-amber-400/50 text-amber-300">1x $700</div>
+                    </div>
+                    <div className="flex gap-3 pt-1">
+                      <button
+                        onClick={() => onLotteryChoice && onLotteryChoice(true)}
+                        className="flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-400 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-xs shadow-lg"
+                      >
+                        🎟️ ACEITAR E PAGAR -$100
+                      </button>
+                      <button
+                        onClick={() => onLotteryChoice && onLotteryChoice(false)}
+                        className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
+                      >
+                        Não arriscar (Passar a vez)
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3 pt-1">
+                    <LotteryWheelWidget
+                      stage={gameState.pendingDecision.stage}
+                      targetRotationDeg={gameState.pendingDecision.targetRotationDeg || 0}
+                      spinId={gameState.pendingDecision.spinId}
+                      highlightSliceIndex={gameState.pendingDecision.sliceIndex}
+                      size={205}
+                    />
+                    {gameState.pendingDecision.stage === 'ready_to_spin' && (
+                      <button
+                        onClick={() => onLotterySpin && onLotterySpin()}
+                        className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-300 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-sm shadow-xl animate-pulse"
+                      >
+                        🎰 GIRAR ROLETA NO TELÃO AGORA!
+                      </button>
+                    )}
+                    {gameState.pendingDecision.stage === 'spinning' && (
+                      <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/50 text-xs font-black text-amber-300 animate-pulse">
+                        🍀 Roleta girando no Telão... aguarde onde vai parar!
+                      </div>
+                    )}
+                    {gameState.pendingDecision.stage === 'result' && (
+                      <div className="space-y-2.5">
+                        <div
+                          className={`p-3 rounded-xl border text-xs font-black ${
+                            (gameState.pendingDecision.prize || 0) > 100
+                              ? 'bg-emerald-950/80 border-emerald-400 text-emerald-300'
+                              : (gameState.pendingDecision.prize || 0) === 100
+                              ? 'bg-sky-950/80 border-sky-400 text-sky-200'
+                              : 'bg-rose-950/80 border-rose-500 text-rose-300'
+                          }`}
+                        >
+                          {gameState.pendingDecision.resultHeadline}
+                        </div>
+                        <button
+                          onClick={onConfirmRead}
+                          className="w-full py-3.5 rounded-xl bg-gradient-to-r from-sky-500 to-emerald-500 text-slate-950 font-black text-sm"
+                        >
+                          ✅ CONTINUAR PARTIDA →
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : gameState.pendingDecision.type === 'denuncia_choice' ? (
               <div className="p-4 rounded-2xl bg-slate-950 border-2 border-indigo-400 space-y-2.5">
                 <h4 className="font-black text-sm text-indigo-300 flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4" /> Casa Preta de DENÚNCIA! Quem {currentPlayer.name} deseja investigar?
+                  <ShieldAlert className="w-4 h-4" /> Casa Preta de DENÚNCIA! Qual sonegador {currentPlayer.name} deseja denunciar?
                 </h4>
                 {gameState.players
-                  .filter((p) => p.id !== currentPlayer.id)
+                  .filter((p) => p.id !== currentPlayer.id && (p.redCards || 0) > 0)
                   .map((opp) => (
                     <button
                       key={opp.id}
@@ -1162,6 +1256,8 @@ export function MobilePlayerController({
   onRollDice,
   onForkChoice,
   onCharityChoice,
+  onLotteryChoice,
+  onLotterySpin,
   onDenunciaAction,
   isAnimatingRoll,
   onToggleShowBoard,
@@ -1541,12 +1637,112 @@ export function MobilePlayerController({
                   🤝 <strong>{currentPlayer?.name}</strong> está decidindo se vai doar $300 aos Fundos de Caridade...
                 </div>
               )
+            ) : gameState.pendingDecision.type === 'lottery' ? (
+              <div className="p-3.5 rounded-2xl bg-slate-950 border-2 border-amber-400 text-center space-y-3">
+                <div className="text-xs font-black uppercase text-amber-300">
+                  🎰 Loteria — {gameState.pendingDecision.playerName}
+                </div>
+
+                {gameState.pendingDecision.stage === 'decide' ? (
+                  isMyTurn ? (
+                    <div className="space-y-2.5">
+                      <p className="text-xs text-slate-200 leading-relaxed">
+                        Pagar <strong className="text-amber-300">$100</strong> para girar a Roleta da Sorte?
+                      </p>
+                      <div className="grid grid-cols-4 gap-1 text-[10px] font-mono font-bold">
+                        <div className="p-1 rounded bg-slate-900 border border-slate-700 text-slate-400">4x $0</div>
+                        <div className="p-1 rounded bg-sky-950/60 border border-sky-500/40 text-sky-300">2x $100</div>
+                        <div className="p-1 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300">1x $350</div>
+                        <div className="p-1 rounded bg-amber-950/60 border border-amber-400/50 text-amber-300">1x $700</div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => onLotteryChoice && onLotteryChoice(true)}
+                          className="flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-400 to-emerald-400 text-slate-950 font-black text-xs shadow-lg active:scale-95 transition"
+                        >
+                          🎟️ Pagar $100
+                        </button>
+                        <button
+                          onClick={() => onLotteryChoice && onLotteryChoice(false)}
+                          className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs active:scale-95 transition"
+                        >
+                          Não jogar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-amber-200 font-semibold">
+                      ⏳ <strong>{currentPlayer?.name}</strong> está decidindo se vai pagar $100 para jogar na Loteria...
+                    </div>
+                  )
+                ) : (
+                  <div className="space-y-3 pt-1">
+                    <LotteryWheelWidget
+                      stage={gameState.pendingDecision.stage}
+                      targetRotationDeg={gameState.pendingDecision.targetRotationDeg || 0}
+                      spinId={gameState.pendingDecision.spinId}
+                      highlightSliceIndex={gameState.pendingDecision.sliceIndex}
+                      size={185}
+                    />
+
+                    {gameState.pendingDecision.stage === 'ready_to_spin' &&
+                      (isMyTurn ? (
+                        <button
+                          onClick={() => onLotterySpin && onLotterySpin()}
+                          className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-400 via-yellow-300 to-emerald-400 text-slate-950 font-black text-sm shadow-xl animate-pulse active:scale-95 transition"
+                        >
+                          🎰 GIRAR A ROLETA AGORA!
+                        </button>
+                      ) : (
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-amber-300 font-semibold">
+                          ⏳ Aguardando <strong>{currentPlayer?.name}</strong> apertar para girar a roleta!
+                        </div>
+                      ))}
+
+                    {gameState.pendingDecision.stage === 'spinning' && (
+                      <div className="p-2.5 rounded-xl bg-amber-500/20 border border-amber-400/50 text-xs font-black text-amber-300 animate-pulse">
+                        🍀 Girando a Roleta! Olhe para o Telão...
+                      </div>
+                    )}
+
+                    {gameState.pendingDecision.stage === 'result' && (
+                      <div className="space-y-2.5">
+                        <div
+                          className={`p-2.5 rounded-xl border text-xs font-black ${
+                            (gameState.pendingDecision.prize || 0) > 100
+                              ? 'bg-emerald-950/80 border-emerald-400 text-emerald-300'
+                              : (gameState.pendingDecision.prize || 0) === 100
+                              ? 'bg-sky-950/80 border-sky-400 text-sky-200'
+                              : 'bg-rose-950/80 border-rose-500 text-rose-300'
+                          }`}
+                        >
+                          {gameState.pendingDecision.resultHeadline}
+                        </div>
+
+                        {hasConfirmedRead ? (
+                          <div className="p-2.5 rounded-xl bg-emerald-950/70 border border-emerald-500/50 text-xs font-black text-emerald-300">
+                            ✅ Confirmado! Aguardando demais equipes...
+                          </div>
+                        ) : (
+                          <button
+                            disabled={isSyncing}
+                            onClick={onConfirmRead}
+                            className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-400 to-sky-400 text-slate-950 font-black text-xs shadow-lg active:scale-95 transition"
+                          >
+                            ✅ ENTENDIDO • CONTINUAR!
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : gameState.pendingDecision.type === 'denuncia_choice' ? (
               isMyTurn ? (
                 <div className="space-y-2">
-                  <div className="text-xs font-black text-indigo-300">Quem você deseja denunciar à Receita?</div>
+                  <div className="text-xs font-black text-indigo-300">Qual jogador com imposto sonegado você deseja denunciar?</div>
                   {gameState.players
-                    .filter((p) => p.id !== myPlayer.id)
+                    .filter((p) => p.id !== myPlayer.id && (p.redCards || 0) > 0)
                     .map((opp) => (
                       <button
                         key={opp.id}

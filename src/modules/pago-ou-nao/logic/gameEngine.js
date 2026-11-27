@@ -11,6 +11,21 @@ export function getTileById(tileId) {
   return BOARD_TILES.find((t) => t.id === tileId) || BOARD_TILES[0];
 }
 
+export const LOTTERY_TICKET_COST = 100;
+
+// 8 fatias de 45° intercaladas com $0 para criar suspense real:
+// 4x $0 (50% perde os $100), 2x $100 (25% empata), 1x $350 (12,5% lucra +$250), 1x $700 (12,5% Jackpot +$600)
+export const LOTTERY_WHEEL_SLICES = [
+  { index: 0, prize: 0, label: '$0', color: '#334155', textColor: '#cbd5e1' },
+  { index: 1, prize: 100, label: '$100', color: '#0284c7', textColor: '#ffffff' },
+  { index: 2, prize: 0, label: '$0', color: '#1e293b', textColor: '#94a3b8' },
+  { index: 3, prize: 350, label: '$350', color: '#10b981', textColor: '#022c22' },
+  { index: 4, prize: 0, label: '$0', color: '#334155', textColor: '#cbd5e1' },
+  { index: 5, prize: 100, label: '$100', color: '#0284c7', textColor: '#ffffff' },
+  { index: 6, prize: 0, label: '$0', color: '#1e293b', textColor: '#94a3b8' },
+  { index: 7, prize: 700, label: '$700', color: '#f59e0b', textColor: '#451a03' }
+];
+
 export function createInitialGameState(roomCode = 'LOCAL', mode = 'local') {
   return {
     roomCode,
@@ -20,6 +35,11 @@ export function createInitialGameState(roomCode = 'LOCAL', mode = 'local') {
     turnIndex: 0,
     roundNumber: 1,
     stateHasResources: true,
+    roundsWithResources: 0,
+    roundsWithoutResources: 0,
+    malhaFinaHits: 0,
+    denunciaHits: 0,
+    spontaneousHits: 0,
     roundVotes: {},
     publicTreasury: 0,
     players: [],
@@ -34,7 +54,10 @@ export function createInitialGameState(roomCode = 'LOCAL', mode = 'local') {
         text: 'Bem-vindo ao "Pago ou Não?" 3D Oficial da Receita Federal! Iniciando na Praia rumo ao Final.'
       }
     ],
-    winner: null
+    winner: null,
+    matchId: null,
+    finishReason: null,
+    finishedAt: null
   };
 }
 
@@ -67,7 +90,10 @@ export function createPlayer({ id, name, isBot = false, colorIndex = 0 }) {
     taxesEvadedAmount: 0,
     harmedTilesCount: 0,
     harmedIncomeAmount: 0,
-    fiscalActionPaidAmount: 0
+    harmedSkipTurns: 0,
+    fiscalActionPaidAmount: 0,
+    malhaFinaCount: 0,
+    spontaneousCount: 0
   };
 }
 
@@ -275,6 +301,7 @@ export function submitRoundTaxVote(state, playerId, payTax) {
   // Os movimentos de peão (Má Sorte, Passou a Perna, Troca) ficam em `pendingBoardMoves`
   // para acontecerem visivelmente no Telão APÓS todos clicarem em "Já vi minha carta"!
   let moveCounter = state.moveCounter || 0;
+  let malhaFinaHits = state.malhaFinaHits || 0;
   let pendingBoardMoves = [];
   let publicAnnouncements = [];
 
@@ -293,6 +320,8 @@ export function submitRoundTaxVote(state, playerId, payTax) {
         pl.redCards = 0;
         pl.redCardsList = [];
         pl.fiscalActionPaidAmount += penalty;
+        pl.malhaFinaCount = (pl.malhaFinaCount || 0) + 1;
+        malhaFinaHits += 1;
         publicTreasury += penalty;
         item.effectResult = `Caiu na MALHA FINA! Pagou -$${penalty} (${count}x $750)!`;
         item.isPublicEvent = true;
@@ -456,11 +485,17 @@ export function submitRoundTaxVote(state, playerId, payTax) {
     stateHasResources ? 'good' : 'bad'
   );
 
+  const roundsWithResources = (state.roundsWithResources || 0) + (stateHasResources ? 1 : 0);
+  const roundsWithoutResources = (state.roundsWithoutResources || 0) + (stateHasResources ? 0 : 1);
+
   return {
     ...state,
     phase: 'board_turns',
     turnIndex: 0,
     stateHasResources,
+    roundsWithResources,
+    roundsWithoutResources,
+    malhaFinaHits,
     roundVotes: {},
     publicTreasury,
     moveCounter,
@@ -698,6 +733,7 @@ export function performSpontaneousDenunciation(state, playerId) {
   player.redCards = 0;
   player.redCardsList = [];
   player.fiscalActionPaidAmount += totalCost;
+  player.spontaneousCount = (player.spontaneousCount || 0) + 1;
 
   const players = [...state.players];
   players[idx] = player;
@@ -708,6 +744,7 @@ export function performSpontaneousDenunciation(state, playerId) {
   return {
     ...state,
     players,
+    spontaneousHits: (state.spontaneousHits || 0) + 1,
     publicTreasury: state.publicTreasury + totalCost,
     telaoAnnouncementBanner: {
       id: Date.now(),
@@ -1087,11 +1124,19 @@ export function resolveOfficialTile(state, playerId, tile) {
 
     if (outcome.skipTurns) {
       player.skipTurns += outcome.skipTurns;
-      if (!isSufficient) player.harmedTilesCount += 1;
+      if (!isSufficient) {
+        player.harmedTilesCount += 1;
+        player.harmedSkipTurns = (player.harmedSkipTurns || 0) + outcome.skipTurns;
+      }
     }
 
     if (outcome.skipAllPlayers) {
-      players = players.map((p) => ({ ...p, skipTurns: p.skipTurns + 1 }));
+      players = players.map((p) => ({
+        ...p,
+        skipTurns: p.skipTurns + 1,
+        harmedTilesCount: !isSufficient ? (p.harmedTilesCount || 0) + 1 : p.harmedTilesCount || 0,
+        harmedSkipTurns: !isSufficient ? (p.harmedSkipTurns || 0) + 1 : p.harmedSkipTurns || 0
+      }));
       player = players[idx];
     }
 
@@ -1125,39 +1170,79 @@ export function resolveOfficialTile(state, playerId, tile) {
       readyPlayerIds: []
     };
   } else if (tile.type === 'denuncia') {
-    logs = addLog(logs, `🕵️ ${player.name} parou na casa preta de DENÚNCIA!`, 'warn');
-    pendingDecision = {
-      type: 'denuncia_choice',
-      playerId: player.id,
-      playerName: player.name,
-      playerColor: player.color,
-      tileId: tile.id,
-      title: '🕵️ CASA DE DENÚNCIA!',
-      subtitle: 'Fiscalização perante a Receita Federal',
-      description:
-        'Escolha um concorrente suspeito de sonegar impostos para cair na Malha Fina ($750 por período sonegado)!'
-    };
+    const evadingOpponents = players.filter(
+      (p) => p.id !== player.id && (p.redCards || 0) > 0
+    );
+    if (evadingOpponents.length > 0) {
+      logs = addLog(logs, `🕵️ ${player.name} parou na casa preta de DENÚNCIA!`, 'warn');
+      pendingDecision = {
+        type: 'denuncia_choice',
+        playerId: player.id,
+        playerName: player.name,
+        playerColor: player.color,
+        tileId: tile.id,
+        title: '🕵️ CASA DE DENÚNCIA!',
+        subtitle: 'Fiscalização perante a Receita Federal',
+        description:
+          'Escolha um concorrente com sonegação em aberto para cair na Malha Fina ($750 por período sonegado)!'
+      };
+    } else {
+      logs = addLog(
+        logs,
+        `✅ ${player.name} parou na casa de DENÚNCIA, mas todos os concorrentes estão 100% em dia com a Receita Federal!`,
+        'info'
+      );
+      pendingDecision = {
+        type: 'tile_summary',
+        playerId: player.id,
+        playerName: player.name,
+        playerColor: player.color,
+        tileId: tile.id,
+        tileTitle: tile.title,
+        stateHasResources: state.stateHasResources,
+        title: '✅ TODOS OS CONCORRENTES ESTÃO EM DIA!',
+        subtitle: 'Nenhuma sonegação pendente encontrada',
+        description: `${player.name} parou na Casa de Denúncia, mas nenhum concorrente possui impostos sonegados em aberto neste momento!`,
+        accentColor: '#10b981',
+        readyPlayerIds: []
+      };
+    }
   } else if (tile.type === 'loteria') {
-    const prize = [200, 300, 500, 750][Math.floor(Math.random() * 4)];
-    player.money += prize;
-    player.totalRevenue += prize;
-    players[idx] = player;
-    logs = addLog(logs, `🍀 LOTERIA! ${player.name} tentou a sorte e ganhou +$${prize}!`, 'good');
-
-    pendingDecision = {
-      type: 'tile_summary',
-      playerId: player.id,
-      playerName: player.name,
-      playerColor: player.color,
-      tileId: tile.id,
-      tileTitle: tile.title,
-      stateHasResources: state.stateHasResources,
-      title: `${player.name} — ${tile.title}`,
-      subtitle: `Prêmio Sorteado: +$${prize}`,
-      description: `${player.name} tentou a sorte na Loteria e ganhou +$${prize}!`,
-      accentColor: '#10b981',
-      readyPlayerIds: []
-    };
+    if (player.money >= LOTTERY_TICKET_COST) {
+      logs = addLog(
+        logs,
+        `🎰 ${player.name} parou na LOTERIA! Pode pagar $${LOTTERY_TICKET_COST} para girar a Roleta da Sorte ou recusar.`,
+        'info'
+      );
+      pendingDecision = {
+        type: 'lottery',
+        stage: 'decide', // 'decide' | 'ready_to_spin' | 'spinning' | 'result'
+        playerId: player.id,
+        playerName: player.name,
+        playerColor: player.color,
+        tileId: tile.id,
+        tileTitle: tile.title,
+        ticketCost: LOTTERY_TICKET_COST,
+        title: `🎰 JOGAR NA LOTERIA? (${player.name})`,
+        subtitle: `Bilhete: $${LOTTERY_TICKET_COST} • Prêmios até $700`,
+        description: `Deseja pagar $${LOTTERY_TICKET_COST} para girar a Roleta da Loteria? Você pode ganhar $700, $350, recuperar os $100 ou cair no $0 e perder o valor apostado!`
+      };
+    } else {
+      pendingDecision = {
+        type: 'tile_summary',
+        playerId: player.id,
+        playerName: player.name,
+        playerColor: player.color,
+        tileId: tile.id,
+        tileTitle: tile.title,
+        stateHasResources: state.stateHasResources,
+        title: `${player.name} — ${tile.title}`,
+        subtitle: `Saldo insuficiente para apostar ($${LOTTERY_TICKET_COST})`,
+        description: `${player.name} passou pela Loteria, mas não possuía $${LOTTERY_TICKET_COST} para comprar o bilhete.`,
+        accentColor: '#94a3b8',
+        readyPlayerIds: []
+      };
+    }
   } else if (tile.type === 'caridade') {
     if (player.money >= 300) {
       pendingDecision = {
@@ -1296,6 +1381,136 @@ export function applyCharityChoice(state, playerId, donate) {
   };
 }
 
+export function applyLotteryChoice(state, playerId, accept) {
+  if (state.pendingDecision?.type !== 'lottery' || state.pendingDecision.stage !== 'decide') {
+    return state;
+  }
+  const idx = state.players.findIndex((p) => p.id === playerId);
+  if (idx === -1) return state;
+
+  let players = [...state.players];
+  let player = { ...players[idx] };
+  let logs = [...state.logs];
+
+  if (accept && player.money >= LOTTERY_TICKET_COST) {
+    player.money -= LOTTERY_TICKET_COST;
+    players[idx] = player;
+    logs = addLog(
+      logs,
+      `🎟️ ${player.name} aceitou o risco e pagou -$${LOTTERY_TICKET_COST} para girar a Roleta da Loteria!`,
+      'info'
+    );
+    return {
+      ...state,
+      players,
+      logs,
+      pendingDecision: {
+        ...state.pendingDecision,
+        stage: 'ready_to_spin'
+      }
+    };
+  }
+
+  logs = addLog(
+    logs,
+    `🛑 ${player.name} preferiu não arriscar seus $${LOTTERY_TICKET_COST} na Loteria.`,
+    'info'
+  );
+  return {
+    ...state,
+    players,
+    logs,
+    pendingDecision: {
+      type: 'tile_summary',
+      playerId: player.id,
+      playerName: player.name,
+      playerColor: player.color,
+      tileId: player.position,
+      tileTitle: 'Loteria!',
+      stateHasResources: state.stateHasResources,
+      title: `${player.name} recusou a Loteria`,
+      subtitle: `Economizou os $${LOTTERY_TICKET_COST}`,
+      description: `${player.name} preferiu não pagar $${LOTTERY_TICKET_COST} e encerrou sua jogada sem girar a roleta.`,
+      accentColor: '#94a3b8',
+      readyPlayerIds: []
+    }
+  };
+}
+
+export function spinLotteryWheel(state) {
+  if (state.pendingDecision?.type !== 'lottery' || state.pendingDecision.stage !== 'ready_to_spin') {
+    return state;
+  }
+
+  const sliceIndex = Math.floor(Math.random() * LOTTERY_WHEEL_SLICES.length);
+  const chosenSlice = LOTTERY_WHEEL_SLICES[sliceIndex];
+  const centerDeg = sliceIndex * 45 + 22.5;
+  const jitter = Math.round((Math.random() * 20 - 10) * 10) / 10; // entre -10° e +10°
+  const targetRotationDeg = 360 * 6 + (360 - centerDeg) + jitter;
+
+  // Não soma o prêmio ainda! Mantém o saldo e o log em segredo até a roleta parar de girar!
+  return {
+    ...state,
+    pendingDecision: {
+      ...state.pendingDecision,
+      stage: 'spinning',
+      sliceIndex,
+      prize: chosenSlice.prize,
+      targetRotationDeg,
+      spinId: Date.now()
+    }
+  };
+}
+
+export function completeLotterySpin(state) {
+  if (state.pendingDecision?.type !== 'lottery' || state.pendingDecision.stage !== 'spinning') {
+    return state;
+  }
+
+  const { playerId, prize = 0, ticketCost = LOTTERY_TICKET_COST } = state.pendingDecision;
+  const idx = state.players.findIndex((p) => p.id === playerId);
+  if (idx === -1) return state;
+
+  let players = [...state.players];
+  let player = { ...players[idx] };
+  let logs = [...state.logs];
+
+  if (prize > 0) {
+    player.money += prize;
+    player.totalRevenue += prize;
+    players[idx] = player;
+  }
+
+  const netGain = prize - ticketCost;
+  let resultHeadline = '';
+  if (prize >= 700) {
+    resultHeadline = `🏆 SORTE GRANDE NA LOTERIA! ${player.name} tirou +$${prize} na roleta (lucro líquido de +$${netGain})!`;
+    logs = addLog(logs, resultHeadline, 'good');
+  } else if (prize > ticketCost) {
+    resultHeadline = `🎉 PRÊMIO NA LOTERIA! ${player.name} ganhou +$${prize} na roleta (lucro líquido de +$${netGain})!`;
+    logs = addLog(logs, resultHeadline, 'good');
+  } else if (prize === ticketCost) {
+    resultHeadline = `😅 EMPATE NA LOTERIA! ${player.name} tirou +$${prize} e recuperou os $${ticketCost} do bilhete!`;
+    logs = addLog(logs, resultHeadline, 'info');
+  } else {
+    resultHeadline = `💸 AZAR NA LOTERIA! A roleta parou em $0 e ${player.name} perdeu os $${ticketCost} investidos!`;
+    logs = addLog(logs, resultHeadline, 'warn');
+  }
+
+  return {
+    ...state,
+    players,
+    logs,
+    pendingDecision: {
+      ...state.pendingDecision,
+      stage: 'result',
+      netGain,
+      resultHeadline,
+      readyPlayerIds: []
+    }
+  };
+}
+
 export function applyDenunciaAction(state, playerId, actionType, targetPlayerId = null) {
   const idx = state.players.findIndex((p) => p.id === playerId);
   if (idx === -1) return state;
@@ -1316,6 +1531,7 @@ export function applyDenunciaAction(state, playerId, actionType, targetPlayerId 
         target.redCards = 0;
         target.redCardsList = [];
         target.fiscalActionPaidAmount += totalPenalty;
+        target.malhaFinaCount = (target.malhaFinaCount || 0) + 1;
         publicTreasury += totalPenalty;
         players[tIdx] = target;
 
@@ -1328,6 +1544,7 @@ export function applyDenunciaAction(state, playerId, actionType, targetPlayerId 
         return {
           ...state,
           players,
+          denunciaHits: (state.denunciaHits || 0) + 1,
           publicTreasury,
           logs,
           pendingDecision: {
@@ -1442,7 +1659,10 @@ export function confirmReadDecision(state, playerId) {
   // Registra a confirmação de leitura em `readyPlayerIds` para que o Telão exiba quem já leu e quem falta ler!
   // Quando todos os jogadores humanos confirmarem a leitura (ou quando clicarem diretamente no botão do Telão / Mediador),
   // fecha o modal, EXECUTA eventual movimento de "avance/volte x casas" (`deferredMove`) ao vivo no tabuleiro e passa o turno!
-  if (state.pendingDecision.type === 'tile_summary') {
+  if (
+    state.pendingDecision.type === 'tile_summary' ||
+    (state.pendingDecision.type === 'lottery' && state.pendingDecision.stage === 'result')
+  ) {
     const humanPlayers = state.players.filter((p) => !p.isBot);
     const currentReady = state.pendingDecision.readyPlayerIds || [];
     const nextReady =
@@ -1614,6 +1834,10 @@ export function advanceTurn(state) {
 }
 
 export function finishGameOfficial(state, finisherId = null) {
+  if (state.status === 'finished' && state.matchId) {
+    return state;
+  }
+
   const finalPlayers = state.players.map((p) => {
     const arrivalBonus = p.id === finisherId ? CONSTANTS.FINISH_LINE_BONUS : 0;
     const restitutionTotal = p.blueCardsList.reduce((acc, c) => acc + (c.restitutionValue ?? 0), 0);
@@ -1629,9 +1853,15 @@ export function finishGameOfficial(state, finisherId = null) {
   });
 
   const sorted = [...finalPlayers].sort((a, b) => b.money - a.money);
+  const finishedAt = Date.now();
+  const matchId =
+    state.matchId ||
+    `pon_${finishedAt}_${(state.roomCode || 'LOC').toLowerCase()}_${Math.random().toString(36).slice(2, 6)}`;
+  const finishReason = finisherId ? 'finish_line' : 'manual_close';
+
   const logs = addLog(
     state.logs,
-    `🏆 FIM DE JOGO! ${sorted[0].name} venceu com o maior Saldo Bancário Final ($${sorted[0].money})!`,
+    `🏆 FIM DE JOGO! ${sorted[0]?.name || 'Jogador'} venceu com o maior Saldo Bancário Final ($${sorted[0]?.money || 0})!`,
     'good'
   );
 
@@ -1639,8 +1869,124 @@ export function finishGameOfficial(state, finisherId = null) {
     ...state,
     status: 'finished',
     players: finalPlayers,
-    winner: sorted[0],
+    winner: sorted[0] || null,
+    matchId,
+    finishReason,
+    finishedAt,
     pendingDecision: null,
     logs
+  };
+}
+
+export function buildMatchImpactSummary(state) {
+  const players = state?.players || [];
+  const sortedPlayers = [...players].sort((a, b) => (b.money || 0) - (a.money || 0));
+  const winner = state?.winner || sortedPlayers[0] || null;
+
+  const totalTaxPaidCount = players.reduce((acc, p) => acc + (p.taxesPaidCount || 0), 0);
+  const totalTaxPaidAmount = players.reduce((acc, p) => acc + (p.taxesPaidAmount || 0), 0);
+  const totalEvadedCount = players.reduce((acc, p) => acc + (p.taxesEvadedCount || 0), 0);
+  const totalEvadedAmount = players.reduce((acc, p) => acc + (p.taxesEvadedAmount || 0), 0);
+  const totalPotentialTax = totalTaxPaidAmount + totalEvadedAmount;
+
+  // Cartas vermelhas ainda abertas no fim do jogo = períodos sonegados que NUNCA foram recuperados!
+  const unrecoveredPeriods = players.reduce((acc, p) => acc + (p.redCards || 0), 0);
+  const unrecoveredTaxAmount = unrecoveredPeriods * CONSTANTS.TAX_AMOUNT;
+
+  const recoveredPeriods = Math.max(0, totalEvadedCount - unrecoveredPeriods);
+  const recoveredBaseTaxAmount = recoveredPeriods * CONSTANTS.TAX_AMOUNT;
+  const totalFiscalActionCollected = players.reduce(
+    (acc, p) => acc + (p.fiscalActionPaidAmount || 0),
+    0
+  );
+
+  const malhaFinaCardHits = state?.malhaFinaHits || 0;
+  const denunciaHits = state?.denunciaHits || 0;
+  const spontaneousHits = state?.spontaneousHits || 0;
+  const totalForcedAudits = malhaFinaCardHits + denunciaHits;
+
+  // Quantidade de jogadores distintos que caíram na Malha Fina / Denúncia (ou fallback por fiscalActionPaidAmount)
+  const playersCaughtCount = players.filter(
+    (p) => (p.malhaFinaCount || 0) > 0 || ((p.fiscalActionPaidAmount || 0) > 0 && (p.spontaneousCount || 0) === 0)
+  ).length;
+
+  // Impacto nas casas quando o Estado não tinha recursos
+  const playersHarmedCount = players.filter((p) => (p.harmedTilesCount || 0) > 0).length;
+  const totalHarmedOccurrences = players.reduce((acc, p) => acc + (p.harmedTilesCount || 0), 0);
+  const totalHarmedFinancialLoss = players.reduce(
+    (acc, p) => acc + (p.harmedIncomeAmount || 0),
+    0
+  );
+  const totalHarmedLostTurns = players.reduce((acc, p) => acc + (p.harmedSkipTurns || 0), 0);
+
+  const roundsWithResources = state?.roundsWithResources || 0;
+  const roundsWithoutResources = state?.roundsWithoutResources || 0;
+  const roundsVoted =
+    roundsWithResources + roundsWithoutResources > 0
+      ? roundsWithResources + roundsWithoutResources
+      : players.length > 0
+      ? Math.round((totalTaxPaidCount + totalEvadedCount) / players.length)
+      : 0;
+
+  const winnerEvaded = (winner?.taxesEvadedCount || 0) > 0;
+  const winnerEvadedAmount = winner?.taxesEvadedAmount || 0;
+
+  return {
+    matchId: state?.matchId || `preview_${Date.now()}`,
+    roomCode: state?.roomCode || 'LOCAL',
+    mode: state?.mode || 'solo',
+    finishReason: state?.finishReason || 'finish_line',
+    finishedAtMs: state?.finishedAt || Date.now(),
+    playersCount: players.length,
+    humanPlayersCount: players.filter((p) => !p.isBot).length,
+    roundsVoted,
+    roundNumber: state?.roundNumber || 1,
+    roundsWithResources,
+    roundsWithoutResources,
+    publicTreasury: state?.publicTreasury || 0,
+    totalPotentialTax,
+    totalTaxPaidCount,
+    totalTaxPaidAmount,
+    totalEvadedCount,
+    totalEvadedAmount,
+    unrecoveredPeriods,
+    unrecoveredTaxAmount,
+    recoveredPeriods,
+    recoveredBaseTaxAmount,
+    totalFiscalActionCollected,
+    malhaFinaCardHits,
+    denunciaHits,
+    spontaneousHits,
+    totalForcedAudits,
+    playersCaughtCount,
+    playersHarmedCount,
+    totalHarmedOccurrences,
+    totalHarmedFinancialLoss,
+    totalHarmedLostTurns,
+    winnerName: winner?.name || '-',
+    winnerMoney: winner?.money || 0,
+    winnerEvaded,
+    winnerEvadedAmount,
+    playersSummary: sortedPlayers.map((p, idx) => ({
+      rank: idx + 1,
+      id: p.id,
+      name: p.name,
+      isBot: !!p.isBot,
+      color: p.color,
+      money: p.money || 0,
+      taxesPaidCount: p.taxesPaidCount || 0,
+      taxesPaidAmount: p.taxesPaidAmount || 0,
+      taxesEvadedCount: p.taxesEvadedCount || 0,
+      taxesEvadedAmount: p.taxesEvadedAmount || 0,
+      unrecoveredRedCards: p.redCards || 0,
+      unrecoveredAmount: (p.redCards || 0) * CONSTANTS.TAX_AMOUNT,
+      restitutionTotal: p.restitutionTotal || 0,
+      fiscalActionPaidAmount: p.fiscalActionPaidAmount || 0,
+      malhaFinaCount: p.malhaFinaCount || 0,
+      spontaneousCount: p.spontaneousCount || 0,
+      harmedTilesCount: p.harmedTilesCount || 0,
+      harmedIncomeAmount: p.harmedIncomeAmount || 0,
+      harmedSkipTurns: p.harmedSkipTurns || 0
+    }))
   };
 }

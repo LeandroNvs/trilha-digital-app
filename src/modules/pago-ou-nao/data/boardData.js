@@ -339,7 +339,7 @@ export const BOARD_TILES = [
   { id: 3, title: 'Você Quebrou o Braço!', subtitle: 'SAÚDE 1', type: 'service', sector: 'saude', num: 1, color: '#fca5a5', u: 0.742, v: 0.918, next: [4] },
   { id: 4, title: 'As Aulas Vão Começar!', subtitle: 'EDUCAÇÃO 1', type: 'service', sector: 'educacao', num: 1, color: '#86efac', u: 0.688, v: 0.905, next: [5] },
   { id: 5, title: 'Furtaram sua Carteira!', subtitle: 'SEGURANÇA 1', type: 'service', sector: 'seguranca', num: 1, color: '#93c5fd', u: 0.640, v: 0.892, next: [6] },
-  { id: 6, title: 'Loteria!', subtitle: 'Tente a Sorte!', type: 'loteria', color: '#cbd5e1', u: 0.582, v: 0.865, next: [7] },
+  { id: 6, title: 'Loteria!', subtitle: 'Pague $100 e gire a Roleta!', type: 'loteria', color: '#cbd5e1', u: 0.582, v: 0.865, next: [7] },
   { id: 7, title: 'Entupiram sua Privada!', subtitle: 'Pague $150', type: 'fixed', money: -150, color: '#cbd5e1', u: 0.556, v: 0.812, next: [8] },
   { id: 8, title: 'Sua Visão Está Ruim!', subtitle: 'SAÚDE 2', type: 'service', sector: 'saude', num: 2, color: '#fca5a5', u: 0.594, v: 0.764, next: [9] },
   { id: 9, title: 'Ganhou o Bingo da Família!', subtitle: 'Receba $100 da sua avó', type: 'fixed', money: 100, color: '#cbd5e1', u: 0.646, v: 0.728, next: [10] },
@@ -372,7 +372,7 @@ export const BOARD_TILES = [
   { id: 19, title: 'Foi ao Dentista!', subtitle: 'SAÚDE 4', type: 'service', sector: 'saude', num: 4, color: '#fca5a5', u: 0.932, v: 0.225, next: [20] },
 
   // Junção Superior do Hospital (#20) -> Rumo à Estátua (#28)
-  { id: 20, title: 'Loteria!', subtitle: 'Tente a Sorte!', type: 'loteria', color: '#cbd5e1', u: 0.895, v: 0.175, next: [28] },
+  { id: 20, title: 'Loteria!', subtitle: 'Pague $100 e gire a Roleta!', type: 'loteria', color: '#cbd5e1', u: 0.895, v: 0.175, next: [28] },
 
   // Ramo 1B: Esquerda do Hospital (27 -> 26 -> 25 -> 24 -> 23 -> 22 -> 21 -> 20)
   { id: 21, title: 'Roubaram sua Bicicleta!', subtitle: 'SEGURANÇA 3', type: 'service', sector: 'seguranca', num: 3, color: '#93c5fd', u: 0.848, v: 0.205, next: [20] },
@@ -440,7 +440,7 @@ export const BOARD_TILES = [
   { id: 62, title: 'Um Prédio Está em Chamas!', subtitle: 'SEGURANÇA 8', type: 'service', sector: 'seguranca', num: 8, color: '#93c5fd', u: 0.132, v: 0.502, next: [63] },
 
   // Reta Final (Junção em #63 Loteria! -> Receita Federal -> #77 FINAL)
-  { id: 63, title: 'Loteria!', subtitle: 'Tente a Sorte!', type: 'loteria', color: '#cbd5e1', u: 0.188, v: 0.518, next: [64] },
+  { id: 63, title: 'Loteria!', subtitle: 'Pague $100 e gire a Roleta!', type: 'loteria', color: '#cbd5e1', u: 0.188, v: 0.518, next: [64] },
   { id: 64, title: 'Atropelou um Dodô na Faixa!', subtitle: 'Pague $1000!', type: 'fixed', money: -1000, color: '#cbd5e1', u: 0.245, v: 0.520, next: [65] },
   { id: 65, title: 'Formatura de sua Filha!', subtitle: 'EDUCAÇÃO 6', type: 'service', sector: 'educacao', num: 6, color: '#86efac', u: 0.302, v: 0.522, next: [66] },
   { id: 66, title: 'Sua Geladeira Quebrou!', subtitle: 'Pague $600', type: 'fixed', money: -600, color: '#cbd5e1', u: 0.358, v: 0.535, next: [67] },

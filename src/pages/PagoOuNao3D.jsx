@@ -28,10 +28,19 @@ import {
   Lock,
   ArrowLeft,
   Volume2,
-  VolumeX
+  VolumeX,
+  BarChart3,
+  AlertTriangle,
+  QrCode
 } from 'lucide-react';
 import { soundEngine } from '../modules/pago-ou-nao/logic/soundEngine.js';
 import Board3DScene from '../modules/pago-ou-nao/components/Board3DScene.jsx';
+import SocialImpactDashboard from '../modules/pago-ou-nao/components/SocialImpactDashboard.jsx';
+import LotteryWheelWidget from '../modules/pago-ou-nao/components/LotteryWheelWidget.jsx';
+import {
+  recordCompletedMatchToFirestore,
+  cleanupTemporaryOnlineRoom
+} from '../modules/pago-ou-nao/logic/matchAnalyticsService.js';
 import {
   MediatorConsoleOverlay,
   MobilePlayerController,
@@ -51,10 +60,14 @@ import {
   performRollDice,
   applyForkChoice,
   applyCharityChoice,
+  applyLotteryChoice,
+  spinLotteryWheel,
+  completeLotterySpin,
   applyDenunciaAction,
   confirmReadDecision,
   advanceTurn,
-  finishGameOfficial
+  finishGameOfficial,
+  buildMatchImpactSummary
 } from '../modules/pago-ou-nao/logic/gameEngine.js';
 import { BOARD_TILES, SERVICE_CARDS } from '../modules/pago-ou-nao/data/boardData.js';
 
@@ -178,6 +191,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   const urlParams = new URLSearchParams(window.location.search);
   const initialRole = urlParams.get('role'); // 'telao' se aberto como aba secundária do Telão
   const initialJoinCode = urlCodigoParam || urlParams.get('join'); // Código da sala se aberto via QR Code no celular
+  const initialReclaimId = urlParams.get('reclaim'); // ID direto da equipe ao ler o QR Code exclusivo de reconexão
 
   const [isTelaoTab] = useState(initialRole === 'telao');
   const [isSoundMuted, setIsSoundMuted] = useState(Boolean(initialJoinCode));
@@ -230,8 +244,12 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   const [pendingLocalVote, setPendingLocalVote] = useState(null);
   const [pendingLocalReadConfirm, setPendingLocalReadConfirm] = useState(false);
   const [reclaimableTeams, setReclaimableTeams] = useState([]);
+  const [qrReconnectPlayer, setQrReconnectPlayer] = useState(null);
+  const [showSocialDashboard, setShowSocialDashboard] = useState(false);
+  const [dashboardOpenedFromFinish, setDashboardOpenedFromFinish] = useState(false);
 
   const broadcastRef = useRef(null);
+  const recordedMatchIdsRef = useRef(new Set());
   const pendingLocalVoteRef = useRef(null); // { round: number, payTax: boolean }
   const pendingLocalReadRef = useRef(null); // { round: number, type: string }
 
@@ -248,7 +266,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     }
   };
 
-  // Auto-reconexão imediata quando o jogador abre/atualiza o link da sala no celular
+  // Auto-reconexão imediata quando o jogador abre/atualiza o link da sala no celular (ou lê o QR Code exclusivo da equipe!)
   useEffect(() => {
     if (!initialJoinCode) return;
     const cleanCode = initialJoinCode.trim().toUpperCase();
@@ -258,6 +276,27 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         const snap = await getDoc(getRoomDocRef(cleanCode));
         if (cancelled || !snap.exists()) return;
         const remote = snap.data();
+
+        // 1. Se veio pelo QR Code exclusivo de reconexão (?reclaim=PLAYER_ID), assume imediatamente essa equipe!
+        if (initialReclaimId) {
+          const targetTeam = remote.players?.find(
+            (p) => !p.isBot && p.id === initialReclaimId
+          );
+          if (targetTeam) {
+            setClientPlayerIdStorage(targetTeam.id);
+            setMyPlayerId(targetTeam.id);
+            setActiveOnlineRoomCode(cleanCode);
+            setGameState(remote);
+            try {
+              window.history.replaceState({}, '', `/pago-ou-nao/sala/${cleanCode}`);
+            } catch (e) {
+              // ignore history replace error
+            }
+            return;
+          }
+        }
+
+        // 2. Reconexão normal pelo ID salvo neste aparelho
         const clientId = getOrCreateClientPlayerId();
         const alreadyInRoom = remote.players?.some((p) => p.id === clientId);
         if (alreadyInRoom) {
@@ -274,7 +313,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     return () => {
       cancelled = true;
     };
-  }, [initialJoinCode]);
+  }, [initialJoinCode, initialReclaimId]);
 
   // Listener em Tempo Real do Firebase Firestore quando conectado a uma sala Online
   useEffect(() => {
@@ -473,6 +512,23 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     }
   }, [gameState.status]);
 
+  // Grava o resultado consolidado no banco APENAS quando a partida é concluída (status === 'finished')
+  useEffect(() => {
+    if (isTelaoTab || gameState.status !== 'finished') return;
+    // No modo online, apenas o Host/Telão responsável dispara a gravação oficial
+    if (gameState.mode === 'online' && gameState.hostId && gameState.hostId !== myPlayerId) {
+      return;
+    }
+
+    const key = gameState.matchId || `${gameState.roomCode}_${gameState.finishedAt || 'end'}`;
+    if (recordedMatchIdsRef.current.has(key)) return;
+    recordedMatchIdsRef.current.add(key);
+
+    recordCompletedMatchToFirestore(gameState).catch((err) => {
+      console.error('Erro ao gravar resultado final da partida:', err);
+    });
+  }, [gameState.status, gameState.matchId, isTelaoTab, myPlayerId]);
+
   // Destrava o Web Audio API no primeiro clique/toque do usuário (política de autoplay dos navegadores)
   useEffect(() => {
     const handleUnlock = () => soundEngine.unlock();
@@ -567,6 +623,13 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     if (gameState.status !== 'playing' || gameState.phase !== 'board_turns') return;
     if (gameState.pendingDecision?.type === 'round_reveal') return;
     if (gameState.pendingDecision?.type === 'tile_summary') return;
+    if (
+      gameState.pendingDecision?.type === 'lottery' &&
+      (gameState.pendingDecision.stage === 'spinning' ||
+        gameState.pendingDecision.stage === 'result')
+    ) {
+      return;
+    }
     if (isAnimatingRoll) return;
 
     const currentPlayer = gameState.players[gameState.turnIndex];
@@ -582,8 +645,26 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         if (picked) handleForkChoice(picked.nextTileId);
       } else if (gameState.pendingDecision.type === 'charity_choice') {
         handleCharityChoice(currentPlayer.money >= 900);
+      } else if (
+        gameState.pendingDecision.type === 'lottery' &&
+        gameState.pendingDecision.stage === 'decide'
+      ) {
+        const riskyBot =
+          currentPlayer.name.includes('Arriscado') ||
+          currentPlayer.name.includes('Sonegador');
+        const accept = riskyBot
+          ? Math.random() < 0.8
+          : currentPlayer.money >= 400 && Math.random() < 0.55;
+        handleLotteryChoice(accept);
+      } else if (
+        gameState.pendingDecision.type === 'lottery' &&
+        gameState.pendingDecision.stage === 'ready_to_spin'
+      ) {
+        handleLotterySpin();
       } else if (gameState.pendingDecision.type === 'denuncia_choice') {
-        const others = gameState.players.filter((p) => p.id !== currentPlayer.id);
+        const others = gameState.players.filter(
+          (p) => p.id !== currentPlayer.id && (p.redCards || 0) > 0
+        );
         const suspect = others.sort((a, b) => b.money - a.money)[0];
         if (suspect) {
           handleDenunciaAction('accuse', suspect.id);
@@ -618,6 +699,9 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         createPlayer({ id: 'team3', name: 'Equipe 3 (Amarela)', isBot: false, colorIndex: 2 }),
         createPlayer({ id: 'team4', name: 'Equipe 4 (Roxa)', isBot: false, colorIndex: 3 })
       ];
+      setGameState(fresh);
+    } else {
+      const fresh = createInitialGameState('LOCAL', 'local');
       setGameState(fresh);
     }
   };
@@ -940,6 +1024,72 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
     applyAndSyncState((prev) => applyCharityChoice(prev, currentPlayer.id, donate));
   };
 
+  const handleLotteryChoice = (accept) => {
+    const currentPlayer = gameState.players[gameState.turnIndex];
+    if (!currentPlayer) return;
+    applyAndSyncState((prev) => applyLotteryChoice(prev, currentPlayer.id, accept));
+  };
+
+  const handleLotterySpin = () => {
+    applyAndSyncState((prev) => spinLotteryWheel(prev));
+  };
+
+  // Efeitos sonoros e finalização automática do giro da Roleta da Loteria (após os 3.8s de suspense!)
+  const lastWheelSoundSpinIdRef = useRef(null);
+  const lastWheelResultSpinIdRef = useRef(null);
+
+  useEffect(() => {
+    const pd = gameState.pendingDecision;
+    if (!pd || pd.type !== 'lottery') return;
+
+    if (pd.stage === 'spinning' && pd.spinId) {
+      if (!isMobileClientView && lastWheelSoundSpinIdRef.current !== pd.spinId) {
+        lastWheelSoundSpinIdRef.current = pd.spinId;
+        soundEngine.playWheelSpinSfx();
+      }
+
+      if (isTelaoTab) return;
+      const isPrimaryTimerOwner =
+        gameState.mode !== 'online' ||
+        !gameState.hostId ||
+        gameState.hostId === myPlayerId;
+      const isBackupActor =
+        gameState.mode === 'online' && pd.playerId === myPlayerId && !isPrimaryTimerOwner;
+
+      if (!isPrimaryTimerOwner && !isBackupActor) return;
+      const waitMs = isPrimaryTimerOwner ? 3950 : 4900;
+
+      const timer = setTimeout(() => {
+        applyAndSyncState((prev) => completeLotterySpin(prev));
+      }, waitMs);
+      return () => clearTimeout(timer);
+    }
+
+    if (pd.stage === 'result' && pd.spinId) {
+      if (!isMobileClientView && lastWheelResultSpinIdRef.current !== pd.spinId) {
+        lastWheelResultSpinIdRef.current = pd.spinId;
+        const prize = pd.prize || 0;
+        if (prize >= 350) {
+          confetti({ particleCount: 95, spread: 75, origin: { y: 0.6 } });
+          soundEngine.playVictorySfx();
+        } else if (prize > 0) {
+          soundEngine.playMessageSfx();
+        } else {
+          soundEngine.playLotteryZeroSfx();
+        }
+      }
+    }
+  }, [
+    gameState.pendingDecision?.type,
+    gameState.pendingDecision?.stage,
+    gameState.pendingDecision?.spinId,
+    isMobileClientView,
+    isTelaoTab,
+    gameState.mode,
+    gameState.hostId,
+    myPlayerId
+  ]);
+
   const handleDenunciaAction = (actionType, targetPlayerId = null) => {
     const currentPlayer = gameState.players[gameState.turnIndex];
     if (!currentPlayer) return;
@@ -953,6 +1103,12 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
   };
 
   const handleResetGame = () => {
+    if (
+      gameState.mode === 'online' &&
+      (!gameState.hostId || gameState.hostId === myPlayerId)
+    ) {
+      cleanupTemporaryOnlineRoom(gameState.roomCode || activeOnlineRoomCode);
+    }
     handleSelectLobbyMode(selectedLobbyMode);
   };
 
@@ -1034,6 +1190,21 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
             <Scale className="w-4 h-4 text-white" />
           </div>
           <div className="flex items-center gap-2">
+            {!isEmbeddedInLayout && (
+              <a
+                href="https://unifai.edu.br/"
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Centro Universitário Assunção"
+                className="bg-white/95 hover:bg-white px-2 py-0.5 rounded-lg shadow transition shrink-0 flex items-center"
+              >
+                <img
+                  src="/assets/logo_assuncao.png"
+                  alt="Centro Universitário Assunção"
+                  className="h-6 w-auto object-contain"
+                />
+              </a>
+            )}
             <h1 className="font-black text-sm sm:text-base tracking-tight bg-gradient-to-r from-white via-sky-200 to-emerald-300 bg-clip-text text-transparent whitespace-nowrap">
               PAGO OU NÃO? 3D
             </h1>
@@ -1184,6 +1355,21 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               <span className="hidden xl:inline">Trilha</span>
             </button>
           </div>
+
+          {/* Botão Dashboard de Impacto Social (acesso rápido durante o tabuleiro) */}
+          {!isTelaoTab && !isOnlineMobilePlayer && (
+            <button
+              onClick={() => {
+                setDashboardOpenedFromFinish(false);
+                setShowSocialDashboard(true);
+              }}
+              className="px-3 py-1.5 rounded-xl text-xs font-black bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/50 flex items-center gap-1.5 shadow transition whitespace-nowrap cursor-pointer"
+              title="Abrir Observatório / Dashboard de Impacto Social das Partidas"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden lg:inline">Impacto Social</span>
+            </button>
+          )}
 
           {/* Botão Único de Regras & Cartas (Inclui Regras, Cartões de Serviço, Cartas Azuis e Vermelhas com Zoom) */}
           <button
@@ -1407,12 +1593,24 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                                 ${p.money}
                               </span>
                             ) : (
-                              <span
-                                className="text-[11px] font-bold text-slate-500 flex items-center gap-1"
-                                title="Sigilo Bancário e Fiscal: O saldo de cada jogador só é revelado no final da partida!"
-                              >
-                                💰 🔒
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {isOnlineTelaoHost && !p.isBot && (
+                                  <button
+                                    onClick={() => setQrReconnectPlayer(p)}
+                                    className="px-1.5 py-0.5 rounded bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/40 text-[10px] font-bold text-sky-300 flex items-center gap-1 transition cursor-pointer"
+                                    title={`Exibir QR Code exclusivo para reconectar ${p.name}`}
+                                  >
+                                    <QrCode className="w-3 h-3" />
+                                    <span>QR</span>
+                                  </button>
+                                )}
+                                <span
+                                  className="text-[11px] font-bold text-slate-500 flex items-center gap-1"
+                                  title="Sigilo Bancário e Fiscal: O saldo de cada jogador só é revelado no final da partida!"
+                                >
+                                  💰 🔒
+                                </span>
+                              </div>
                             )}
                           </div>
 
@@ -1550,9 +1748,15 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
           onRollDice={handleRollDice}
           onForkChoice={handleForkChoice}
           onCharityChoice={handleCharityChoice}
+          onLotteryChoice={handleLotteryChoice}
+          onLotterySpin={handleLotterySpin}
           onDenunciaAction={handleDenunciaAction}
           onForceFinish={handleForceFinish}
           onOpenTelaoTab={handleOpenTelaoTab}
+          onOpenSocialDashboard={() => {
+            setDashboardOpenedFromFinish(false);
+            setShowSocialDashboard(true);
+          }}
           isAnimatingRoll={isAnimatingRoll}
         />
       )}
@@ -1572,6 +1776,8 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
           onRollDice={handleRollDice}
           onForkChoice={handleForkChoice}
           onCharityChoice={handleCharityChoice}
+          onLotteryChoice={handleLotteryChoice}
+          onLotterySpin={handleLotterySpin}
           onDenunciaAction={handleDenunciaAction}
           isAnimatingRoll={isAnimatingRoll}
           onToggleShowBoard={() => setMobileShowBoard(true)}
@@ -1714,16 +1920,29 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    setIntroSlide(1);
-                    setShowIntroModal(true);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-sky-300 flex items-center gap-1.5 transition"
-                >
-                  <BookOpen className="w-4 h-4" />
-                  Apresentação Inicial (Slides)
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setDashboardOpenedFromFinish(false);
+                      setShowSocialDashboard(true);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-xs font-black text-amber-300 flex items-center gap-1.5 transition cursor-pointer shadow"
+                  >
+                    <BarChart3 className="w-4 h-4 text-amber-400" />
+                    Dashboard Social
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIntroSlide(1);
+                      setShowIntroModal(true);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-sky-300 flex items-center gap-1.5 transition"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    Apresentação Inicial (Slides)
+                  </button>
+                </div>
               </div>
 
               {/* SELETOR DOS 3 MODOS DE JOGABILIDADE */}
@@ -2166,34 +2385,63 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
               </div>
 
               {isTelaoTab || isOnlineTelaoHost ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {gameState.players.map((p) => {
-                    const voted = p.isBot || gameState.roundVotes?.[p.id] !== undefined;
-                    return (
-                      <div
-                        key={p.id}
-                        className={`p-4 rounded-2xl border flex items-center justify-between ${
-                          voted
-                            ? 'bg-emerald-950/50 border-emerald-500/50'
-                            : 'bg-slate-950 border-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: p.color }} />
-                          <span className="font-black text-sm text-white">{p.name}</span>
-                        </div>
-                        <span
-                          className={`text-xs font-black px-2.5 py-1 rounded-lg ${
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {gameState.players.map((p) => {
+                      const voted = p.isBot || gameState.roundVotes?.[p.id] !== undefined;
+                      const canShowPlayerQr = isOnlineTelaoHost && !p.isBot;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={canShowPlayerQr ? () => setQrReconnectPlayer(p) : undefined}
+                          title={
+                            canShowPlayerQr
+                              ? `Clique para exibir o QR Code exclusivo de ${p.name} (reconectar celular)`
+                              : undefined
+                          }
+                          className={`p-4 rounded-2xl border flex items-center justify-between gap-2 transition ${
                             voted
-                              ? 'bg-emerald-500 text-slate-950'
-                              : 'bg-amber-500/20 text-amber-300 animate-pulse'
+                              ? 'bg-emerald-950/50 border-emerald-500/50'
+                              : 'bg-slate-950 border-slate-800'
+                          } ${
+                            canShowPlayerQr
+                              ? 'cursor-pointer hover:border-sky-400 hover:bg-slate-900/90'
+                              : ''
                           }`}
                         >
-                          {voted ? '🔒 Voto Registrado' : '⏳ Decidindo...'}
-                        </span>
-                      </div>
-                    );
-                  })}
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span
+                              className="w-3.5 h-3.5 rounded-full shrink-0"
+                              style={{ backgroundColor: p.color }}
+                            />
+                            <span className="font-black text-sm text-white truncate">{p.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {canShowPlayerQr && (
+                              <span className="p-1.5 rounded-lg bg-sky-500/15 border border-sky-400/30 text-sky-300 hover:bg-sky-500/30 transition">
+                                <QrCode className="w-3.5 h-3.5" />
+                              </span>
+                            )}
+                            <span
+                              className={`text-xs font-black px-2.5 py-1 rounded-lg ${
+                                voted
+                                  ? 'bg-emerald-500 text-slate-950'
+                                  : 'bg-amber-500/20 text-amber-300 animate-pulse'
+                              }`}
+                            >
+                              {voted ? '🔒 Voto Registrado' : '⏳ Decidindo...'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {isOnlineTelaoHost && (
+                    <p className="text-[11px] text-center text-slate-400">
+                      💡 Algum celular saiu ou perdeu a conexão? <strong>Clique sobre o jogador acima</strong> para abrir o QR Code exclusivo dele!
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2318,17 +2566,20 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                             return (
                               <span
                                 key={p.id}
+                                onClick={isOnlineTelaoHost ? () => setQrReconnectPlayer(p) : undefined}
+                                title={isOnlineTelaoHost ? `Clique para exibir o QR Code exclusivo de ${p.name}` : undefined}
                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border ${
                                   ready
                                     ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
                                     : 'bg-slate-900 border-slate-800 text-amber-300 animate-pulse'
-                                }`}
+                                } ${isOnlineTelaoHost ? 'cursor-pointer hover:border-sky-400' : ''}`}
                               >
                                 <span
                                   className="w-2 h-2 rounded-full"
                                   style={{ backgroundColor: p.color }}
                                 />
                                 {p.name}: {ready ? '✅ Pronto' : '⏳ Lendo...'}
+                                {isOnlineTelaoHost && <QrCode className="w-3 h-3 text-sky-400 ml-0.5" />}
                               </span>
                             );
                           })}
@@ -2529,6 +2780,157 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         )}
       />
 
+      {/* MODAL 3B: CASA DA LOTERIA + ROLETA DA SORTE */}
+      <SmoothOverlay
+        show={!isAnimatingRoll && gameState.pendingDecision?.type === 'lottery'}
+        backdropClassName="bg-slate-950/85 backdrop-blur-md p-4 overflow-y-auto"
+        render={() => {
+          const pd = gameState.pendingDecision;
+          const canControl = isMyTurn || isOnlineTelaoHost;
+          const humanPlayers = gameState.players.filter((p) => !p.isBot);
+          const readyIds = pd.readyPlayerIds || [];
+
+          return (
+            <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-lg w-full p-6 shadow-2xl text-center my-auto">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[11px] font-black uppercase tracking-wider mb-2">
+                <span>🍀 Casa #{pd.tileId} • Loteria Oficial</span>
+              </div>
+
+              <h3 className="text-xl sm:text-2xl font-black text-white">
+                {pd.stage === 'decide'
+                  ? `🎰 Jogar na Loteria? (${pd.playerName})`
+                  : `🎰 Roleta da Loteria — ${pd.playerName}`}
+              </h3>
+
+              {pd.stage === 'decide' ? (
+                <div className="mt-3 space-y-4">
+                  <p className="text-sm text-slate-300 leading-relaxed">
+                    {pd.description}
+                  </p>
+
+                  <div className="grid grid-cols-4 gap-2 text-xs font-mono font-black">
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-400">
+                      <div className="text-sm text-slate-300">$0</div>
+                      <div className="text-[10px] font-sans font-semibold">4 fatias</div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-sky-950/50 border border-sky-500/40 text-sky-300">
+                      <div className="text-sm text-white">$100</div>
+                      <div className="text-[10px] font-sans font-semibold">2 fatias</div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 text-emerald-300">
+                      <div className="text-sm text-emerald-300">$350</div>
+                      <div className="text-[10px] font-sans font-semibold">1 fatia</div>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-amber-950/60 border border-amber-400/60 text-amber-300">
+                      <div className="text-sm text-amber-300">$700</div>
+                      <div className="text-[10px] font-sans font-semibold">1 fatia</div>
+                    </div>
+                  </div>
+
+                  {canControl ? (
+                    <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                      <button
+                        onClick={() => handleLotteryChoice(true)}
+                        className="flex-1 py-3.5 rounded-xl bg-gradient-to-r from-amber-400 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-xs sm:text-sm shadow-lg cursor-pointer"
+                      >
+                        🎟️ ACEITAR E PAGAR $100
+                      </button>
+                      <button
+                        onClick={() => handleLotteryChoice(false)}
+                        className="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm cursor-pointer"
+                      >
+                        Não jogar (Passar a vez)
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs font-bold text-amber-300">
+                      ⏳ Aguardando <strong>{pd.playerName}</strong> decidir no celular se vai pagar $100...
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <LotteryWheelWidget
+                    stage={pd.stage}
+                    targetRotationDeg={pd.targetRotationDeg || 0}
+                    spinId={pd.spinId}
+                    highlightSliceIndex={pd.sliceIndex}
+                    size={260}
+                  />
+
+                  {pd.stage === 'ready_to_spin' && (
+                    <div className="space-y-2.5">
+                      {isMyTurn ? (
+                        <button
+                          onClick={handleLotterySpin}
+                          className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-400 via-yellow-300 to-emerald-400 hover:brightness-110 text-slate-950 font-black text-base shadow-xl animate-pulse cursor-pointer"
+                        >
+                          🎰 GIRAR A ROLETA DA SORTE!
+                        </button>
+                      ) : (
+                        <div className="p-3.5 rounded-2xl bg-slate-950 border border-amber-500/40 text-xs sm:text-sm font-bold text-amber-300 animate-pulse">
+                          📱 Bilhete de $100 pago! Aguardando <strong>{pd.playerName}</strong> apertar <strong>GIRAR ROLETA</strong> no celular...
+                        </div>
+                      )}
+
+                      {isOnlineTelaoHost && (
+                        <button
+                          onClick={handleLotterySpin}
+                          className="text-[11px] text-slate-400 hover:text-amber-300 underline cursor-pointer"
+                        >
+                          Girar pelo Telão (apoio do Mediador)
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {pd.stage === 'spinning' && (
+                    <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-400/50 text-sm font-black text-amber-300 animate-pulse">
+                      🍀 Girando... onde será que o ponteiro vai parar?!
+                    </div>
+                  )}
+
+                  {pd.stage === 'result' && (
+                    <div className="space-y-3">
+                      <div
+                        className={`p-4 rounded-2xl border-2 font-extrabold text-sm sm:text-base ${
+                          (pd.prize || 0) > 100
+                            ? 'bg-emerald-950/85 border-emerald-400 text-emerald-200'
+                            : (pd.prize || 0) === 100
+                            ? 'bg-sky-950/85 border-sky-400 text-sky-200'
+                            : 'bg-rose-950/85 border-rose-500 text-rose-200'
+                        }`}
+                      >
+                        {pd.resultHeadline}
+                      </div>
+
+                      {gameState.mode === 'online' && humanPlayers.length > 0 && (
+                        <div className="text-[11px] text-slate-400 font-semibold">
+                          📱 Confirmações nos celulares: {readyIds.length}/{humanPlayers.length}
+                        </div>
+                      )}
+
+                      {isOnlineMobilePlayer && readyIds.includes(myPlayerId) ? (
+                        <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-500/50 text-xs font-black text-emerald-300">
+                          ✅ Confirmado! Aguardando os demais jogadores ou o Telão...
+                        </div>
+                      ) : (
+                        <button
+                          onClick={handleConfirmRead}
+                          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-400 to-sky-400 hover:brightness-110 text-slate-950 font-black text-sm sm:text-base shadow-xl cursor-pointer"
+                        >
+                          ✅ ENTENDIDO • CONTINUAR NO TABULEIRO →
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }}
+      />
+
       {/* MODAL 4: CASA PRETA DE DENÚNCIA! */}
       <SmoothOverlay
         show={!isAnimatingRoll && gameState.pendingDecision?.type === 'denuncia_choice'}
@@ -2556,7 +2958,7 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
             {isMyTurn ? (
               <div className="space-y-2.5">
                 {gameState.players
-                  .filter((p) => p.id !== currentPlayer?.id)
+                  .filter((p) => p.id !== currentPlayer?.id && (p.redCards || 0) > 0)
                   .map((opp) => (
                     <button
                       key={opp.id}
@@ -2725,17 +3127,20 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
                       return (
                         <span
                           key={p.id}
+                          onClick={isOnlineTelaoHost ? () => setQrReconnectPlayer(p) : undefined}
+                          title={isOnlineTelaoHost ? `Clique para exibir o QR Code exclusivo de ${p.name}` : undefined}
                           className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 border ${
                             hasRead
                               ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-300'
                               : 'bg-slate-900 border-amber-500/40 text-amber-300 animate-pulse'
-                          }`}
+                          } ${isOnlineTelaoHost ? 'cursor-pointer hover:border-sky-400' : ''}`}
                         >
                           <span
                             className="w-2 h-2 rounded-full"
                             style={{ backgroundColor: p.color }}
                           />
                           {p.name}: {hasRead ? '✅ Lido' : '⏳ Falta ler'}
+                          {isOnlineTelaoHost && <QrCode className="w-3 h-3 text-sky-400 ml-0.5" />}
                         </span>
                       );
                     })}
@@ -2774,83 +3179,232 @@ export default function PagoOuNao3D({ isEmbeddedInLayout = false }) {
         )}
       />
 
-      {/* MODAL 6: FIM DE JOGO + MATRIZ DE CONTROLE DOS RESULTADOS */}
-      {gameState.status === 'finished' && (
-        <div className="absolute inset-0 z-40 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-4xl w-full p-6 md:p-8 shadow-2xl my-auto">
-            <div className="text-center mb-6">
-              <div className="inline-flex p-3 rounded-2xl bg-amber-400/20 text-amber-300 mb-2">
-                <Award className="w-10 h-10" />
+      {/* MODAL 6: FIM DE JOGO + MATRIZ DE CONTROLE DOS RESULTADOS + IMPACTO SOCIAL */}
+      {gameState.status === 'finished' && (() => {
+        const finalSummary = buildMatchImpactSummary(gameState);
+        return (
+          <div className="absolute inset-0 z-40 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-slate-900 border-2 border-amber-400 rounded-3xl max-w-5xl w-full p-6 md:p-8 shadow-2xl my-auto">
+              <div className="text-center mb-5">
+                <div className="inline-flex p-3 rounded-2xl bg-amber-400/20 text-amber-300 mb-2">
+                  <Award className="w-10 h-10" />
+                </div>
+                <h2 className="text-2xl md:text-3xl font-black text-white">
+                  FIM DE JOGO • MATRIZ DE CONTROLE DE RESULTADOS
+                </h2>
+                <p className="text-sm text-slate-300 mt-1">
+                  Vencedor pelo Maior Saldo Bancário Final (incluindo Bônus de Chegada e Cartas Azuis de Restituição):{' '}
+                  <strong className="text-amber-400">{gameState.winner?.name} ($ {gameState.winner?.money})</strong>
+                </p>
               </div>
-              <h2 className="text-2xl md:text-3xl font-black text-white">
-                FIM DE JOGO • MATRIZ DE CONTROLE DE RESULTADOS
-              </h2>
-              <p className="text-sm text-slate-300 mt-1">
-                Vencedor pelo Maior Saldo Bancário Final (incluindo Bônus de Chegada e Cartas Azuis de Restituição):{' '}
-                <strong className="text-amber-400">{gameState.winner?.name} ($ {gameState.winner?.money})</strong>
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/90 mb-5">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-900 text-slate-300">
+                      <th className="p-3 font-bold">Jogador / Empresa</th>
+                      <th className="p-3 font-bold text-right">Saldo Final ($)</th>
+                      <th className="p-3 font-bold text-right">Pagou Tempestivo</th>
+                      <th className="p-3 font-bold text-right">Sonegou</th>
+                      <th className="p-3 font-bold text-right">Não Recuperado</th>
+                      <th className="p-3 font-bold text-right">Restituição Azul</th>
+                      <th className="p-3 font-bold text-right">Pago em Ação Fiscal</th>
+                      <th className="p-3 font-bold text-right">Casas Prejudicadas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...gameState.players]
+                      .sort((a, b) => b.money - a.money)
+                      .map((p, idx) => (
+                        <tr key={p.id} className="border-b border-slate-800/60 hover:bg-slate-900/40">
+                          <td className="p-3 font-bold flex items-center gap-2">
+                            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: p.color }} />
+                            {idx === 0 && '🏆 '}
+                            {p.name}
+                          </td>
+                          <td className="p-3 text-right font-mono font-black text-emerald-400 text-sm">
+                            ${p.money}
+                          </td>
+                          <td className="p-3 text-right text-sky-300">
+                            {p.taxesPaidCount}x (${p.taxesPaidAmount})
+                          </td>
+                          <td className="p-3 text-right text-red-400">
+                            {p.taxesEvadedCount}x (${p.taxesEvadedAmount})
+                          </td>
+                          <td className="p-3 text-right text-rose-400 font-bold">
+                            {p.redCards || 0}x (${(p.redCards || 0) * 300})
+                          </td>
+                          <td className="p-3 text-right text-emerald-300">
+                            +${p.restitutionTotal || 0}
+                          </td>
+                          <td className="p-3 text-right text-amber-300">
+                            ${p.fiscalActionPaidAmount}
+                          </td>
+                          <td className="p-3 text-right text-rose-300">
+                            {p.harmedTilesCount} (-${p.harmedIncomeAmount})
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* CARD DE IMPACTO COLETIVO NA PRÓPRIA TELA FINAL */}
+              <div className="rounded-2xl bg-gradient-to-r from-rose-950/70 via-slate-950 to-amber-950/50 border border-rose-500/40 p-4 sm:p-5 mb-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-rose-300">
+                      <AlertTriangle className="w-4 h-4 text-rose-400" />
+                      O Impacto das Escolhas desta Partida na Sociedade
+                    </span>
+                    <p className="text-xs sm:text-sm text-slate-200 leading-relaxed">
+                      Foram sonegados <strong className="text-rose-300">${finalSummary.totalEvadedAmount}</strong> nesta partida — sendo que{' '}
+                      <strong className="text-rose-400">${finalSummary.unrecoveredTaxAmount} não foram recuperados</strong>.
+                      O Estado ficou sem recursos em <strong className="text-amber-300">{finalSummary.roundsWithoutResources} rodada(s)</strong>,{' '}
+                      prejudicando <strong className="text-white">{finalSummary.playersHarmedCount} participante(s)</strong> em{' '}
+                      <strong className="text-rose-300">{finalSummary.totalHarmedOccurrences} casa(s)</strong> de serviços públicos e gerando{' '}
+                      <strong className="text-red-400">-${finalSummary.totalHarmedFinancialLoss}</strong> de prejuízo direto!
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 shrink-0 text-center">
+                    <div className="px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-800">
+                      <div className="text-[10px] font-bold uppercase text-slate-400">Malha Fina</div>
+                      <div className="text-sm font-mono font-black text-amber-300">
+                        {finalSummary.playersCaughtCount} pess. ({finalSummary.totalForcedAudits}x)
+                      </div>
+                    </div>
+                    <div className="px-3 py-2 rounded-xl bg-slate-900/90 border border-slate-800">
+                      <div className="text-[10px] font-bold uppercase text-slate-400">Prejuízo Social</div>
+                      <div className="text-sm font-mono font-black text-rose-400">
+                        -${finalSummary.totalHarmedFinancialLoss}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {!isTelaoTab && (
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    onClick={() => {
+                      setDashboardOpenedFromFinish(true);
+                      setShowSocialDashboard(true);
+                    }}
+                    className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-amber-400 to-rose-400 hover:brightness-110 text-slate-950 font-black text-sm flex items-center gap-2 shadow-xl transition cursor-pointer"
+                  >
+                    <BarChart3 className="w-4 h-4" /> VER DASHBOARD DE IMPACTO SOCIAL
+                  </button>
+
+                  <button
+                    onClick={handleResetGame}
+                    className="px-6 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-black text-sm flex items-center gap-2 shadow-lg transition cursor-pointer"
+                  >
+                    <RotateCcw className="w-4 h-4" /> JOGAR NOVA PARTIDA
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL POP-UP: QR CODE EXCLUSIVO DE RECONEXÃO DE UM JOGADOR NO TELÃO */}
+      {qrReconnectPlayer && gameState.mode === 'online' && (
+        <div
+          onClick={() => setQrReconnectPlayer(null)}
+          className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-slate-900 border-2 border-sky-400 rounded-3xl max-w-sm w-full p-6 shadow-2xl text-center space-y-4"
+          >
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[11px] font-black uppercase tracking-wider">
+              <QrCode className="w-3.5 h-3.5" />
+              <span>QR Code Exclusivo da Equipe</span>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-center gap-2.5">
+                <span
+                  className="w-4 h-4 rounded-full ring-2 ring-white/40 shrink-0"
+                  style={{ backgroundColor: qrReconnectPlayer.color }}
+                />
+                <h3 className="text-xl font-black text-white truncate">
+                  {qrReconnectPlayer.name}
+                </h3>
+              </div>
+              <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+                Aponte a câmera do mesmo aparelho ou de <strong>qualquer outro celular</strong> para assumir imediatamente este jogo sem perder saldo nem cartas!
               </p>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950/90 mb-6">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 bg-slate-900 text-slate-300">
-                    <th className="p-3 font-bold">Jogador / Empresa</th>
-                    <th className="p-3 font-bold text-right">Saldo Final ($)</th>
-                    <th className="p-3 font-bold text-right">Pagou Tempestivo</th>
-                    <th className="p-3 font-bold text-right">Sonegou</th>
-                    <th className="p-3 font-bold text-right">Restituição Azul</th>
-                    <th className="p-3 font-bold text-right">Pago em Ação Fiscal</th>
-                    <th className="p-3 font-bold text-right">Casas Prejudicadas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...gameState.players]
-                    .sort((a, b) => b.money - a.money)
-                    .map((p, idx) => (
-                      <tr key={p.id} className="border-b border-slate-800/60 hover:bg-slate-900/40">
-                        <td className="p-3 font-bold flex items-center gap-2">
-                          <span className="w-3 h-3 rounded-full" style={{ backgroundColor: p.color }} />
-                          {idx === 0 && '🏆 '}
-                          {p.name}
-                        </td>
-                        <td className="p-3 text-right font-mono font-black text-emerald-400 text-sm">
-                          ${p.money}
-                        </td>
-                        <td className="p-3 text-right text-sky-300">
-                          {p.taxesPaidCount}x (${p.taxesPaidAmount})
-                        </td>
-                        <td className="p-3 text-right text-red-400">
-                          {p.taxesEvadedCount}x (${p.taxesEvadedAmount})
-                        </td>
-                        <td className="p-3 text-right text-emerald-300">
-                          +${p.restitutionTotal || 0}
-                        </td>
-                        <td className="p-3 text-right text-amber-300">
-                          ${p.fiscalActionPaidAmount}
-                        </td>
-                        <td className="p-3 text-right text-rose-300">
-                          {p.harmedTilesCount} (-${p.harmedIncomeAmount})
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+            {(() => {
+              const exclusiveUrl = `${window.location.origin}/pago-ou-nao/sala/${gameState.roomCode}?reclaim=${encodeURIComponent(
+                qrReconnectPlayer.id
+              )}`;
+              return (
+                <>
+                  <div className="p-4 rounded-2xl bg-white inline-flex flex-col items-center justify-center mx-auto shadow-xl">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+                        exclusiveUrl
+                      )}`}
+                      alt={`QR Code exclusivo de ${qrReconnectPlayer.name}`}
+                      className="w-48 h-48 object-contain"
+                    />
+                  </div>
 
-            {!isTelaoTab && (
-              <div className="flex justify-center">
-                <button
-                  onClick={handleResetGame}
-                  className="px-6 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-sky-500 text-slate-950 font-black text-sm flex items-center gap-2 shadow-lg"
-                >
-                  <RotateCcw className="w-4 h-4" /> JOGAR NOVA PARTIDA
-                </button>
+                  <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-center space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                      Sala <strong className="text-amber-400 font-mono">{gameState.roomCode}</strong> • Link Direto Exclusivo:
+                    </span>
+                    <code className="text-[10px] font-mono text-sky-300 break-all block">
+                      {exclusiveUrl}
+                    </code>
+                  </div>
+                </>
+              );
+            })()}
+
+            {gameState.phase === 'tax_vote' && (
+              <div
+                className={`p-2.5 rounded-xl border text-xs font-black ${
+                  gameState.roundVotes?.[qrReconnectPlayer.id] !== undefined
+                    ? 'bg-emerald-950/80 border-emerald-400 text-emerald-300'
+                    : 'bg-amber-950/50 border-amber-400/50 text-amber-300 animate-pulse'
+                }`}
+              >
+                {gameState.roundVotes?.[qrReconnectPlayer.id] !== undefined
+                  ? '✅ Voto desta rodada já registrado com sucesso!'
+                  : '⏳ Aguardando leitura do QR Code e decisão secreta no celular...'}
               </div>
             )}
+
+            <button
+              onClick={() => setQrReconnectPlayer(null)}
+              className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white font-black text-xs transition cursor-pointer"
+            >
+              ✕ Fechar QR Code
+            </button>
           </div>
         </div>
       )}
+
+      {/* DASHBOARD DE IMPACTO SOCIAL E HISTÓRICO CONSOLIDADO */}
+      <SocialImpactDashboard
+        isOpen={showSocialDashboard}
+        currentFinishedState={gameState.status === 'finished' ? gameState : null}
+        openedFromFinishScreen={dashboardOpenedFromFinish}
+        onClose={() => {
+          const shouldResetToLobby = dashboardOpenedFromFinish;
+          setShowSocialDashboard(false);
+          setDashboardOpenedFromFinish(false);
+          if (shouldResetToLobby) {
+            handleResetGame();
+          }
+        }}
+      />
 
       {/* CENTRAL UNIFICADA DE REGRAS, CARTÕES DE SERVIÇO, CARTAS AZUIS E VERMELHAS */}
       <RulesAndCardsModal

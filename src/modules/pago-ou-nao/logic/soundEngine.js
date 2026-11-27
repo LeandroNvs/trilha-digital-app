@@ -272,6 +272,37 @@ class PagoOuNaoSoundEngine {
       });
     });
   }
+
+  // 6. Catraca da Roleta da Loteria girando e desacelerando (~3.7s)
+  playWheelSpinSfx() {
+    if (this.muted) return;
+    if (!this.ensureContext()) return;
+    let elapsed = 0;
+    const totalTicks = 28;
+    for (let i = 0; i < totalTicks; i++) {
+      const progress = i / totalTicks;
+      const stepDelay = 0.045 + Math.pow(progress, 2.3) * 0.34;
+      elapsed += stepDelay;
+      if (elapsed > 3.75) break;
+      const freq = 520 + (i % 2) * 140 - progress * 110;
+      this.playTone({
+        freq,
+        duration: 0.035,
+        type: 'triangle',
+        volume: 0.16,
+        targetGain: 'sfx',
+        delay: elapsed
+      });
+    }
+  }
+
+  // 7. Som de "Que pena ($0)" na Loteria
+  playLotteryZeroSfx() {
+    if (this.muted) return;
+    if (!this.ensureContext()) return;
+    this.playTone({ freq: 329.63, slideToFreq: 277.18, duration: 0.24, type: 'sawtooth', volume: 0.13, targetGain: 'sfx', delay: 0 });
+    this.playTone({ freq: 261.63, slideToFreq: 196.0, duration: 0.42, type: 'sawtooth', volume: 0.14, targetGain: 'sfx', delay: 0.22 });
+  }
 }
 
 export const soundEngine = new PagoOuNaoSoundEngine();
