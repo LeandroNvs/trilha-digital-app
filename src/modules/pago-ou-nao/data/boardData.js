@@ -280,49 +280,56 @@ export const RED_CARDS = [
     title: 'MALHA FINA!',
     description: 'Pague todos os impostos que deve ($300) + $450 de multa ($750 por cada imposto não pago) IMEDIATAMENTE!',
     image: '/assets/cartas_vermelhas/image8.png',
-    effect: 'malha_fina'
+    effect: 'malha_fina',
+    weight: 30
   },
   {
     id: 'red_investigado',
     title: 'INVESTIGADO!',
     description: 'Fique parado na próxima rodada! Você está proibido de fazer denúncia espontânea nessa rodada.',
     image: '/assets/cartas_vermelhas/image7.png',
-    effect: 'investigado'
+    effect: 'investigado',
+    weight: 12
   },
   {
     id: 'red_carta_negada',
     title: 'CARTA NEGADA!',
     description: 'Descarte uma Carta Azul de sua mão!',
     image: '/assets/cartas_vermelhas/image6.png',
-    effect: 'carta_negada'
+    effect: 'carta_negada',
+    weight: 12
   },
   {
     id: 'red_ma_sorte',
     title: 'MÁ SORTE!',
     description: 'Volte 3 casas no tabuleiro imediatamente!',
     image: '/assets/cartas_vermelhas/image4.png',
-    effect: 'ma_sorte'
+    effect: 'ma_sorte',
+    weight: 12
   },
   {
     id: 'red_trapaceiro',
     title: 'TRAPACEIRO!',
     description: 'Descarte uma Carta Azul de um jogador adversário!',
     image: '/assets/cartas_vermelhas/image5.png',
-    effect: 'trapaceiro'
+    effect: 'trapaceiro',
+    weight: 12
   },
   {
     id: 'red_passou_perna',
     title: 'PASSOU A PERNA!',
     description: 'Mande o jogador mais avançado voltar 3 casas!',
     image: '/assets/cartas_vermelhas/image3.png',
-    effect: 'passou_perna'
+    effect: 'passou_perna',
+    weight: 12
   },
   {
     id: 'red_troca',
     title: 'TROCA!',
     description: 'Troque de lugar se houver alguém à sua frente!',
     image: '/assets/cartas_vermelhas/image1.png',
-    effect: 'troca'
+    effect: 'troca',
+    weight: 10
   }
 ];
 

@@ -11,6 +11,16 @@ export function getTileById(tileId) {
   return BOARD_TILES.find((t) => t.id === tileId) || BOARD_TILES[0];
 }
 
+function drawWeightedRedCard() {
+  const totalWeight = RED_CARDS.reduce((acc, card) => acc + (card.weight || 1), 0);
+  let roll = Math.random() * totalWeight;
+  for (const card of RED_CARDS) {
+    roll -= card.weight || 1;
+    if (roll < 0) return card;
+  }
+  return RED_CARDS[RED_CARDS.length - 1];
+}
+
 export const LOTTERY_TICKET_COST = 100;
 
 // 8 fatias de 45° intercaladas com $0 para criar suspense real:
@@ -278,7 +288,7 @@ export function submitRoundTaxVote(state, playerId, payTax) {
       updated.taxesEvadedAmount += CONSTANTS.TAX_AMOUNT;
       updated.redCards += 1;
 
-      const redCard = RED_CARDS[Math.floor(Math.random() * RED_CARDS.length)];
+      const redCard = drawWeightedRedCard();
       updated.redCardsList = [...(updated.redCardsList || []), redCard];
       updated.lastDrawnCard = {
         roundNumber: state.roundNumber,
