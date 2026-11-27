@@ -11,14 +11,14 @@ export function getTileById(tileId) {
   return BOARD_TILES.find((t) => t.id === tileId) || BOARD_TILES[0];
 }
 
-function drawWeightedRedCard() {
-  const totalWeight = RED_CARDS.reduce((acc, card) => acc + (card.weight || 1), 0);
+function drawWeightedCard(cards) {
+  const totalWeight = cards.reduce((acc, card) => acc + (card.weight || 1), 0);
   let roll = Math.random() * totalWeight;
-  for (const card of RED_CARDS) {
+  for (const card of cards) {
     roll -= card.weight || 1;
     if (roll < 0) return card;
   }
-  return RED_CARDS[RED_CARDS.length - 1];
+  return cards[cards.length - 1];
 }
 
 export const LOTTERY_TICKET_COST = 100;
@@ -258,7 +258,7 @@ export function submitRoundTaxVote(state, playerId, payTax) {
           card: null
         });
       } else {
-        const rawBlueCard = BLUE_CARDS[Math.floor(Math.random() * BLUE_CARDS.length)];
+        const rawBlueCard = drawWeightedCard(BLUE_CARDS);
         const blueCard = {
           ...rawBlueCard,
           acquiredRound: state.roundNumber,
@@ -288,7 +288,7 @@ export function submitRoundTaxVote(state, playerId, payTax) {
       updated.taxesEvadedAmount += CONSTANTS.TAX_AMOUNT;
       updated.redCards += 1;
 
-      const redCard = drawWeightedRedCard();
+      const redCard = drawWeightedCard(RED_CARDS);
       updated.redCardsList = [...(updated.redCardsList || []), redCard];
       updated.lastDrawnCard = {
         roundNumber: state.roundNumber,
@@ -813,7 +813,7 @@ export function useBlueActionCard(state, playerId, actionPayload) {
 
     const newCards = [];
     for (let i = 0; i < otherCardsCount; i++) {
-      const raw = BLUE_CARDS[Math.floor(Math.random() * BLUE_CARDS.length)];
+      const raw = drawWeightedCard(BLUE_CARDS);
       newCards.push({
         ...raw,
         acquiredRound: state.roundNumber,

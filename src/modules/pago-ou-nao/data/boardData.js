@@ -219,7 +219,8 @@ export const BLUE_CARDS = [
     description: 'Recupere $50 ao fim do jogo! (Guardada na sua mão até o Balanço Final).',
     image: '/assets/cartas_azuis/image1.png',
     type: 'restituicao',
-    restitutionValue: 50
+    restitutionValue: 50,
+    weight: 30
   },
   {
     id: 'rest_100',
@@ -227,7 +228,8 @@ export const BLUE_CARDS = [
     description: 'Recupere $100 ao fim do jogo! (Guardada na sua mão até o Balanço Final).',
     image: '/assets/cartas_azuis/image3.png',
     type: 'restituicao',
-    restitutionValue: 100
+    restitutionValue: 100,
+    weight: 20
   },
   {
     id: 'rest_200',
@@ -235,7 +237,8 @@ export const BLUE_CARDS = [
     description: 'Recupere $200 ao fim do jogo! (Guardada na sua mão até o Balanço Final).',
     image: '/assets/cartas_azuis/image4.png',
     type: 'restituicao',
-    restitutionValue: 200
+    restitutionValue: 200,
+    weight: 10
   },
   {
     id: 'rest_300',
@@ -243,7 +246,8 @@ export const BLUE_CARDS = [
     description: 'Recupere $300 ao fim do jogo! (Guardada na sua mão até o Balanço Final).',
     image: '/assets/cartas_azuis/image5.png',
     type: 'restituicao',
-    restitutionValue: 300
+    restitutionValue: 300,
+    weight: 10
   },
   {
     id: 'jogada_bonus',
@@ -252,7 +256,8 @@ export const BLUE_CARDS = [
     image: '/assets/cartas_azuis/image7.png',
     type: 'jogada_bonus',
     isActionCard: true,
-    restitutionValue: 0
+    restitutionValue: 0,
+    weight: 10
   },
   {
     id: 'nova_chance',
@@ -261,7 +266,8 @@ export const BLUE_CARDS = [
     image: '/assets/cartas_azuis/image8.png',
     type: 'nova_chance',
     isActionCard: true,
-    restitutionValue: 0
+    restitutionValue: 0,
+    weight: 10
   },
   {
     id: 'troca_carta',
@@ -270,7 +276,8 @@ export const BLUE_CARDS = [
     image: '/assets/cartas_azuis/image6.png',
     type: 'troca_carta',
     isActionCard: true,
-    restitutionValue: 0
+    restitutionValue: 0,
+    weight: 10
   }
 ];
 
