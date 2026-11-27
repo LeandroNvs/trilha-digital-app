@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { db, appId } from '../firebase/config.js';
 import { AVATARES, sortearAvatar, getAvatarPorId } from '../components/PulsoDigital/avatares.js';
+import { gerarPdfGabaritoSimulado } from '../components/PulsoDigital/gerarPdfGabaritoSimulado.js';
 
 // Gerador/Recuperador de Device ID persistente no navegador para evitar duplicações
 const getDeviceId = () => {
@@ -58,6 +59,7 @@ export default function PulsoAluno() {
   const [duvidasLista, setDuvidasLista] = useState([]);
   const [opcaoQuizEscolhida, setOpcaoQuizEscolhida] = useState(null);
   const [minhaRespostaQuiz, setMinhaRespostaQuiz] = useState(null);
+  const [todasMinhasRespostasQuiz, setTodasMinhasRespostasQuiz] = useState([]);
   const [pontuacaoAluno, setPontuacaoAluno] = useState(0);
 
   // Timer Regressivo do Quiz
@@ -260,7 +262,7 @@ export default function PulsoAluno() {
       setAbaAtivaAluno('nuvem');
     } else if (sessao.modoAtivo === 'duvidas') {
       setAbaAtivaAluno('duvidas');
-    } else if (sessao.modoAtivo === 'quiz' && sessao.quizAtivo) {
+    } else if ((sessao.modoAtivo === 'quiz' || sessao.modoAtivo === 'simulado') && sessao.quizAtivo) {
       setAbaAtivaAluno('quiz');
     } else {
       setAbaAtivaAluno('energia'); // Padrão acolhedor: Termômetro da Aula
@@ -313,7 +315,8 @@ export default function PulsoAluno() {
 
   // Timer Regressivo do Quiz ancorado no instante em que a pergunta chegou ao celular do aluno
   useEffect(() => {
-    if (!sessao?.quizAtivo || sessao.quizAtivo.revelada || !sessao.quizAtivo.abertaParaResposta) {
+    const ehSimulado = sessao?.quizAtivo?.tipoQuiz === 'simulado' || sessao?.modoAtivo === 'simulado' || Number(sessao?.quizAtivo?.tempoSegundos) === 0;
+    if (!sessao?.quizAtivo || sessao.quizAtivo.revelada || !sessao.quizAtivo.abertaParaResposta || ehSimulado) {
       setTempoRestante(null);
       return;
     }
@@ -359,6 +362,22 @@ export default function PulsoAluno() {
     });
     return () => unsubscribe();
   }, [sessao?.id, alunoConectado?.id, sessao?.quizAtivo?.id]);
+
+  // Escutar todas as respostas do aluno no quiz/simulado desta sessão (para cálculo da nota final e download do gabarito)
+  useEffect(() => {
+    if (!sessao?.id || !alunoConectado?.id) {
+      setTodasMinhasRespostasQuiz([]);
+      return;
+    }
+    const respCollRef = collection(db, `/artifacts/${appId}/public/data/pulso_sessoes/${sessao.id}/respostas_quiz`);
+    const q = query(respCollRef, where('alunoId', '==', alunoConectado.id));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const lista = [];
+      snap.forEach((d) => lista.push({ id: d.id, ...d.data() }));
+      setTodasMinhasRespostasQuiz(lista);
+    });
+    return () => unsubscribe();
+  }, [sessao?.id, alunoConectado?.id]);
 
   // Efeito quando o professor ativa ou dispara a Nuvem de Palavras
   const ultimaDisparadaNuvem = useRef(null);
@@ -644,25 +663,29 @@ export default function PulsoAluno() {
   };
 
   // Responder Quiz
-  // Responder Quiz (Fórmula Kahoot: Velocidade como Desempate, com liberação no gabarito)
+  // Responder Quiz (Fórmula Kahoot no Quiz Rápido ou +1 ponto fixo no Simulado de Prova)
   const handleResponderQuiz = async (indiceOpcao) => {
     if (!sessao?.id || !alunoConectado?.id || !sessao.quizAtivo) return;
     if (opcaoQuizEscolhida !== null) return; // Já respondeu
     if (!sessao.quizAtivo.abertaParaResposta) return;
-    if (tempoRestante === 0) return; // Tempo esgotado
+    const ehSimulado = sessao.quizAtivo.tipoQuiz === 'simulado' || sessao.modoAtivo === 'simulado';
+    if (!ehSimulado && tempoRestante === 0) return; // Tempo esgotado
 
     setOpcaoQuizEscolhida(indiceOpcao);
 
     const inicioLocal = obterInicioLocalQuiz(sessao.quizAtivo.id);
     const tempoTotal = Number(sessao.quizAtivo.tempoSegundos) || 30;
-    const tempoGastoSegundos = Number(Math.max(0.2, Math.min(tempoTotal, (Date.now() - inicioLocal) / 1000)).toFixed(1));
-    const fracaoRestante = Math.max(0, Math.min(1, (tempoTotal - tempoGastoSegundos) / tempoTotal));
+    const tempoGastoSegundos = Number(Math.max(0.2, (Date.now() - inicioLocal) / 1000).toFixed(1));
+    const tempoClamped = Math.min(tempoTotal, tempoGastoSegundos);
+    const fracaoRestante = Math.max(0, Math.min(1, (tempoTotal - tempoClamped) / tempoTotal));
     
-    // Fórmula Kahoot: 500 base garantida para acerto + até 500 proporcionais à velocidade
-    const pontosCalculados = Math.round(500 + (500 * fracaoRestante));
+    // No Simulado de Prova, cada questão correta acumula 1 ponto; no Quiz Rápido, fórmula 500 + velocidade
+    const pontosCalculados = ehSimulado ? 1 : Math.round(500 + (500 * fracaoRestante));
 
     const dadosResposta = {
       quizId: sessao.quizAtivo.id,
+      questaoOriginalId: sessao.quizAtivo.questaoOriginalId || null,
+      numeroQuestao: sessao.quizAtivo.numeroQuestao || null,
       alunoId: alunoConectado.id,
       apelido: alunoConectado.apelido,
       avatarEmoji: alunoConectado.avatarEmoji || '👤',
@@ -1072,14 +1095,33 @@ export default function PulsoAluno() {
                 Muito obrigado pelo seu feedback, <span className="font-bold text-cyan-300">{alunoConectado.apelido}</span>! Sua presença, ideias e dedicação fizeram toda a diferença na aula de hoje.
               </p>
 
-              {pontuacaoAluno > 0 && (
+              {pontuacaoAluno >= 0 && (
                 <div className="mt-6 p-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 rounded-2xl">
                   <span className="text-xs text-amber-300 font-bold uppercase tracking-wider block">
-                    Sua Pontuação no Quiz
+                    Sua Pontuação no Simulado / Quiz
                   </span>
                   <span className="text-3xl font-black text-amber-400 mt-1 block">
-                    🏆 {pontuacaoAluno} pts
+                    🏆 {pontuacaoAluno} {pontuacaoAluno === 1 ? 'ponto' : 'pontos'}
                   </span>
+                </div>
+              )}
+
+              {Array.isArray(sessao.questoes) && sessao.questoes.length > 0 && (
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      gerarPdfGabaritoSimulado({
+                        sessao,
+                        aluno: alunoConectado,
+                        respostasAluno: todasMinhasRespostasQuiz,
+                        pontuacaoTotal: pontuacaoAluno
+                      })
+                    }
+                    className="w-full py-3.5 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black rounded-2xl text-sm shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 transition-transform active:scale-95"
+                  >
+                    <span>📥</span> Baixar Gabarito Comentado (PDF)
+                  </button>
                 </div>
               )}
 
@@ -1107,6 +1149,31 @@ export default function PulsoAluno() {
                 <p className="text-xs text-gray-400 mt-1">
                   Avaliação rápida de saída (100% anônima e direta)
                 </p>
+
+                {Array.isArray(sessao.questoes) && sessao.questoes.length > 0 && (
+                  <div className="mt-4 p-4 bg-gray-900/90 border border-indigo-500/40 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400 font-bold uppercase">Sua Nota / Pontuação:</span>
+                      <span className="text-base font-black text-amber-400 font-mono">
+                        🏆 {pontuacaoAluno} {pontuacaoAluno === 1 ? 'ponto' : 'pontos'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        gerarPdfGabaritoSimulado({
+                          sessao,
+                          aluno: alunoConectado,
+                          respostasAluno: todasMinhasRespostasQuiz,
+                          pontuacaoTotal: pontuacaoAluno
+                        })
+                      }
+                      className="w-full py-2.5 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black rounded-xl text-xs shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95"
+                    >
+                      <span>📥</span> Baixar Prova & Gabarito Comentado (PDF)
+                    </button>
+                  </div>
+                )}
               </div>
 
               <form onSubmit={handleEnviarAvaliacao} className="space-y-6">
@@ -1303,19 +1370,184 @@ export default function PulsoAluno() {
         {abaAtivaAluno === 'quiz' && (
           <div className="space-y-4">
             {!sessao.quizAtivo ? (
-              <div className="text-center py-12 px-4 bg-gray-900/60 rounded-3xl border border-gray-800">
-                <span className="text-5xl animate-bounce inline-block mb-3">👀</span>
-                <h3 className="text-xl font-black text-white">Atenção ao Telão!</h3>
-                <p className="text-xs text-gray-400 mt-2 max-w-xs mx-auto leading-relaxed">
-                  O professor está apresentando os conteúdos. Assim que uma pergunta for lançada, o enunciado completo e as alternativas aparecerão aqui.
-                </p>
-                <div className="mt-6">
+              sessao.simuladoConcluido && Array.isArray(sessao.questoes) && sessao.questoes.length > 0 ? (
+                <div className="bg-gradient-to-b from-indigo-950/90 via-gray-900 to-gray-900 border-2 border-indigo-500/50 rounded-3xl p-6 text-center shadow-2xl space-y-5">
+                  <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-3xl shadow-lg shadow-amber-500/20">
+                    🏆
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-mono font-black tracking-widest px-3 py-1 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30">
+                      ✓ Simulado Concluído
+                    </span>
+                    <h3 className="text-2xl font-black text-white mt-2">
+                      Resultado do Simulado
+                    </h3>
+                    <p className="text-xs text-gray-300 mt-1">
+                      Confira sua pontuação final e baixe a prova completa com gabarito e justificativas:
+                    </p>
+                  </div>
+
+                  {/* Card de Nota / Pontuação */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-950/80 border border-amber-500/40 rounded-2xl p-4">
+                      <span className="text-[10px] uppercase font-bold text-amber-300 block">
+                        Sua Nota / Pontos
+                      </span>
+                      <span className="text-3xl font-black text-amber-400 font-mono mt-1 block">
+                        {pontuacaoAluno}
+                        <span className="text-sm text-gray-400 font-normal"> / {sessao.questoes.length}</span>
+                      </span>
+                    </div>
+                    <div className="bg-gray-950/80 border border-indigo-500/40 rounded-2xl p-4">
+                      <span className="text-[10px] uppercase font-bold text-indigo-300 block">
+                        Aproveitamento
+                      </span>
+                      <span className="text-3xl font-black text-indigo-300 font-mono mt-1 block">
+                        {Math.min(100, Math.round((pontuacaoAluno / Math.max(1, sessao.questoes.length)) * 100))}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Botão para Baixar Prova Completa com Alternativas e Justificativas */}
                   <button
-                    onClick={() => setAbaAtivaAluno('duvidas')}
-                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-cyan-300 font-bold rounded-xl text-xs border border-gray-700 flex items-center gap-1.5 mx-auto"
+                    type="button"
+                    onClick={() =>
+                      gerarPdfGabaritoSimulado({
+                        sessao,
+                        aluno: alunoConectado,
+                        respostasAluno: todasMinhasRespostasQuiz,
+                        pontuacaoTotal: pontuacaoAluno
+                      })
+                    }
+                    className="w-full py-4 px-5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-black rounded-2xl text-sm sm:text-base shadow-xl shadow-indigo-500/30 flex items-center justify-center gap-2.5 transition-transform active:scale-95"
                   >
-                    <span>💬</span> Enviar uma Dúvida Anônima enquanto aguarda
+                    <span className="text-xl">📥</span>
+                    <span>Baixar Gabarito Comentado (PDF)</span>
                   </button>
+
+                  <p className="text-[11px] text-gray-400 leading-relaxed">
+                    O arquivo PDF inclui todas as questões da prova, as alternativas A, B, C e D, suas respostas marcadas, o gabarito oficial e as justificativas comentadas.
+                  </p>
+                </div>
+              ) : (
+                <div className="text-center py-12 px-4 bg-gray-900/60 rounded-3xl border border-gray-800">
+                  <span className="text-5xl animate-bounce inline-block mb-3">👀</span>
+                  <h3 className="text-xl font-black text-white">Atenção ao Telão!</h3>
+                  <p className="text-xs text-gray-400 mt-2 max-w-xs mx-auto leading-relaxed">
+                    O professor está apresentando os conteúdos. Assim que uma pergunta for lançada, ela aparecerá aqui automaticamente.
+                  </p>
+                  <div className="mt-6">
+                    <button
+                      onClick={() => setAbaAtivaAluno('duvidas')}
+                      className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-cyan-300 font-bold rounded-xl text-xs border border-gray-700 flex items-center gap-1.5 mx-auto"
+                    >
+                      <span>💬</span> Enviar uma Dúvida Anônima enquanto aguarda
+                    </button>
+                  </div>
+                </div>
+              )
+            ) : (sessao.quizAtivo.tipoQuiz === 'simulado' || sessao.modoAtivo === 'simulado') ? (
+              /* ============================================================== */
+              /* MODO SIMULADO DE PROVA NO CELULAR: APENAS Nº DA QUESTÃO E LETRAS A, B, C, D */
+              /* ============================================================== */
+              <div className="space-y-5">
+                <div className="bg-gradient-to-b from-indigo-950/80 to-gray-900 border-2 border-indigo-500/40 rounded-3xl p-6 text-center shadow-xl">
+                  <span className="inline-block text-[10px] uppercase font-mono font-black tracking-widest px-3 py-1 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30">
+                    📝 Simulado de Prova
+                  </span>
+                  <div className="mt-3 text-4xl sm:text-5xl font-black font-mono text-white tracking-tight">
+                    Questão #{sessao.quizAtivo.numeroQuestao || 1}
+                  </div>
+                  {sessao.quizAtivo.totalQuestoes && (
+                    <span className="text-xs font-mono text-indigo-300 mt-1 block">
+                      Questão {sessao.quizAtivo.numeroQuestao || 1} de {sessao.quizAtivo.totalQuestoes} • Vale <strong>1 ponto</strong>
+                    </span>
+                  )}
+                  <p className="text-xs text-gray-300 mt-3 max-w-xs mx-auto leading-relaxed">
+                    Leia o enunciado e as alternativas na tela do mediador e toque apenas na letra escolhida abaixo:
+                  </p>
+                </div>
+
+                {/* GRADE DE LETRAS GRANDES (A, B, C, D) */}
+                <div className="grid grid-cols-2 gap-3.5">
+                  {(sessao.quizAtivo.opcoes || []).map((_, idx) => {
+                    const letras = ['A', 'B', 'C', 'D', 'E'];
+                    const letra = letras[idx] || String(idx + 1);
+                    const cores = [
+                      'from-indigo-600 to-blue-700 border-indigo-400/60',
+                      'from-cyan-600 to-teal-700 border-cyan-400/60',
+                      'from-purple-600 to-indigo-700 border-purple-400/60',
+                      'from-amber-600 to-orange-700 border-amber-400/60'
+                    ];
+                    const selecionada = opcaoQuizEscolhida === idx;
+                    const revelada = sessao.quizAtivo.revelada;
+                    const ehCorreta = idx === sessao.quizAtivo.respostaCorretaIndex;
+
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        disabled={opcaoQuizEscolhida !== null || !sessao.quizAtivo.abertaParaResposta}
+                        onClick={() => handleResponderQuiz(idx)}
+                        className={`h-32 sm:h-36 rounded-3xl border-2 bg-gradient-to-br flex flex-col items-center justify-center gap-1.5 shadow-xl transition-all transform active:scale-95 ${cores[idx % cores.length]} ${
+                          selecionada ? 'ring-4 ring-white border-white scale-[1.03]' : ''
+                        } ${
+                          revelada && ehCorreta ? 'ring-4 ring-emerald-300 border-white !from-emerald-500 !to-teal-600' : ''
+                        } ${
+                          revelada && selecionada && !ehCorreta ? 'opacity-60 !from-rose-700 !to-red-900' : ''
+                        } ${
+                          opcaoQuizEscolhida !== null && !selecionada && !revelada ? 'opacity-35' : ''
+                        }`}
+                      >
+                        <span className="text-5xl font-black font-mono text-white drop-shadow">
+                          {letra}
+                        </span>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/90">
+                          {selecionada
+                            ? '✓ Marcada'
+                            : revelada && ehCorreta
+                            ? '✓ Correta'
+                            : `Alternativa ${letra}`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* STATUS DE RESPOSTA E TRANSIÇÃO PELO MEDIADOR */}
+                <div className="text-center">
+                  {opcaoQuizEscolhida !== null && !sessao.quizAtivo.revelada && (
+                    <div className="p-4 bg-gray-900 border border-indigo-500/40 rounded-2xl text-xs text-indigo-200 font-bold animate-pulse">
+                      ✓ Alternativa <strong className="text-white font-mono text-sm">{['A', 'B', 'C', 'D', 'E'][opcaoQuizEscolhida]}</strong> registrada! Aguarde a explicação do mediador para a próxima questão.
+                    </div>
+                  )}
+
+                  {sessao.quizAtivo.revelada && (
+                    <div className={`p-5 rounded-3xl text-xs font-bold shadow-xl ${
+                      opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex
+                        ? 'bg-emerald-500/20 border-2 border-emerald-400 text-emerald-300'
+                        : 'bg-rose-500/20 border-2 border-rose-400 text-rose-300'
+                    }`}>
+                      <div className="text-base font-black mb-1 flex items-center justify-center gap-1.5">
+                        {opcaoQuizEscolhida === sessao.quizAtivo.respostaCorretaIndex ? (
+                          <>
+                            <span>🎉</span>
+                            <span>Resposta Correta! (+1 ponto)</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>❌</span>
+                            <span>
+                              Gabarito Correto: Alternativa {['A', 'B', 'C', 'D', 'E'][sessao.quizAtivo.respostaCorretaIndex]}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-300 mt-1">
+                        Acompanhe a explicação do mediador no telão. A próxima questão aparecerá automaticamente assim que ele avançar.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

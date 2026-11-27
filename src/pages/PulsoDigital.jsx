@@ -8,6 +8,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { db, appId, auth } from '../firebase/config.js';
 import useCollection from '../hooks/useCollection.js';
 import { FORMAS_QUIZ } from '../components/PulsoDigital/bancoQuestoes.js';
+import ImportarQuizJsonModal, { baixarModeloJsonPulso } from '../components/PulsoDigital/ImportarQuizJsonModal.jsx';
+import { gerarPdfGabaritoSimulado } from '../components/PulsoDigital/gerarPdfGabaritoSimulado.js';
 
 export default function PulsoDigital() {
   // Lista de Turmas e Disciplinas para o modal de criação e filtros
@@ -51,10 +53,12 @@ export default function PulsoDigital() {
   const [modalNovaSessaoAberto, setModalNovaSessaoAberto] = useState(false);
   const [sessaoEmEdicao, setSessaoEmEdicao] = useState(null); // null = criando, objeto = editando
   const [modalQuestaoAberto, setModalQuestaoAberto] = useState(false);
+  const [modalImportarJsonAberto, setModalImportarJsonAberto] = useState(false);
   const [questaoEmEdicao, setQuestaoEmEdicao] = useState(null); // null = criando, objeto = editando
   const [modalNuvemQuestaoAberto, setModalNuvemQuestaoAberto] = useState(false);
   const [nuvemQuestaoEmEdicao, setNuvemQuestaoEmEdicao] = useState(null); // null = criando, objeto = editando
   const [modoTelaCheia, setModoTelaCheia] = useState(false);
+  const [modalSimuladoTelaCheia, setModalSimuladoTelaCheia] = useState(false);
   const [abaHistorico, setAbaHistorico] = useState(false);
   const [resetandoAula, setResetandoAula] = useState(false);
 
@@ -65,7 +69,8 @@ export default function PulsoDigital() {
   const [novasObservacoes, setNovasObservacoes] = useState('');
   const [salvandoSessao, setSalvandoSessao] = useState(false);
 
-  // Form Criar/Editar Pergunta do Quiz
+  // Form Criar/Editar Pergunta do Quiz / Simulado
+  const [formPerguntaTipo, setFormPerguntaTipo] = useState('quiz'); // 'quiz' | 'simulado'
   const [formPerguntaEnunciado, setFormPerguntaEnunciado] = useState('');
   const [formPerguntaTempo, setFormPerguntaTempo] = useState(30);
   const [formPerguntaOpcoes, setFormPerguntaOpcoes] = useState(['', '', '', '']);
@@ -379,6 +384,7 @@ export default function PulsoDigital() {
         status: 'preparada',
         modoAtivo: 'sentimento',
         quizAtivo: null,
+        simuladoConcluido: false,
         perguntasNuvem: listaNuvemResetada,
         nuvemPerguntaAtivaId: listaNuvemResetada[0]?.id || null,
         nuvemPergunta: primeiraPerguntaNuvem,
@@ -636,10 +642,12 @@ export default function PulsoDigital() {
   };
 
   // Abrir Modal para Criar Nova Pergunta
-  const handleAbrirCriarPergunta = () => {
+  const handleAbrirCriarPergunta = (tipoPadrao) => {
+    const tipoInicial = (tipoPadrao === 'simulado' || sessaoAtiva?.modoAtivo === 'simulado') ? 'simulado' : 'quiz';
     setQuestaoEmEdicao(null);
+    setFormPerguntaTipo(tipoInicial);
     setFormPerguntaEnunciado('');
-    setFormPerguntaTempo(30);
+    setFormPerguntaTempo(tipoInicial === 'simulado' ? 0 : 30);
     setFormPerguntaOpcoes(['', '', '', '']);
     setFormPerguntaCorretaIndex(0);
     setFormPerguntaExplicacao('');
@@ -648,9 +656,11 @@ export default function PulsoDigital() {
 
   // Abrir Modal para Editar Pergunta Existente
   const handleAbrirEditarPergunta = (questao, index) => {
+    const tipoExistente = questao.tipoQuestao || questao.tipoQuiz || (Number(questao.tempoSegundos) === 0 ? 'simulado' : 'quiz');
     setQuestaoEmEdicao({ ...questao, index });
+    setFormPerguntaTipo(tipoExistente === 'simulado' ? 'simulado' : 'quiz');
     setFormPerguntaEnunciado(questao.enunciado || questao.pergunta || '');
-    setFormPerguntaTempo(questao.tempoSegundos || 30);
+    setFormPerguntaTempo(tipoExistente === 'simulado' ? 0 : (questao.tempoSegundos ?? 30));
     const opcoesTexto = (questao.opcoes || []).map(o => typeof o === 'string' ? o : o.texto || '');
     while (opcoesTexto.length < 4) opcoesTexto.push('');
     setFormPerguntaOpcoes(opcoesTexto);
@@ -672,13 +682,15 @@ export default function PulsoDigital() {
     }
 
     const listaQuestoesAtual = Array.isArray(sessaoAtiva.questoes) ? [...sessaoAtiva.questoes] : [];
-    
+    const ehSimulado = formPerguntaTipo === 'simulado';
+
     const novaQuestaoFormatada = {
       id: questaoEmEdicao?.id || `q_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      tipoQuestao: ehSimulado ? 'simulado' : 'quiz',
       enunciado: formPerguntaEnunciado.trim(),
-      tempoSegundos: Number(formPerguntaTempo) || 30,
+      tempoSegundos: ehSimulado ? 0 : (Number(formPerguntaTempo) || 30),
       opcoes: formPerguntaOpcoes.map((txt, i) => ({
-        texto: txt.trim() || `Opção ${i + 1}`,
+        texto: txt.trim().replace(/^[a-eA-E]\s*[).:-]\s*/, '').trim() || `Opção ${i + 1}`,
         forma: FORMAS_QUIZ[i]?.forma || 'quadrado',
         cor: FORMAS_QUIZ[i]?.cor || 'bg-gray-700',
         icone: FORMAS_QUIZ[i]?.icone || '●'
@@ -710,6 +722,25 @@ export default function PulsoDigital() {
     }
   };
 
+  // Importar Múltiplas Perguntas do Quiz via JSON
+  const handleImportarQuestoesJson = async (questoesImportadas, substituir = false) => {
+    if (!sessaoAtiva?.id || !Array.isArray(questoesImportadas) || questoesImportadas.length === 0) return;
+
+    const listaQuestoesAtual = Array.isArray(sessaoAtiva.questoes) ? [...sessaoAtiva.questoes] : [];
+    const novasQuestoes = substituir
+      ? [...questoesImportadas]
+      : [...listaQuestoesAtual, ...questoesImportadas];
+
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      await updateDoc(sessaoDocRef, { questoes: novasQuestoes });
+    } catch (err) {
+      console.error("Erro ao importar perguntas JSON:", err);
+      alert("Falha ao importar perguntas no Firestore: " + err.message);
+      throw err;
+    }
+  };
+
   // Excluir Pergunta do Quiz da Aula
   const handleExcluirPergunta = async (questaoId, index) => {
     const confirmou = window.confirm("Tem certeza que deseja excluir esta pergunta do quiz?");
@@ -731,29 +762,53 @@ export default function PulsoDigital() {
     }
   };
 
-  // Lançar Pergunta Preparada no Telão
-  const handleLancarPerguntaNoTelao = async (questao) => {
+  // Lançar Pergunta Preparada no Telão (respeita o tipoQuestao configurado na pergunta ou o tipoModo explícito)
+  const handleLancarPerguntaNoTelao = async (questao, indexExplicito, tipoModoExplicito) => {
     if (!sessaoAtiva?.id || !questao) return;
+    const listaQuestoes = Array.isArray(sessaoAtiva.questoes) ? sessaoAtiva.questoes : [];
+    const idxEncontrado = typeof indexExplicito === 'number'
+      ? indexExplicito
+      : listaQuestoes.findIndex(q => q.id === questao.id);
+    const numeroQuestao = idxEncontrado >= 0 ? idxEncontrado + 1 : 1;
+    const tipoConfigurado = tipoModoExplicito || questao.tipoQuestao || questao.tipoQuiz || (sessaoAtiva.modoAtivo === 'simulado' ? 'simulado' : 'quiz');
+    const ehSimulado = tipoConfigurado === 'simulado';
+
     const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
     await updateDoc(sessaoDocRef, {
-      modoAtivo: 'quiz',
+      modoAtivo: ehSimulado ? 'simulado' : 'quiz',
+      simuladoConcluido: false,
       quizAtivo: {
         id: `${questao.id}_${Date.now()}`,
+        questaoOriginalId: questao.id,
+        numeroQuestao,
+        totalQuestoes: listaQuestoes.length || 1,
+        tipoQuiz: ehSimulado ? 'simulado' : 'quiz',
         pergunta: questao.enunciado || questao.pergunta,
         opcoes: (questao.opcoes || []).map((o, idx) => ({
-          texto: typeof o === 'string' ? o : o.texto || '',
+          texto: (typeof o === 'string' ? o : o.texto || '').replace(/^[a-eA-E]\s*[).:-]\s*/, '').trim(),
           forma: FORMAS_QUIZ[idx]?.forma || 'quadrado',
           cor: FORMAS_QUIZ[idx]?.cor || 'bg-gray-700',
           icone: FORMAS_QUIZ[idx]?.icone || '●'
         })),
         respostaCorretaIndex: questao.respostaCorretaIndex,
         explicacao: questao.explicacao || '',
-        tempoSegundos: questao.tempoSegundos || 30,
+        tempoSegundos: ehSimulado ? 0 : (questao.tempoSegundos || 30),
         abertaParaResposta: true,
         revelada: false,
         lancadaEm: new Date().toISOString()
       }
     });
+
+    if (ehSimulado) {
+      setModalSimuladoTelaCheia(true);
+    }
+  };
+
+  // Avançar ou voltar questão dentro do Simulado de Prova (Mediador)
+  const handleNavegarQuestaoSimulado = async (novoIndex) => {
+    const listaQuestoes = Array.isArray(sessaoAtiva?.questoes) ? sessaoAtiva.questoes : [];
+    if (novoIndex < 0 || novoIndex >= listaQuestoes.length) return;
+    await handleLancarPerguntaNoTelao(listaQuestoes[novoIndex], novoIndex, 'simulado');
   };
 
   // Revelar Gabarito do Quiz e Liberar Pontuação Simultaneamente
@@ -761,6 +816,7 @@ export default function PulsoDigital() {
     if (!sessaoAtiva?.id || !sessaoAtiva.quizAtivo) return;
     try {
       const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      const ehSimulado = sessaoAtiva.quizAtivo.tipoQuiz === 'simulado' || sessaoAtiva.modoAtivo === 'simulado';
       
       // 1. Revelar gabarito na sessão ativa
       await updateDoc(sessaoDocRef, {
@@ -775,7 +831,9 @@ export default function PulsoDigital() {
 
       for (const resp of respostasDestaQuestao) {
         const ehCorreta = resp.opcaoEscolhida === sessaoAtiva.quizAtivo.respostaCorretaIndex;
-        const pontosGanhos = ehCorreta ? (Number(resp.pontosCalculados) || 500) : 0;
+        const pontosGanhos = ehCorreta
+          ? (ehSimulado ? 1 : (Number(resp.pontosCalculados) || 500))
+          : 0;
 
         // Se ainda não foi creditado e o aluno acertou, adiciona aos pontos do participante
         if (!resp.pontosCreditados && pontosGanhos > 0 && resp.alunoId) {
@@ -795,6 +853,22 @@ export default function PulsoDigital() {
       }
     } catch (err) {
       console.error("Erro ao revelar gabarito e creditar pontos:", err);
+    }
+  };
+
+  // Concluir Simulado e liberar Nota + Gabarito Comentado nos celulares dos alunos
+  const handleConcluirSimulado = async () => {
+    if (!sessaoAtiva?.id) return;
+    try {
+      const sessaoDocRef = doc(db, `/artifacts/${appId}/public/data/pulso_sessoes`, sessaoAtiva.id);
+      await updateDoc(sessaoDocRef, {
+        quizAtivo: null,
+        simuladoConcluido: true,
+        modoAtivo: 'simulado'
+      });
+      setModalSimuladoTelaCheia(false);
+    } catch (err) {
+      console.error("Erro ao concluir simulado:", err);
     }
   };
 
@@ -832,7 +906,8 @@ export default function PulsoDigital() {
 
   useEffect(() => {
     const quiz = sessaoAtiva?.quizAtivo;
-    if (!quiz?.id || quiz.revelada || !quiz.abertaParaResposta) {
+    const ehSimulado = quiz?.tipoQuiz === 'simulado' || sessaoAtiva?.modoAtivo === 'simulado' || Number(quiz?.tempoSegundos) === 0;
+    if (!quiz?.id || quiz.revelada || !quiz.abertaParaResposta || ehSimulado) {
       setTempoRestanteQuizProf(null);
       return;
     }
@@ -1372,12 +1447,27 @@ export default function PulsoDigital() {
                     </p>
                   </div>
 
-                  <button
-                    onClick={handleAbrirCriarPergunta}
-                    className="px-5 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-2xl text-sm flex items-center gap-2 shadow-lg shadow-cyan-600/20 transition-all active:scale-95"
-                  >
-                    <span>➕</span> Elaborar Nova Pergunta
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => baixarModeloJsonPulso('simulado')}
+                      className="px-3.5 py-3 bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-indigo-500/40 font-bold rounded-2xl text-xs sm:text-sm flex items-center gap-1.5 shadow transition-all active:scale-95"
+                      title="Baixar arquivo modelo .json para Simulado de Prova"
+                    >
+                      <span>⬇️</span> Baixar Modelo JSON
+                    </button>
+                    <button
+                      onClick={() => setModalImportarJsonAberto(true)}
+                      className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl text-sm flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all active:scale-95"
+                    >
+                      <span>📥</span> Importar JSON
+                    </button>
+                    <button
+                      onClick={() => handleAbrirCriarPergunta()}
+                      className="px-5 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-2xl text-sm flex items-center gap-2 shadow-lg shadow-cyan-600/20 transition-all active:scale-95"
+                    >
+                      <span>➕</span> Elaborar Nova Pergunta
+                    </button>
+                  </div>
                 </div>
 
                 {/* LISTAGEM DE PERGUNTAS ELABORADAS */}
@@ -1388,12 +1478,20 @@ export default function PulsoDigital() {
                     <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
                       Crie perguntas de múltipla escolha personalizadas para o tema da sua aula. Você poderá lançá-las uma a uma durante a explicação!
                     </p>
-                    <button
-                      onClick={handleAbrirCriarPergunta}
-                      className="mt-4 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-cyan-300 font-bold rounded-xl text-xs border border-gray-600 transition-colors"
-                    >
-                      ➕ Criar Primeira Pergunta
-                    </button>
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        onClick={() => setModalImportarJsonAberto(true)}
+                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-emerald-300 font-bold rounded-xl text-xs border border-gray-600 transition-colors"
+                      >
+                        📥 Importar JSON
+                      </button>
+                      <button
+                        onClick={handleAbrirCriarPergunta}
+                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-cyan-300 font-bold rounded-xl text-xs border border-gray-600 transition-colors"
+                      >
+                        ➕ Criar Primeira Pergunta
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1404,8 +1502,15 @@ export default function PulsoDigital() {
                       >
                         <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                           <div className="flex items-center gap-2">
-                            <span className="w-7 h-7 rounded-xl bg-cyan-500/20 text-cyan-300 font-mono font-bold text-xs flex items-center justify-center border border-cyan-500/30">
+                            <span className="w-7 h-7 rounded-xl bg-cyan-500/20 text-cyan-300 font-mono font-bold text-xs flex items-center justify-center border border-cyan-500/30 shrink-0">
                               #{idx + 1}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-black uppercase border shrink-0 ${
+                              (q.tipoQuestao === 'simulado' || q.tipoQuiz === 'simulado')
+                                ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            }`}>
+                              {(q.tipoQuestao === 'simulado' || q.tipoQuiz === 'simulado') ? '📝 Simulado' : '🎯 Quiz'}
                             </span>
                             <h4 className="font-bold text-white text-base">
                               {q.enunciado || q.pergunta}
@@ -1414,7 +1519,9 @@ export default function PulsoDigital() {
 
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-gray-400 font-mono bg-gray-800 px-2.5 py-1 rounded-lg border border-gray-700">
-                              ⏱️ {q.tempoSegundos || 30}s
+                              {(q.tipoQuestao === 'simulado' || q.tipoQuiz === 'simulado' || Number(q.tempoSegundos) === 0)
+                                ? '⏱️ Livre (+1 pt)'
+                                : `⏱️ ${q.tempoSegundos || 30}s`}
                             </span>
                             <button
                               onClick={() => handleAbrirEditarPergunta(q, idx)}
@@ -1582,12 +1689,13 @@ export default function PulsoDigital() {
                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider block mb-3">
                     Dinâmica Ativa no Telão & Celulares:
                   </span>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
                     {[
                       { id: 'sentimento', emoji: '⚡', label: 'Termômetro', desc: 'Compreensão & Ritmo' },
                       { id: 'nuvem', emoji: '☁️', label: 'Nuvem', desc: 'Nuvem de Palavras' },
                       { id: 'duvidas', emoji: '💬', label: 'Dúvidas', desc: 'Mural Anônimo' },
-                      { id: 'quiz', emoji: '🎯', label: 'Quiz', desc: 'Perguntas da Aula' },
+                      { id: 'quiz', emoji: '🎯', label: 'Quiz', desc: 'Perguntas Rápidas' },
+                      { id: 'simulado', emoji: '📝', label: 'Simulado', desc: 'Simulado de Prova' },
                       { id: 'espera', emoji: '👀', label: 'Telão', desc: 'Modo Apresentação' }
                     ].map((m) => (
                       <button
@@ -1595,7 +1703,9 @@ export default function PulsoDigital() {
                         onClick={() => handleMudarModoAtivo(m.id)}
                         className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-1 ${
                           sessaoAtiva.modoAtivo === m.id
-                            ? 'bg-cyan-500/20 border-cyan-400 text-white font-bold shadow-lg shadow-cyan-500/10'
+                            ? m.id === 'simulado'
+                              ? 'bg-indigo-500/20 border-indigo-400 text-white font-bold shadow-lg shadow-indigo-500/10'
+                              : 'bg-cyan-500/20 border-cyan-400 text-white font-bold shadow-lg shadow-cyan-500/10'
                             : 'bg-gray-900/60 border-gray-700 text-gray-400 hover:border-gray-600'
                         }`}
                       >
@@ -2102,33 +2212,75 @@ export default function PulsoDigital() {
                 )}
 
                 {/* PAINEL DINÂMICO 3: QUIZ COM PERGUNTAS ELABORADAS DA AULA */}
-                {sessaoAtiva.modoAtivo === 'quiz' && (
+                {(sessaoAtiva.modoAtivo === 'quiz' || sessaoAtiva.modoAtivo === 'simulado') && (
                   <div className="bg-gray-800 border border-gray-700 rounded-3xl p-6 shadow-xl space-y-6">
                     <div className="flex flex-wrap justify-between items-center gap-2 border-b border-gray-700 pb-3">
                       <div>
                         <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                          <span>🎯</span> Quiz da Aula ({questoesDaAula.length} elaboradas)
+                          <span>{sessaoAtiva.modoAtivo === 'simulado' ? '📝' : '🎯'}</span>
+                          {sessaoAtiva.modoAtivo === 'simulado'
+                            ? `Simulado de Prova (${questoesDaAula.length} questões)`
+                            : `Quiz da Aula (${questoesDaAula.length} elaboradas)`}
                         </h3>
                         <p className="text-xs text-gray-400">
-                          Escolha qual das perguntas elaboradas lançar no telão
+                          {sessaoAtiva.modoAtivo === 'simulado'
+                            ? 'Enunciado e alternativas projetados em tela cheia; no celular do aluno aparecem apenas o nº da questão e as letras A, B, C, D (+1 pt por acerto)'
+                            : 'Escolha qual das perguntas elaboradas lançar no telão'}
                         </p>
                       </div>
 
-                      <button
-                        onClick={handleAbrirCriarPergunta}
-                        className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
-                      >
-                        ➕ Criar Nova Pergunta
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {questoesDaAula.length > 0 && (
+                          <button
+                            onClick={() => {
+                              if (sessaoAtiva.quizAtivo && (sessaoAtiva.quizAtivo.tipoQuiz === 'simulado' || sessaoAtiva.modoAtivo === 'simulado')) {
+                                setModalSimuladoTelaCheia(true);
+                              } else {
+                                const primeiraSimuladoIdx = questoesDaAula.findIndex(q => q.tipoQuestao === 'simulado' || q.tipoQuiz === 'simulado');
+                                const idxAlvo = primeiraSimuladoIdx >= 0 ? primeiraSimuladoIdx : 0;
+                                handleLancarPerguntaNoTelao(questoesDaAula[idxAlvo], idxAlvo, 'simulado');
+                              }
+                            }}
+                            className="px-3.5 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-500/20 flex items-center gap-1.5 transition-all active:scale-95"
+                          >
+                            <span>⛶</span> {sessaoAtiva.quizAtivo?.tipoQuiz === 'simulado' ? 'Abrir Modal Tela Cheia' : 'Iniciar Simulado (Tela Cheia)'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => baixarModeloJsonPulso(sessaoAtiva.modoAtivo === 'simulado' ? 'simulado' : 'quiz')}
+                          className="px-3.5 py-2 bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-indigo-500/40 rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1"
+                          title="Baixar arquivo modelo .json"
+                        >
+                          ⬇️ Modelo JSON
+                        </button>
+                        <button
+                          onClick={() => setModalImportarJsonAberto(true)}
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
+                        >
+                          📥 Importar JSON
+                        </button>
+                        <button
+                          onClick={() => handleAbrirCriarPergunta()}
+                          className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
+                        >
+                          ➕ Criar Nova Pergunta
+                        </button>
+                      </div>
                     </div>
 
                     {/* Questão Atualmente em Exibição no Telão */}
                     {sessaoAtiva.quizAtivo ? (
-                      <div className="bg-gray-900/90 border-2 border-amber-500/40 rounded-2xl p-5 shadow-2xl">
+                      <div className={`bg-gray-900/90 border-2 ${sessaoAtiva.quizAtivo.tipoQuiz === 'simulado' ? 'border-indigo-500/50' : 'border-amber-500/40'} rounded-2xl p-5 shadow-2xl`}>
                         <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-xs font-bold">
-                              QUESTÃO ATIVA NO TELÃO
+                            <span className={`px-2.5 py-0.5 rounded-full font-mono text-xs font-bold ${
+                              sessaoAtiva.quizAtivo.tipoQuiz === 'simulado'
+                                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                : 'bg-amber-500/20 text-amber-300'
+                            }`}>
+                              {sessaoAtiva.quizAtivo.tipoQuiz === 'simulado'
+                                ? `📝 SIMULADO • QUESTÃO #${sessaoAtiva.quizAtivo.numeroQuestao || 1} DE ${sessaoAtiva.quizAtivo.totalQuestoes || questoesDaAula.length}`
+                                : `QUESTÃO #${sessaoAtiva.quizAtivo.numeroQuestao || 1} ATIVA NO TELÃO`}
                             </span>
                             <span className="text-xs font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/30 px-2.5 py-0.5 rounded-full font-mono">
                               👥 {respostasQuizAtivo.length} de {participantes.length} responderam
@@ -2156,13 +2308,22 @@ export default function PulsoDigital() {
                               </div>
                             )}
                           </div>
-                          <button
-                            onClick={handleEncerrarQuizAtivo}
-                            className="text-xs text-gray-400 hover:text-rose-400 flex items-center gap-1 p-1 rounded-lg hover:bg-white/5 transition-colors"
-                            title="Tirar pergunta do telão"
-                          >
-                            ✕ Tirar do Telão
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setModalSimuladoTelaCheia(true)}
+                              className="px-3 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                              title="Abrir modal do mediador em tela cheia"
+                            >
+                              ⛶ Tela Cheia
+                            </button>
+                            <button
+                              onClick={handleEncerrarQuizAtivo}
+                              className="text-xs text-gray-400 hover:text-rose-400 flex items-center gap-1 p-1 rounded-lg hover:bg-white/5 transition-colors"
+                              title="Tirar pergunta do telão"
+                            >
+                              ✕ Tirar do Telão
+                            </button>
+                          </div>
                         </div>
 
                         <h4 className="text-lg font-black text-white mb-4">
@@ -2272,13 +2433,35 @@ export default function PulsoDigital() {
                       </div>
                     ) : (
                       <div className="bg-gray-900/60 border border-gray-700/60 rounded-2xl p-6 text-center">
-                        <span className="text-3xl block mb-2 opacity-60">🎯</span>
-                        <h4 className="text-sm font-bold text-gray-200">
-                          Nenhuma pergunta ativa no telão no momento
-                        </h4>
-                        <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
-                          As perguntas preparadas para esta aula estão listadas abaixo. Ao chegar no momento do quiz, clique em <strong className="text-amber-400">"🚀 Lançar no Telão"</strong> na questão desejada.
-                        </p>
+                        {sessaoAtiva.simuladoConcluido ? (
+                          <div className="space-y-3">
+                            <span className="text-4xl block">🏆</span>
+                            <h4 className="text-base font-black text-emerald-300">
+                              Simulado Concluído! Nota e Gabarito Liberados nos Celulares
+                            </h4>
+                            <p className="text-xs text-gray-300 max-w-md mx-auto">
+                              Os alunos já estão visualizando a nota final no celular e podem clicar em <strong className="text-cyan-300">"📥 Baixar Gabarito Comentado (PDF)"</strong> com todas as questões, alternativas e justificativas.
+                            </p>
+                            <div className="pt-2 flex flex-wrap justify-center gap-2">
+                              <button
+                                onClick={() => gerarPdfGabaritoSimulado({ sessao: sessaoAtiva })}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow flex items-center gap-1.5"
+                              >
+                                <span>📥</span> Baixar Gabarito Oficial (PDF)
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-3xl block mb-2 opacity-60">🎯</span>
+                            <h4 className="text-sm font-bold text-gray-200">
+                              Nenhuma pergunta ativa no telão no momento
+                            </h4>
+                            <p className="text-xs text-gray-400 mt-1 max-w-md mx-auto">
+                              As perguntas preparadas para esta aula estão listadas abaixo. Ao chegar no momento do quiz ou simulado, clique no botão de lançamento na questão desejada.
+                            </p>
+                          </>
+                        )}
                       </div>
                     )}
 
@@ -2294,42 +2477,56 @@ export default function PulsoDigital() {
                         </div>
                       ) : (
                         <div className="space-y-2.5">
-                          {questoesDaAula.map((q, idx) => (
-                            <div
-                              key={q.id || idx}
-                              className="p-3.5 rounded-2xl bg-gray-900 border border-gray-700 flex items-center justify-between gap-3 text-xs"
-                            >
-                              <div className="flex items-center gap-2.5 flex-1">
-                                <span className="font-mono font-bold text-cyan-300">#{idx + 1}</span>
-                                <span className="font-semibold text-white line-clamp-1">
-                                  {q.enunciado || q.pergunta}
-                                </span>
-                              </div>
+                          {questoesDaAula.map((q, idx) => {
+                            const ehQuestaoSimulado = q.tipoQuestao === 'simulado' || q.tipoQuiz === 'simulado';
+                            return (
+                              <div
+                                key={q.id || idx}
+                                className="p-3.5 rounded-2xl bg-gray-900 border border-gray-700 flex items-center justify-between gap-3 text-xs"
+                              >
+                                <div className="flex items-center gap-2.5 flex-1">
+                                  <span className="font-mono font-bold text-cyan-300">#{idx + 1}</span>
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-black uppercase border shrink-0 ${
+                                    ehQuestaoSimulado
+                                      ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                      : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  }`}>
+                                    {ehQuestaoSimulado ? '📝 Simulado' : '🎯 Quiz'}
+                                  </span>
+                                  <span className="font-semibold text-white line-clamp-1">
+                                    {q.enunciado || q.pergunta}
+                                  </span>
+                                </div>
 
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleAbrirEditarPergunta(q, idx)}
-                                  className="p-2 bg-gray-800 hover:bg-gray-700 text-cyan-300 hover:text-white rounded-xl text-xs font-bold transition-colors"
-                                  title="Editar pergunta"
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  onClick={() => handleExcluirPergunta(q.id, idx)}
-                                  className="p-2 bg-gray-800 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-bold transition-colors"
-                                  title="Excluir pergunta"
-                                >
-                                  🗑️
-                                </button>
-                                <button
-                                  onClick={() => handleLancarPerguntaNoTelao(q)}
-                                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-gray-950 font-black rounded-xl text-xs shadow-md shadow-amber-500/20 transition-transform active:scale-95 whitespace-nowrap"
-                                >
-                                  🚀 Lançar no Telão
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleAbrirEditarPergunta(q, idx)}
+                                    className="p-2 bg-gray-800 hover:bg-gray-700 text-cyan-300 hover:text-white rounded-xl text-xs font-bold transition-colors"
+                                    title="Editar pergunta"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={() => handleExcluirPergunta(q.id, idx)}
+                                    className="p-2 bg-gray-800 hover:bg-rose-500/20 text-rose-400 rounded-xl text-xs font-bold transition-colors"
+                                    title="Excluir pergunta"
+                                  >
+                                    🗑️
+                                  </button>
+                                  <button
+                                    onClick={() => handleLancarPerguntaNoTelao(q, idx, ehQuestaoSimulado ? 'simulado' : 'quiz')}
+                                    className={`px-4 py-2 font-black rounded-xl text-xs shadow-md transition-transform active:scale-95 whitespace-nowrap ${
+                                      ehQuestaoSimulado
+                                        ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white shadow-indigo-500/20'
+                                        : 'bg-amber-500 hover:bg-amber-400 text-gray-950 shadow-amber-500/20'
+                                    }`}
+                                  >
+                                    {ehQuestaoSimulado ? '📝 Lançar Simulado (Tela Cheia)' : '🚀 Lançar Quiz no Telão'}
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -2647,12 +2844,20 @@ export default function PulsoDigital() {
                       Você pode revisar, editar ou excluir perguntas para a próxima aplicação desta aula
                     </p>
                   </div>
-                  <button
-                    onClick={handleAbrirCriarPergunta}
-                    className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
-                  >
-                    ➕ Nova Pergunta do Quiz
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setModalImportarJsonAberto(true)}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
+                    >
+                      📥 Importar JSON
+                    </button>
+                    <button
+                      onClick={handleAbrirCriarPergunta}
+                      className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow transition-colors"
+                    >
+                      ➕ Nova Pergunta do Quiz
+                    </button>
+                  </div>
                 </div>
 
                 {questoesDaAula.length === 0 ? (
@@ -2771,16 +2976,24 @@ export default function PulsoDigital() {
         </div>
       )}
 
+      {/* MODAL: IMPORTAR PERGUNTAS DO QUIZ VIA JSON */}
+      <ImportarQuizJsonModal
+        aberto={modalImportarJsonAberto}
+        onFechar={() => setModalImportarJsonAberto(false)}
+        onImportar={handleImportarQuestoesJson}
+        quantidadeAtual={questoesDaAula.length}
+      />
+
       {/* MODAL: CRIAR OU EDITAR PERGUNTA DO QUIZ (UNIVERSAL) */}
       {modalQuestaoAberto && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-gray-900 border border-gray-700 rounded-3xl max-w-2xl w-full p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-gray-800 pb-3 mb-4">
               <div>
                 <h3 className="text-lg font-bold text-white">
-                  {questaoEmEdicao ? '✏️ Editar Pergunta do Quiz' : '➕ Elaborar Pergunta do Quiz'}
+                  {questaoEmEdicao ? '✏️ Editar Pergunta (Quiz / Simulado)' : '➕ Elaborar Pergunta (Quiz / Simulado)'}
                 </h3>
-                <p className="text-xs text-gray-400">Pergunta exclusiva para esta aula</p>
+                <p className="text-xs text-gray-400">Suporta perguntas curtas de Quiz ou questões longas estilo Simulado de Prova</p>
               </div>
               <button
                 onClick={() => setModalQuestaoAberto(false)}
@@ -2791,38 +3004,95 @@ export default function PulsoDigital() {
             </div>
 
             <form onSubmit={handleSalvarPergunta} className="space-y-4">
+              {/* Seletor de Tipo da Questão: Quiz Rápido vs Simulado de Prova */}
+              <div>
+                <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
+                  Tipo da Questão
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormPerguntaTipo('quiz');
+                      if (formPerguntaTempo === 0) setFormPerguntaTempo(30);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all flex items-start gap-3 ${
+                      formPerguntaTipo === 'quiz'
+                        ? 'bg-amber-500/15 border-amber-400 text-white ring-1 ring-amber-400'
+                        : 'bg-gray-800/70 border-gray-700 text-gray-400 hover:border-gray-600'
+                    }`}
+                  >
+                    <span className="text-2xl">🎯</span>
+                    <div>
+                      <span className="text-xs font-black block text-white">Quiz Rápido (Gamificado)</span>
+                      <span className="text-[11px] text-gray-400 leading-tight block mt-0.5">
+                        Com cronômetro regressivo, formas no celular e pontuação por velocidade (500 a 1000 pts).
+                      </span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormPerguntaTipo('simulado');
+                      setFormPerguntaTempo(0);
+                    }}
+                    className={`p-3 rounded-2xl border text-left transition-all flex items-start gap-3 ${
+                      formPerguntaTipo === 'simulado'
+                        ? 'bg-indigo-500/20 border-indigo-400 text-white ring-1 ring-indigo-400'
+                        : 'bg-gray-800/70 border-gray-700 text-gray-400 hover:border-gray-600'
+                    }`}
+                  >
+                    <span className="text-2xl">📝</span>
+                    <div>
+                      <span className="text-xs font-black block text-white">Simulado de Prova (Tela Cheia)</span>
+                      <span className="text-[11px] text-gray-400 leading-tight block mt-0.5">
+                        Textos longos em tela cheia; no celular só nº e letras A, B, C, D (+1 pt). Mediador avança após explicação.
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
                   Enunciado da Pergunta
                 </label>
                 <textarea
-                  rows={2}
+                  rows={formPerguntaTipo === 'simulado' ? 5 : 3}
                   required
                   value={formPerguntaEnunciado}
                   onChange={(e) => setFormPerguntaEnunciado(e.target.value)}
-                  placeholder="Ex: Qual o objetivo principal da Matriz Tática de Sistemas de Informação?"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-cyan-400 resize-none"
+                  placeholder={
+                    formPerguntaTipo === 'simulado'
+                      ? 'Digite o caso ou enunciado completo da questão de simulado...'
+                      : 'Ex: Qual o objetivo principal da Matriz Tática de Sistemas de Informação?'
+                  }
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-cyan-400 resize-y leading-relaxed"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
-                  Tempo para Resposta
-                </label>
-                <select
-                  value={formPerguntaTempo}
-                  onChange={(e) => setFormPerguntaTempo(Number(e.target.value))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-400"
-                >
-                  <option value={15}>15 segundos (Dinâmica rápida)</option>
-                  <option value={20}>20 segundos</option>
-                  <option value={30}>30 segundos (Recomendado)</option>
-                  <option value={45}>45 segundos</option>
-                  <option value={60}>60 segundos (Caso ou raciocínio denso)</option>
-                </select>
-              </div>
+              {formPerguntaTipo === 'quiz' && (
+                <div>
+                  <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
+                    Tempo para Resposta
+                  </label>
+                  <select
+                    value={formPerguntaTempo || 30}
+                    onChange={(e) => setFormPerguntaTempo(Number(e.target.value))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-cyan-400"
+                  >
+                    <option value={15}>15 segundos (Dinâmica rápida)</option>
+                    <option value={20}>20 segundos</option>
+                    <option value={30}>30 segundos (Recomendado para Quiz)</option>
+                    <option value={45}>45 segundos</option>
+                    <option value={60}>60 segundos (Caso ou raciocínio denso)</option>
+                    <option value={90}>90 segundos</option>
+                  </select>
+                </div>
+              )}
 
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <div className="flex justify-between items-center">
                   <label className="block text-xs uppercase font-bold text-gray-400">
                     Alternativas (Marque o gabarito correto)
@@ -2837,11 +3107,11 @@ export default function PulsoDigital() {
                     'text-amber-400 border-amber-500/40',
                     'text-emerald-400 border-emerald-500/40'
                   ];
-                  const icones = ['▲', '◆', '●', '■'];
+                  const letras = ['A', 'B', 'C', 'D'];
 
                   return (
-                    <div key={i} className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5">
+                    <div key={i} className="flex items-start gap-2.5">
+                      <div className="flex items-center gap-1.5 pt-2">
                         <input
                           type="radio"
                           name="gabaritoCorreto"
@@ -2850,13 +3120,13 @@ export default function PulsoDigital() {
                           onChange={() => setFormPerguntaCorretaIndex(i)}
                           className="w-4 h-4 text-cyan-500 cursor-pointer"
                         />
-                        <label htmlFor={`radio_gab_${i}`} className={`font-bold text-sm w-4 cursor-pointer ${cores[i]}`}>
-                          {icones[i]}
+                        <label htmlFor={`radio_gab_${i}`} className={`font-black font-mono text-sm w-5 cursor-pointer ${cores[i]}`}>
+                          {letras[i]})
                         </label>
                       </div>
 
-                      <input
-                        type="text"
+                      <textarea
+                        rows={2}
                         required={i < 2}
                         value={op}
                         onChange={(e) => {
@@ -2864,8 +3134,8 @@ export default function PulsoDigital() {
                           copy[i] = e.target.value;
                           setFormPerguntaOpcoes(copy);
                         }}
-                        placeholder={`Alternativa ${i + 1} ${i < 2 ? '(Obrigatória)' : '(Opcional)'}`}
-                        className={`flex-1 bg-gray-800 border rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 ${
+                        placeholder={`Alternativa ${letras[i]} ${i < 2 ? '(Obrigatória)' : '(Opcional)'}`}
+                        className={`flex-1 bg-gray-800 border rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 resize-y leading-relaxed ${
                           formPerguntaCorretaIndex === i ? 'border-cyan-400 ring-1 ring-cyan-400' : 'border-gray-700'
                         }`}
                       />
@@ -2876,14 +3146,14 @@ export default function PulsoDigital() {
 
               <div>
                 <label className="block text-xs uppercase font-bold text-gray-400 mb-1.5">
-                  Explicação do Gabarito / Fundamentação (Opcional)
+                  Explicação do Gabarito / Fundamentação do Mediador (Opcional)
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={formPerguntaExplicacao}
                   onChange={(e) => setFormPerguntaExplicacao(e.target.value)}
-                  placeholder="Exibida no telão após a revelação para enriquecer a discussão."
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 resize-none"
+                  placeholder="Exibida no telão após a revelação para o mediador comentar antes de avançar para a próxima questão."
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-cyan-400 resize-y"
                 />
               </div>
 
@@ -2903,6 +3173,224 @@ export default function PulsoDigital() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL TELA CHEIA DO MEDIADOR: SIMULADO DE PROVA */}
+      {modalSimuladoTelaCheia && sessaoAtiva?.quizAtivo && (
+        <div className="fixed inset-0 z-50 bg-gray-950 text-white flex flex-col overflow-hidden">
+          {/* Barra Superior da Modal Tela Cheia */}
+          <div className="bg-gray-900/95 border-b border-gray-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-2xl shadow-lg shadow-indigo-500/20 font-black">
+                📝
+              </div>
+              <div>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="px-3 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-mono text-xs font-black uppercase tracking-wider">
+                    Simulado de Prova • Questão {sessaoAtiva.quizAtivo.numeroQuestao || 1} de {questoesDaAula.length || 1}
+                  </span>
+                  <span className="text-xs font-mono text-cyan-300 bg-gray-800 px-3 py-0.5 rounded-full border border-gray-700 font-bold">
+                    PIN: {sessaoAtiva.pin}
+                  </span>
+                  <span className="text-xs font-mono text-emerald-300 bg-emerald-500/10 px-3 py-0.5 rounded-full border border-emerald-500/30 font-bold">
+                    👥 {respostasQuizAtivo.length} / {participantes.length} responderam
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  {sessaoAtiva.titulo} • {sessaoAtiva.turmaNome} ({sessaoAtiva.disciplinaNome})
+                </p>
+              </div>
+            </div>
+
+            {/* Seletor rápido de questões e botão fechar tela cheia */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="hidden md:flex items-center gap-1 bg-gray-950 p-1.5 rounded-2xl border border-gray-800">
+                {questoesDaAula.map((qItem, qIdx) => {
+                  const ehAtual = (sessaoAtiva.quizAtivo.numeroQuestao || 1) === qIdx + 1;
+                  return (
+                    <button
+                      key={qItem.id || qIdx}
+                      onClick={() => handleNavegarQuestaoSimulado(qIdx)}
+                      className={`w-8 h-8 rounded-xl font-mono text-xs font-black transition-all ${
+                        ehAtual
+                          ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30 scale-105'
+                          : 'bg-gray-900 text-gray-400 hover:bg-gray-800 hover:text-white'
+                      }`}
+                      title={`Ir para Questão ${qIdx + 1}`}
+                    >
+                      {qIdx + 1}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setModalSimuladoTelaCheia(false)}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl text-xs font-bold border border-gray-700 transition-colors flex items-center gap-1.5"
+                title="Minimizar tela cheia (a questão continua ativa para os alunos)"
+              >
+                <span>🗗</span> Sair da Tela Cheia
+              </button>
+            </div>
+          </div>
+
+          {/* Corpo Principal da Questão (Leitura Confortável para Textos Longos) */}
+          <div className="flex-1 overflow-y-auto px-6 py-8 sm:px-12 lg:px-20">
+            <div className="max-w-6xl mx-auto space-y-8">
+              {/* Card do Enunciado */}
+              <div className="bg-gradient-to-b from-gray-900 to-gray-900/80 border-2 border-indigo-500/40 rounded-3xl p-6 sm:p-10 shadow-2xl">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <span className="text-xs sm:text-sm font-mono font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
+                    <span className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-300">
+                      #{sessaoAtiva.quizAtivo.numeroQuestao || 1}
+                    </span>
+                    QUESTÃO {sessaoAtiva.quizAtivo.numeroQuestao || 1}
+                  </span>
+                  <span className="text-xs text-gray-400 font-medium">
+                    📱 No celular: marque apenas a letra correspondente (<strong>A, B, C ou D</strong>) • Valor: <strong className="text-amber-300">+1 ponto</strong>
+                  </span>
+                </div>
+
+                <p className="text-lg sm:text-2xl lg:text-[26px] font-bold text-white leading-relaxed whitespace-pre-line">
+                  {sessaoAtiva.quizAtivo.pergunta}
+                </p>
+              </div>
+
+              {/* Lista das Alternativas (a, b, c, d) com texto amplo */}
+              <div className="space-y-4">
+                {(sessaoAtiva.quizAtivo.opcoes || []).map((op, idx) => {
+                  const letras = ['a', 'b', 'c', 'd', 'e'];
+                  const letrasUpper = ['A', 'B', 'C', 'D', 'E'];
+                  const ehCorreta = idx === sessaoAtiva.quizAtivo.respostaCorretaIndex;
+                  const revelada = sessaoAtiva.quizAtivo.revelada;
+                  const votos = statsRespostasQuiz[idx] || 0;
+                  const totalRespostasQuestao = respostasQuizAtivo.length;
+                  const percentual = totalRespostasQuestao > 0 ? Math.round((votos / totalRespostasQuestao) * 100) : 0;
+                  const textoOp = typeof op === 'string' ? op : op.texto || '';
+
+                  return (
+                    <div
+                      key={idx}
+                      className={`p-5 sm:p-6 rounded-3xl border-2 transition-all flex items-start justify-between gap-4 ${
+                        revelada
+                          ? ehCorreta
+                            ? 'bg-emerald-950/60 border-emerald-400 ring-4 ring-emerald-500/20 shadow-xl'
+                            : 'bg-gray-900/40 border-gray-800 opacity-55'
+                          : 'bg-gray-900/90 border-gray-700/90 hover:border-indigo-500/50'
+                      }`}
+                    >
+                      <div className="flex items-start gap-4 flex-1">
+                        <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl font-mono font-black text-lg sm:text-xl flex items-center justify-center shrink-0 border-2 ${
+                          revelada && ehCorreta
+                            ? 'bg-emerald-400 text-gray-950 border-emerald-200'
+                            : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                        }`}>
+                          {letras[idx]})
+                        </div>
+
+                        <div className="flex-1 pt-1">
+                          <p className={`text-base sm:text-xl leading-relaxed ${
+                            revelada && ehCorreta ? 'text-emerald-100 font-bold' : 'text-gray-100 font-medium'
+                          }`}>
+                            {textoOp}
+                          </p>
+
+                          {revelada && ehCorreta && (
+                            <span className="inline-flex items-center gap-1.5 mt-3 px-3 py-1 rounded-full bg-emerald-400 text-gray-950 font-black text-xs uppercase tracking-wider">
+                              ✓ Alternativa Correta ({letrasUpper[idx]}) • +1 Ponto
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Estatística de votos da alternativa quando revelada */}
+                      {revelada ? (
+                        <div className="flex flex-col items-end justify-center px-4 py-2 rounded-2xl bg-black/50 border border-white/10 shrink-0 min-w-[100px]">
+                          <span className="font-mono text-xl font-black text-white">
+                            {percentual}%
+                          </span>
+                          <span className="font-mono text-xs text-gray-400">
+                            {votos} {votos === 1 ? 'aluno' : 'alunos'}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="px-3 py-1.5 rounded-xl bg-gray-800/70 border border-gray-700 text-xs font-mono text-gray-400 shrink-0 self-center">
+                          Opção {letrasUpper[idx]}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Explicação / Fundamentação do Mediador após revelar gabarito */}
+              {sessaoAtiva.quizAtivo.revelada && (
+                <div className="bg-gradient-to-r from-emerald-950/70 via-teal-950/60 to-gray-900 border-2 border-emerald-500/50 rounded-3xl p-6 sm:p-8 shadow-2xl animate-fadeIn">
+                  <div className="flex items-center gap-2 text-emerald-300 font-black text-sm uppercase tracking-wider mb-2">
+                    <span>💡</span>
+                    <span>Explicação & Fundamentação do Mediador</span>
+                  </div>
+                  <p className="text-base sm:text-xl text-emerald-100 leading-relaxed">
+                    {sessaoAtiva.quizAtivo.explicacao || 'Gabarito revelado! Discuta os fundamentos da questão com a turma antes de avançar para a próxima.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Barra Inferior Fixa: Controles do Mediador (Revelar Gabarito e Avançar para Próxima) */}
+          <div className="bg-gray-900/95 border-t border-gray-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => handleNavegarQuestaoSimulado((sessaoAtiva.quizAtivo.numeroQuestao || 1) - 2)}
+                disabled={(sessaoAtiva.quizAtivo.numeroQuestao || 1) <= 1}
+                className="px-4 py-3 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-200 font-bold rounded-2xl text-xs sm:text-sm border border-gray-700 transition-all"
+              >
+                ← Questão Anterior
+              </button>
+
+              <span className="text-xs sm:text-sm text-gray-400 font-mono">
+                Respondidos: <strong className="text-cyan-300">{respostasQuizAtivo.length}</strong> de <strong className="text-white">{participantes.length}</strong> alunos
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              {!sessaoAtiva.quizAtivo.revelada ? (
+                <button
+                  onClick={handleRevelarGabarito}
+                  className="px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-gray-950 font-black rounded-2xl text-sm sm:text-base shadow-xl shadow-emerald-500/20 transition-transform active:scale-95 flex items-center gap-2"
+                >
+                  <span>🎯</span> Revelar Gabarito & Explicação (+1 pt)
+                </button>
+              ) : (
+                <span className="px-4 py-2.5 bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 rounded-2xl text-xs sm:text-sm font-bold">
+                  ✓ Gabarito Revelado e Pontos Creditados
+                </span>
+              )}
+
+              {(sessaoAtiva.quizAtivo.numeroQuestao || 1) < questoesDaAula.length ? (
+                <button
+                  onClick={() => handleNavegarQuestaoSimulado(sessaoAtiva.quizAtivo.numeroQuestao || 1)}
+                  className={`px-6 py-3.5 font-black rounded-2xl text-sm sm:text-base shadow-xl transition-transform active:scale-95 flex items-center gap-2 ${
+                    sessaoAtiva.quizAtivo.revelada
+                      ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white shadow-indigo-500/30 ring-2 ring-indigo-400'
+                      : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700'
+                  }`}
+                >
+                  <span>Próxima Questão (#{(sessaoAtiva.quizAtivo.numeroQuestao || 1) + 1})</span>
+                  <span>→</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleConcluirSimulado}
+                  className="px-6 py-3.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-gray-950 font-black rounded-2xl text-sm sm:text-base shadow-xl shadow-amber-500/20 transition-transform active:scale-95 flex items-center gap-2"
+                >
+                  <span>🏁</span> Concluir Simulado & Liberar Gabarito
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
